@@ -1,14 +1,19 @@
 import { createBrowserRouter, Navigate } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
-import { BuildingIcon, KanbanIcon, SearchIcon, SettingsIcon, UsersIcon } from 'lucide-react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { BuildingIcon, SearchIcon, SettingsIcon } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { queryClient } from '@/lib/api/client'
 import { AuthProvider } from '@/lib/auth/AuthProvider'
 import { useAuth } from '@/lib/auth/context'
 import { ComponentLibraryPage } from '@/pages/ComponentLibraryPage'
+import { ContactsPage } from '@/pages/ContactsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
+import { LoanPage } from '@/pages/LoanPage'
 import { LoginPage } from '@/pages/LoginPage'
+import { PipelinePage } from '@/pages/PipelinePage'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
 
 /** Shows the sign-in page until there's a session, then the app shell. */
@@ -26,28 +31,9 @@ const router = createBrowserRouter([
     element: <AuthGate />,
     children: [
       { index: true, element: <DashboardPage /> },
-      {
-        path: 'pipeline',
-        element: (
-          <PlaceholderPage
-            title="Pipeline"
-            phase="Phase 1"
-            icon={KanbanIcon}
-            description="Board and list views of every lead and client by stage, with search and filters."
-          />
-        ),
-      },
-      {
-        path: 'contacts',
-        element: (
-          <PlaceholderPage
-            title="Contacts"
-            phase="Phase 1"
-            icon={UsersIcon}
-            description="One record per person, from first contact through closing and beyond."
-          />
-        ),
-      },
+      { path: 'pipeline', element: <PipelinePage /> },
+      { path: 'contacts', element: <ContactsPage /> },
+      { path: 'loans/:loanId', element: <LoanPage /> },
       {
         path: 'product-search',
         element: (
@@ -89,11 +75,13 @@ const router = createBrowserRouter([
 
 export default function App() {
   return (
-    <AuthProvider>
-      <TooltipProvider delayDuration={300}>
-        <RouterProvider router={router} />
-        <Toaster position="bottom-right" />
-      </TooltipProvider>
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <TooltipProvider delayDuration={300}>
+          <RouterProvider router={router} />
+          <Toaster position="bottom-right" />
+        </TooltipProvider>
+      </AuthProvider>
+    </QueryClientProvider>
   )
 }

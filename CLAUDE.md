@@ -14,7 +14,7 @@ Arive remains the production LOS (disclosures, submission, underwriting). LOSuit
 - Supabase (Postgres, Auth, Storage, Edge Functions)
 - PDF generation: @react-pdf/renderer (or equivalent; propose before choosing)
 - Deploy target: Vercel (later)
-- Approved additions: Vitest (unit tests), React Router (page navigation)
+- Approved additions: Vitest (unit tests), React Router (page navigation), TanStack Query (data loading/saving), @dnd-kit (pipeline drag and drop)
 
 ## Hard rules
 

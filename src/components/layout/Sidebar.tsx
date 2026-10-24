@@ -1,7 +1,6 @@
 import type * as React from 'react'
 import { NavLink } from 'react-router'
 import { ChevronsLeftIcon, ChevronsRightIcon, LogOutIcon, PlusIcon } from 'lucide-react'
-import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -14,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useNewLead } from '@/components/leads/new-lead-context'
 import { roleLabels, useAuth, type CurrentUser } from '@/lib/auth/context'
 import { BrandMark } from './BrandMark'
 import { navSections } from './nav'
@@ -44,6 +44,7 @@ export interface SidebarProps {
 
 export function Sidebar({ user, collapsed, onToggleCollapsed, onNavigate }: SidebarProps) {
   const { signOut } = useAuth()
+  const { openNewLead } = useNewLead()
 
   return (
     <aside className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
@@ -60,7 +61,10 @@ export function Sidebar({ user, collapsed, onToggleCollapsed, onNavigate }: Side
         <MaybeTooltip label="New Lead" show={collapsed}>
           <Button
             className={cn('w-full', collapsed && 'px-0')}
-            onClick={() => toast('Lead capture is coming in Phase 1.')}
+            onClick={() => {
+              onNavigate?.()
+              openNewLead()
+            }}
             aria-label="New Lead"
           >
             <PlusIcon />

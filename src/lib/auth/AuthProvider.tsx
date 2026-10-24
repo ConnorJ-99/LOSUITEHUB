@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type * as React from 'react'
 import type { User } from '@supabase/supabase-js'
+import { queryClient } from '@/lib/api/client'
 import { supabase } from '@/lib/supabase'
 import { AuthContext, type AuthState, type CurrentUser, type OrgRole } from './context'
 
@@ -82,6 +83,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     await supabase?.auth.signOut()
+    // Drop cached loans and contacts so the next person to sign in can't see them.
+    queryClient.clear()
   }
 
   return <AuthContext.Provider value={{ state, signIn, signOut }}>{children}</AuthContext.Provider>
