@@ -18,6 +18,7 @@ import { purposeLabel } from '@/lib/pipeline/stages'
 import { noteKindLabel, OCCUPANCY_OPTIONS, TERM_OPTIONS } from './options'
 import { TasksCard } from './TasksCard'
 import { TexasFlags } from './TexasFlags'
+import { ActionQueueCard } from '@/components/queue/ActionQueueCard'
 import { loanScenarioInput } from '@/lib/urla/summary'
 
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
@@ -161,6 +162,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
     <>
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
+          <ActionQueueCard loan={loan} />
           <TexasFlags flags={texasFlags} />
 
           <Card title="Loan details" description={purposeLabel(purpose)}>

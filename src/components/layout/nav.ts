@@ -2,7 +2,7 @@ import {
   BuildingIcon,
   ComponentIcon,
   KanbanIcon,
-  LayoutDashboardIcon,
+  InboxIcon,
   SearchIcon,
   SettingsIcon,
   UsersIcon,
@@ -23,7 +23,7 @@ export interface NavSection {
 export const navSections: NavSection[] = [
   {
     items: [
-      { to: '/', label: 'Dashboard', icon: LayoutDashboardIcon },
+      { to: '/', label: 'Today', icon: InboxIcon },
       { to: '/pipeline', label: 'Pipeline', icon: KanbanIcon },
       { to: '/contacts', label: 'Contacts', icon: UsersIcon },
       { to: '/product-search', label: 'Product Search', icon: SearchIcon },

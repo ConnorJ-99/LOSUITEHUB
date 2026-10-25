@@ -1,6 +1,7 @@
 // Screens build forms and layouts from these shared components only, so the
 // whole app looks and behaves the same. The raw shadcn primitives live in
 // '@/components/ui' and are wrapped here.
+export { AssistantLabel, QueueItem, ReviewField, SourceQuote, type ConfidenceLevel, type QueueItemProps, type ReviewFieldProps, type SourceRef } from './Assistant'
 export { Card, type CardProps } from './Card'
 export { DataTable, type Column, type DataTableProps } from './DataTable'
 export { DateInput, type DateInputProps } from './DateInput'

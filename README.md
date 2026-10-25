@@ -42,6 +42,7 @@ If the Phase 1 migration (`20261025000000_contacts_pipeline.sql`) fails partway,
 | `src/pages/SettingsPage.tsx` | Your profile and company details (used by 1003 section 9) |
 | `src/lib/calc/income/`, `src/lib/income/`, `src/components/income/` | The Income tab: wage, variable, self-employed, bank statement and rental worksheets, and push-to-1003 rules, with tests |
 | `src/lib/prequal/`, `src/lib/calc/prequal.ts`, `src/lib/calc/mortgageInsurance.ts`, `src/components/prequal/` | The phone prequal: draft and save rules, max price, quick checks and mortgage insurance, with tests |
+| `src/lib/queue/`, `src/lib/api/queue.ts`, `src/components/queue/`, `src/pages/TodayPage.tsx` | Action Queue (assistant drafts and suggestions waiting for approval) and the Today list, with tests |
 | `src/lib/mismo/` | MISMO 3.4 (ULAD) export and import: XML writer/reader, field mapping, checklist, import matching rules, with round-trip tests |
 | `src/components/shared/` | Shared form and layout components every screen uses |
 | `src/components/ui/` | Raw shadcn/ui primitives (wrapped by `shared/`) |

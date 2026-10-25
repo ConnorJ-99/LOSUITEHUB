@@ -10,7 +10,7 @@ import { AuthProvider } from '@/lib/auth/AuthProvider'
 import { useAuth } from '@/lib/auth/context'
 import { ComponentLibraryPage } from '@/pages/ComponentLibraryPage'
 import { ContactsPage } from '@/pages/ContactsPage'
-import { DashboardPage } from '@/pages/DashboardPage'
+import { TodayPage } from '@/pages/TodayPage'
 import { LoanPage } from '@/pages/LoanPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { PipelinePage } from '@/pages/PipelinePage'
@@ -31,7 +31,7 @@ const router = createBrowserRouter([
   {
     element: <AuthGate />,
     children: [
-      { index: true, element: <DashboardPage /> },
+      { index: true, element: <TodayPage /> },
       { path: 'pipeline', element: <PipelinePage /> },
       { path: 'contacts', element: <ContactsPage /> },
       { path: 'loans/:loanId', element: <LoanPage /> },

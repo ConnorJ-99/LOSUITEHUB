@@ -25,6 +25,8 @@ export const keys = {
   myProfile: ['myProfile'] as const,
   matches: (email: string, phone: string) => ['matches', email, phone] as const,
   worksheets: (loanId: string) => ['worksheets', loanId] as const,
+  queue: (loanId: string) => ['queue', loanId] as const,
+  today: ['today'] as const,
 }
 
 /** The Supabase client, or a clear error in preview mode (no .env.local). */
