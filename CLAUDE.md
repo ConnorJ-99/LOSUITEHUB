@@ -99,6 +99,10 @@ The borrower profile adapts to the loan purpose. Shared core, with purpose-speci
 5. **Loan Info + Product Search + lender admin.**
 6. **PDF generators:** pre-approval letter first.
 
+## Direction (2026-10-25)
+
+Connor wrote a v3 guide built around an AI assistant whose work lands in an Action Queue for his approval, plus a Today view. It is saved as `docs/project-guide-v3-draft.md` and kept alongside this guide for now. Agreed so far: the next phase is the assistant core (Claude called only from a Supabase Edge Function, schema-validated outputs, an `ai_runs` log, the Action Queue and the Today view, proven with "draft a follow-up text"), and the Prequal tab stays as its own tab. Follow the draft's AI rules (AI never sends or saves on its own, sources and confidence on every extraction, every run logged) for any AI work.
+
 ## Must build (requested, not yet scheduled)
 
 - **Phone prequal tool**: built 2026-10-25 as the Prequal tab, with the old app's upgrades (buying power at 43/45/50%, payoff toggle, use-all-for-down, keep/rent/sell for owned homes, savings use-as, depletion income and reserves). See `docs/old-app-comparison.md` for the rest of the old app.
