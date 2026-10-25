@@ -1,7 +1,29 @@
-import type { LoanProfile, Property } from '@/lib/api/types'
+import type { LoanDetails, LoanProfile, Property } from '@/lib/api/types'
 import type { Application } from '@/lib/api/urla'
-import { borrowerMonthlyIncome, computeScenario, proposedHousingPayment, qualifying, type QualifyingResult, type ScenarioResult } from '@/lib/calc'
+import { borrowerMonthlyIncome, computeScenario, proposedHousingPayment, qualifying, type LoanPurposeKind, type QualifyingResult, type ScenarioInput, type ScenarioResult } from '@/lib/calc'
 import { ownedProperties, propertyNetRental } from './realEstate'
+
+export type ScenarioDetails = Pick<
+  LoanDetails,
+  'purchasePrice' | 'loanAmount' | 'noteRate' | 'termMonths' | 'mortgageType' | 'miRatePct' | 'upfrontFeePct' | 'estimatedTaxRatePct' | 'estimatedAnnualInsurance' | 'estimatedMonthlyHoa'
+>
+
+/** Everything the payment math needs from a loan: deal facts, subject property, loan type, MI settings and estimates. */
+export function loanScenarioInput(purpose: LoanPurposeKind, d: ScenarioDetails, subject: Property | null): ScenarioInput {
+  return {
+    purpose,
+    purchasePrice: d.purchasePrice,
+    loanAmount: d.loanAmount,
+    noteRatePct: d.noteRate,
+    termMonths: d.termMonths,
+    property: subject,
+    liens: subject?.liens ?? [],
+    mortgageType: d.mortgageType,
+    miRatePct: d.miRatePct,
+    upfrontFeePct: d.upfrontFeePct,
+    estimates: { taxRatePct: d.estimatedTaxRatePct, annualInsurance: d.estimatedAnnualInsurance, monthlyHoa: d.estimatedMonthlyHoa },
+  }
+}
 
 export interface ApplicationSummary {
   subject: Property | null
@@ -18,15 +40,7 @@ export interface ApplicationSummary {
 export function applicationSummary(loan: LoanProfile, app: Application, properties: Property[] | undefined): ApplicationSummary {
   const subject = properties?.find((p) => p.id === loan.details.subjectPropertyId) ?? null
   const isPurchase = loan.purpose === 'purchase' || (loan.purpose === 'investment_dscr' && loan.details.purchasePrice !== null)
-  const scenarioInput = {
-    purpose: loan.purpose,
-    purchasePrice: loan.details.purchasePrice,
-    loanAmount: loan.details.loanAmount,
-    noteRatePct: loan.details.noteRate,
-    termMonths: loan.details.termMonths,
-    property: subject,
-    liens: subject?.liens ?? [],
-  }
+  const scenarioInput = loanScenarioInput(loan.purpose, loan.details, subject)
   const scenario = computeScenario(scenarioInput)
   const housing = proposedHousingPayment(scenarioInput, scenario)
   const rentalNets = ownedProperties(properties)

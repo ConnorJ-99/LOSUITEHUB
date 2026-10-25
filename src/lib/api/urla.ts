@@ -196,6 +196,8 @@ export const emptyDeclarations: Declarations = {
 export interface ApplicationBorrower {
   contactId: string
   role: 'primary' | 'co_borrower'
+  /** Estimated credit score on this loan (prequal). */
+  estimatedCreditScore: number | null
   person: PersonDetails
   addresses: Address[]
   employments: Employment[]
@@ -261,6 +263,7 @@ const PERSON_COLUMNS = [
 interface BorrowerRow {
   role: 'primary' | 'co_borrower'
   contact_id: string
+  estimated_credit_score: number | null
   created_at: string
   contact: (Record<string, unknown> & {
     addresses: Record<string, unknown>[]
@@ -281,7 +284,7 @@ export function useApplication(loanId: string) {
         db()
           .from('loan_borrowers')
           .select(
-            `role, contact_id, created_at,
+            `role, contact_id, created_at, estimated_credit_score,
              contact:contacts!loan_borrowers_contact_id_fkey ( ${PERSON_COLUMNS}, addresses:contact_addresses ( * ), employments ( * ), other_incomes ( * ) ),
              declarations:borrower_declarations ( * )`,
           )
@@ -299,6 +302,7 @@ export function useApplication(loanId: string) {
           return {
             contactId: b.contact_id,
             role: b.role,
+            estimatedCreditScore: b.estimated_credit_score,
             person: fromRow<PersonDetails>(person),
             addresses: addresses.map((r) => fromRow<Address>(r)).sort((x, y) => ADDRESS_ORDER[x.kind] - ADDRESS_ORDER[y.kind]),
             employments: employments

@@ -92,6 +92,14 @@ export interface LoanDetails {
   discountPointsAmount: number | null
   sellerCredits: number | null
   lenderCredits: number | null
+  // Prequal estimates for a home not picked yet (the subject property's figures win once entered)
+  /** Yearly property tax as a percent of the price or value. */
+  estimatedTaxRatePct: number | null
+  estimatedAnnualInsurance: number | null
+  estimatedMonthlyHoa: number | null
+  /** Mortgage insurance overrides; null uses the loan type's default. */
+  miRatePct: number | null
+  upfrontFeePct: number | null
 }
 
 /** The full borrower profile for one loan. */

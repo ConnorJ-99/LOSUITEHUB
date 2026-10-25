@@ -1,4 +1,5 @@
 import { combinedLienAmounts, downPayment, dscr, refinanceBenefit, type DownPayment, type LoanPurposeKind, type RefinanceBenefit } from './loan'
+import { mortgageInsurance, type MortgageInsurance, type MortgageTypeKind } from './mortgageInsurance'
 import { monthlyInterestOnly, monthlyPrincipalAndInterest, piti, type PitiResult } from './payment'
 import { cltv, ltv, qualifyingValue } from './ratios'
 import { round } from './round'
@@ -29,6 +30,20 @@ export interface ScenarioInput {
   property: ScenarioProperty | null
   /** Existing liens on the subject property. */
   liens: ScenarioLien[]
+  /** Loan type, for mortgage insurance defaults (blank is treated as conventional). */
+  mortgageType?: MortgageTypeKind | null
+  /** Mortgage insurance overrides; blank uses the loan type's default. */
+  miRatePct?: number | null
+  upfrontFeePct?: number | null
+  /** Estimates for a home not picked yet, used where the subject property has no figure. */
+  estimates?: ScenarioEstimates
+}
+
+export interface ScenarioEstimates {
+  /** Yearly property tax as a percent of the price (or value). */
+  taxRatePct: number | null
+  annualInsurance: number | null
+  monthlyHoa: number | null
 }
 
 export interface ScenarioResult {
@@ -43,8 +58,21 @@ export interface ScenarioResult {
    * HOA; HELOC (interest-only) and HELOAN show only the new 2nd lien payment.
    */
   payment: PitiResult | null
+  /** Mortgage insurance and any financed upfront fee (not on HELOC/HELOAN). */
+  mi: MortgageInsurance | null
   dscr: number | null
   refinance: RefinanceBenefit | null
+}
+
+/** Taxes, insurance and HOA: the subject property's figures, or the estimates where it has none. */
+export function housingCosts(input: Pick<ScenarioInput, 'property' | 'estimates'>, taxBasis: number | null) {
+  const { property, estimates } = input
+  const estimatedTaxes = estimates?.taxRatePct != null && taxBasis ? round((taxBasis * estimates.taxRatePct) / 100) : 0
+  return {
+    annualTaxes: property?.annualTaxes ?? estimatedTaxes,
+    annualInsurance: property?.annualInsurance ?? estimates?.annualInsurance ?? 0,
+    monthlyHoa: property?.monthlyHoa ?? estimates?.monthlyHoa ?? 0,
+  }
 }
 
 const isRefinance = (p: LoanPurposeKind) => p === 'refinance_rate_term' || p === 'refinance_cash_out'
@@ -72,18 +100,20 @@ export function computeScenario(input: ScenarioInput): ScenarioResult {
     loanAmount !== null && value !== null ? cltv(combinedLienAmounts(purpose, amount, knownLiens, hasPrice), value) : null
 
   let payment: PitiResult | null = null
+  let mi: MortgageInsurance | null = null
   if (loanAmount && noteRatePct !== null && (termMonths || purpose === 'heloc')) {
     if (isSecondLien(purpose)) {
       const pi = purpose === 'heloc' ? monthlyInterestOnly(amount, noteRatePct) : monthlyPrincipalAndInterest(amount, noteRatePct, termMonths!)
       payment = { principalAndInterest: pi, taxes: 0, insurance: 0, hoa: 0, mortgageInsurance: 0, total: pi }
     } else {
+      const housing = housingCosts(input, usesPrice && hasPrice ? purchasePrice : homeValue)
+      mi = mortgageInsurance({ mortgageType: input.mortgageType ?? null, baseLoanAmount: amount, ltvPct: loanLtv, annualRatePct: input.miRatePct, upfrontFeePct: input.upfrontFeePct })
       payment = piti({
-        principal: amount,
+        principal: mi.totalLoanAmount,
         annualRatePct: noteRatePct,
         termMonths: termMonths!,
-        annualTaxes: property?.annualTaxes ?? 0,
-        annualInsurance: property?.annualInsurance ?? 0,
-        monthlyHoa: property?.monthlyHoa ?? 0,
+        ...housing,
+        monthlyMortgageInsurance: mi.monthly,
       })
     }
   }
@@ -105,6 +135,7 @@ export function computeScenario(input: ScenarioInput): ScenarioResult {
     firstLienBalance,
     downPayment: usesPrice && hasPrice && loanAmount !== null ? downPayment(purchasePrice, amount) : null,
     payment,
+    mi,
     dscr: purpose === 'investment_dscr' && payment && property?.monthlyRent ? dscr(property.monthlyRent, payment.total) : null,
     refinance,
   }
@@ -119,8 +150,6 @@ export function proposedHousingPayment(input: ScenarioInput, result: ScenarioRes
   if (!result.payment) return null
   if (input.purpose !== 'heloc' && input.purpose !== 'heloan') return result.payment.total
   const firstLienPayment = input.liens.find((l) => l.position === 'first' && !l.toBePaidOff)?.monthlyPayment ?? 0
-  const p = input.property
-  return round(
-    result.payment.total + firstLienPayment + (p?.annualTaxes ?? 0) / 12 + (p?.annualInsurance ?? 0) / 12 + (p?.monthlyHoa ?? 0),
-  )
+  const costs = housingCosts(input, input.property?.estimatedValue ?? null)
+  return round(result.payment.total + firstLienPayment + costs.annualTaxes / 12 + costs.annualInsurance / 12 + costs.monthlyHoa)
 }

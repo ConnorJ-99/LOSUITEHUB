@@ -11,12 +11,13 @@ import { NotesTab } from '@/components/profile/NotesTab'
 import { OverviewTab } from '@/components/profile/OverviewTab'
 import { PropertiesTab } from '@/components/profile/PropertiesTab'
 import { IncomeTab } from '@/components/income/IncomeTab'
+import { PrequalTab } from '@/components/prequal/PrequalTab'
 import { UrlaTab } from '@/components/urla/UrlaTab'
 import { useLoan } from '@/lib/api/loans'
 import { daysSince, formatDaysInStage, fullName } from '@/lib/pipeline/helpers'
 import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 
-const TABS = ['overview', 'notes', 'properties', '1003', 'income'] as const
+const TABS = ['overview', 'prequal', 'notes', 'properties', '1003', 'income'] as const
 type Tab = (typeof TABS)[number]
 
 /** Tabs planned for later phases, shown greyed out so the layout is clear. */
@@ -102,6 +103,7 @@ export function LoanPage() {
         <div className="-mx-4 mb-4 overflow-x-auto px-4 md:mx-0 md:px-0">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="prequal">Prequal</TabsTrigger>
             <TabsTrigger value="notes">Notes</TabsTrigger>
             <TabsTrigger value="properties">Properties</TabsTrigger>
             <TabsTrigger value="1003">1003</TabsTrigger>
@@ -120,6 +122,9 @@ export function LoanPage() {
         </div>
         <TabsContent value="overview">
           <OverviewTab key={JSON.stringify(savedDetails)} loan={data} onGoToTab={goToTab} />
+        </TabsContent>
+        <TabsContent value="prequal">
+          <PrequalTab loan={data} />
         </TabsContent>
         <TabsContent value="notes">
           <NotesTab loan={data} />

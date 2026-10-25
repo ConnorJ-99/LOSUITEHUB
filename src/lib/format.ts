@@ -9,8 +9,12 @@ const usd = new Intl.NumberFormat('en-US', {
 
 const plain = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
 
+const usdCents = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/** Whole dollars show as "$1,250"; amounts with cents always show both digits ("$1,905.30"). */
 export function formatCurrency(value: number | null | undefined): string {
-  return value == null || !Number.isFinite(value) ? '—' : usd.format(value)
+  if (value == null || !Number.isFinite(value)) return '—'
+  return Math.round(value * 100) % 100 === 0 ? usd.format(value) : usdCents.format(value)
 }
 
 export function formatNumber(value: number | null | undefined, maxDecimals = 2): string {

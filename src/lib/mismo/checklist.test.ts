@@ -8,7 +8,7 @@ const details = (over: Partial<LoanDetails> = {}): LoanDetails => ({
   optionEndDate: null, closingDate: null, vestingEntity: null, financedPropertiesCount: null, subjectPropertyId: null, mortgageType: null,
   amortizationType: 'fixed', titleNames: null, titleManner: null, estateType: 'fee_simple', hasBalloon: false, hasInterestOnly: false,
   hasNegativeAmortization: false, hasPrepaymentPenalty: false, improvementsAmount: null, estimatedClosingCosts: null, prepaidItemsAmount: null,
-  discountPointsAmount: null, sellerCredits: null, lenderCredits: null, ...over,
+  discountPointsAmount: null, sellerCredits: null, lenderCredits: null, estimatedTaxRatePct: null, estimatedAnnualInsurance: null, estimatedMonthlyHoa: null, miRatePct: null, upfrontFeePct: null, ...over,
 })
 
 const loan = (over: Partial<LoanDetails> = {}): LoanProfile => ({
@@ -17,7 +17,7 @@ const loan = (over: Partial<LoanDetails> = {}): LoanProfile => ({
 })
 
 const borrower: ApplicationBorrower = {
-  contactId: 'c', role: 'primary',
+  contactId: 'c', role: 'primary', estimatedCreditScore: null,
   person: {
     firstName: 'Jane', middleName: null, lastName: 'Doe', suffix: null, email: null, phone: null, homePhone: null, workPhone: null, workPhoneExt: null,
     dateOfBirth: null, citizenship: null, maritalStatus: null, dependentsCount: null, dependentsAges: null, militaryService: null,

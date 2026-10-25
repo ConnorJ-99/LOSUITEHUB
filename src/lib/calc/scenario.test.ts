@@ -19,7 +19,33 @@ describe('computeScenario', () => {
     expect(r.cltv).toBe(95)
     expect(r.downPayment).toEqual({ amount: 20_000, percent: 5 })
     // 380k @ 6.5% / 30yr = 2,401.86 + 800 taxes + 200 insurance + 50 HOA
-    expect(r.payment?.total).toBe(3451.86)
+    // + 158.33 PMI (conventional over 80% LTV, 0.5% a year)
+    expect(r.payment?.mortgageInsurance).toBe(158.33)
+    expect(r.payment?.total).toBe(3610.19)
+  })
+
+  it('FHA finances the upfront premium and adds monthly MIP', () => {
+    const r = computeScenario({ purpose: 'purchase', purchasePrice: 400_000, loanAmount: 386_000, noteRatePct: 6.5, termMonths: 360, property: null, liens: [], mortgageType: 'fha' })
+    expect(r.ltv).toBe(96.5)
+    expect(r.mi).toMatchObject({ upfrontFeePct: 1.75, financedFee: 6755, totalLoanAmount: 392_755, annualRatePct: 0.55, monthly: 176.92 })
+    // P&I on 392,755 @ 6.5% / 30yr
+    expect(r.payment?.principalAndInterest).toBe(2482.48)
+  })
+
+  it('uses tax, insurance and HOA estimates until the home has its own figures', () => {
+    const estimates = { taxRatePct: 2.2, annualInsurance: 3_000, monthlyHoa: 40 }
+    const noHome = computeScenario({ purpose: 'purchase', purchasePrice: 400_000, loanAmount: 320_000, noteRatePct: 6.5, termMonths: 360, property: null, liens: [], estimates })
+    expect(noHome.payment).toMatchObject({ taxes: 733.33, insurance: 250, hoa: 40, mortgageInsurance: 0 })
+    const withHome = computeScenario({ purpose: 'purchase', purchasePrice: 400_000, loanAmount: 320_000, noteRatePct: 6.5, termMonths: 360, property: { ...home, monthlyHoa: null }, liens: [], estimates })
+    // The home's own taxes and insurance win; it has no HOA figure, so the estimate fills in.
+    expect(withHome.payment).toMatchObject({ taxes: 800, insurance: 200, hoa: 40 })
+  })
+
+  it('respects mortgage insurance overrides', () => {
+    const base = { purpose: 'purchase' as const, purchasePrice: 400_000, loanAmount: 400_000, noteRatePct: 6, termMonths: 360, property: null, liens: [] }
+    expect(computeScenario({ ...base, mortgageType: 'va' }).mi).toMatchObject({ upfrontFeePct: 2.15, monthly: 0 })
+    expect(computeScenario({ ...base, mortgageType: 'va', upfrontFeePct: 0 }).mi).toMatchObject({ financedFee: 0, totalLoanAmount: 400_000 })
+    expect(computeScenario({ ...base, loanAmount: 360_000, miRatePct: 0.3 }).mi?.monthly).toBe(90)
   })
 
   it('purchase without a property yet uses the price', () => {
@@ -111,7 +137,7 @@ describe('computeScenario', () => {
 describe('proposedHousingPayment', () => {
   it('is the new PITI on a purchase or refinance', () => {
     const input: ScenarioInput = { purpose: 'purchase', purchasePrice: 400_000, loanAmount: 380_000, noteRatePct: 6.5, termMonths: 360, property: home, liens: [] }
-    expect(proposedHousingPayment(input, computeScenario(input))).toBe(3451.86)
+    expect(proposedHousingPayment(input, computeScenario(input))).toBe(3610.19)
   })
 
   it('adds the kept 1st lien, taxes and insurance on a HELOC', () => {

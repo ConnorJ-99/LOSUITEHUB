@@ -5,7 +5,7 @@ import { UserCheckIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { FormGrid, Input, Select } from '@/components/shared'
+import { FormGrid, Input, Select, ToggleChip } from '@/components/shared'
 import { StageBadge } from '@/components/pipeline/StageBadge'
 import { useMatchingContacts } from '@/lib/api/contacts'
 import { useCreateLead, useOrgMembers } from '@/lib/api/loans'
@@ -55,6 +55,8 @@ export function NewLeadDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [existing, setExisting] = useState<ContactSummary | null>(null)
   const [dismissedIds, setDismissedIds] = useState<string[]>([])
   const [submitted, setSubmitted] = useState(false)
+  // On a call: open the Prequal tab right after saving. Stays on for the next lead.
+  const [startPrequal, setStartPrequal] = useState(false)
 
   const set = <K extends keyof FormState>(key: K) => (value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -101,10 +103,15 @@ export function NewLeadDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       {
         onSuccess: (loanId) => {
           const name = existing ? fullName(existing) : `${form.firstName} ${form.lastName}`.trim()
+          close(false)
+          if (startPrequal) {
+            navigate(`/loans/${loanId}?tab=prequal`)
+            toast.success(`${name} added to Lead`)
+            return
+          }
           toast.success(`${name} added to Lead`, {
             action: { label: 'Open', onClick: () => navigate(`/loans/${loanId}`) },
           })
-          close(false)
         },
         onError: (error) => toast.error(`Could not save lead: ${error.message}`),
       },
@@ -194,6 +201,8 @@ export function NewLeadDialog({ open, onOpenChange }: { open: boolean; onOpenCha
               span={4}
             />
           </FormGrid>
+
+          <ToggleChip label="Start prequal call after saving" pressed={startPrequal} onChange={setStartPrequal} />
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => close(false)}>

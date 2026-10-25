@@ -67,6 +67,11 @@ const DETAIL_COLUMNS: Record<keyof LoanDetails, [string, boolean]> = {
   discountPointsAmount: ['discount_points_amount', true],
   sellerCredits: ['seller_credits', true],
   lenderCredits: ['lender_credits', true],
+  estimatedTaxRatePct: ['estimated_tax_rate_pct', true],
+  estimatedAnnualInsurance: ['estimated_annual_insurance', true],
+  estimatedMonthlyHoa: ['estimated_monthly_hoa', true],
+  miRatePct: ['mi_rate_pct', true],
+  upfrontFeePct: ['upfront_fee_pct', true],
 }
 
 interface LoanProfileRow extends LoanRow {

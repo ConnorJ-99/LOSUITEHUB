@@ -5,7 +5,7 @@ import type { ImportedBorrower } from './parse'
 import { person } from './testFixture'
 
 const existing = (id: string, role: 'primary' | 'co_borrower', over: Parameters<typeof person>[0]): ApplicationBorrower => ({
-  contactId: id, role, person: person(over), addresses: [], employments: [], otherIncomes: [], declarations: emptyDeclarations,
+  contactId: id, role, estimatedCreditScore: null, person: person(over), addresses: [], employments: [], otherIncomes: [], declarations: emptyDeclarations,
 })
 const imported = (isPrimary: boolean, over: Parameters<typeof person>[0]): ImportedBorrower => ({
   isPrimary, person: person(over), addresses: [], employments: [], otherIncomes: [], declarations: emptyDeclarations,

@@ -18,6 +18,7 @@ import { purposeLabel } from '@/lib/pipeline/stages'
 import { noteKindLabel, OCCUPANCY_OPTIONS, TERM_OPTIONS } from './options'
 import { TasksCard } from './TasksCard'
 import { TexasFlags } from './TexasFlags'
+import { loanScenarioInput } from '@/lib/urla/summary'
 
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -124,15 +125,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
   const set = <K extends keyof EditableDetails>(key: K) => (value: EditableDetails[K]) => setForm((f) => ({ ...f, [key]: value }))
 
   const subject: Property | null = properties.data?.find((p) => p.id === loan.details.subjectPropertyId) ?? null
-  const result = computeScenario({
-    purpose: loan.purpose,
-    purchasePrice: form.purchasePrice,
-    loanAmount: form.loanAmount,
-    noteRatePct: form.noteRate,
-    termMonths: form.termMonths,
-    property: subject,
-    liens: subject?.liens ?? [],
-  })
+  const result = computeScenario(loanScenarioInput(loan.purpose, { ...loan.details, ...form }, subject))
   const texasFlags = texasHomeEquityFlags({
     purpose: loan.purpose,
     propertyState: subject?.state ?? null,

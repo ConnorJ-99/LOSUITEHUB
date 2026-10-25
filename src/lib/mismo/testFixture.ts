@@ -16,7 +16,7 @@ export const details: LoanDetails = {
   contractDate: null, optionEndDate: null, closingDate: '2026-12-01', vestingEntity: null, financedPropertiesCount: null,
   subjectPropertyId: 'prop-home', mortgageType: 'conventional', amortizationType: 'fixed', titleNames: null, titleManner: null,
   estateType: 'fee_simple', hasBalloon: false, hasInterestOnly: false, hasNegativeAmortization: false, hasPrepaymentPenalty: false,
-  improvementsAmount: null, estimatedClosingCosts: 6000, prepaidItemsAmount: 2500, discountPointsAmount: null, sellerCredits: null, lenderCredits: null,
+  improvementsAmount: null, estimatedClosingCosts: 6000, prepaidItemsAmount: 2500, discountPointsAmount: null, sellerCredits: null, lenderCredits: null, estimatedTaxRatePct: null, estimatedAnnualInsurance: null, estimatedMonthlyHoa: null, miRatePct: null, upfrontFeePct: null,
 }
 
 export const loan: LoanProfile = {
@@ -28,6 +28,7 @@ export const loan: LoanProfile = {
 export const primary: ApplicationBorrower = {
   contactId: 'c-1',
   role: 'primary',
+  estimatedCreditScore: 700,
   person: person({ dateOfBirth: '1988-05-14', citizenship: 'us_citizen', maritalStatus: 'married', phone: '(214) 555-0199', email: 'test.borrower@example.com', dependentsCount: 2, dependentsAges: '4, 7' }),
   addresses: [
     { id: 'a1', contactId: 'c-1', kind: 'current', addressLine: '123 Test Lane', unit: null, city: 'Dallas', state: 'TX', zip: '75201', country: 'US', housing: 'own', monthlyRent: null, monthsAtAddress: 14 },
@@ -52,6 +53,7 @@ export const primary: ApplicationBorrower = {
 export const coBorrower: ApplicationBorrower = {
   contactId: 'c-2',
   role: 'co_borrower',
+  estimatedCreditScore: null,
   person: person({ firstName: 'Test', lastName: 'Coborrower' }),
   addresses: [],
   employments: [
