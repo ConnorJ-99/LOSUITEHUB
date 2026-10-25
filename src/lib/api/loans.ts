@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
 import type { LoanPurpose, PipelineStage } from '@/lib/pipeline/stages'
-import { db, keys, unwrap } from './client'
-import type { Contact, OrgMember, PipelineLoan, StageHistoryEntry } from './types'
+import { db, keys, num, unwrap } from './client'
+import type { Contact, LoanDetails, LoanProfile, Occupancy, OrgMember, PipelineLoan, StageHistoryEntry } from './types'
 
 // ---------------------------------------------------------------------------
 // Row shapes returned by Supabase, and mappers to the app's types
@@ -33,6 +33,27 @@ const LOAN_SELECT = `
   id, purpose, stage, lost_reason, referral_source, stage_changed_at, created_at, prior_loan_id,
   assigned_lo:profiles!loans_assigned_lo_id_fkey ( id, full_name, email ),
   borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, email, phone ) )
+`
+
+interface LoanProfileRow extends LoanRow {
+  organization_id: string
+  occupancy: Occupancy
+  purchase_price: number | string | null
+  loan_amount: number | string | null
+  note_rate: number | string | null
+  term_months: number | null
+  cash_out_amount: number | string | null
+  contract_date: string | null
+  option_end_date: string | null
+  closing_date: string | null
+  vesting_entity: string | null
+  financed_properties_count: number | null
+  subject_property_id: string | null
+}
+
+const PROFILE_SELECT = `${LOAN_SELECT},
+  organization_id, occupancy, purchase_price, loan_amount, note_rate, term_months, cash_out_amount,
+  contract_date, option_end_date, closing_date, vesting_entity, financed_properties_count, subject_property_id
 `
 
 export function toContact(row: ContactRow): Contact {
@@ -75,12 +96,34 @@ export function usePipeline() {
   })
 }
 
+function toProfile(row: LoanProfileRow): LoanProfile {
+  return {
+    ...toLoan(row),
+    organizationId: row.organization_id,
+    details: {
+      occupancy: row.occupancy,
+      purchasePrice: num(row.purchase_price),
+      loanAmount: num(row.loan_amount),
+      noteRate: num(row.note_rate),
+      termMonths: row.term_months,
+      cashOutAmount: num(row.cash_out_amount),
+      contractDate: row.contract_date,
+      optionEndDate: row.option_end_date,
+      closingDate: row.closing_date,
+      vestingEntity: row.vesting_entity,
+      financedPropertiesCount: row.financed_properties_count,
+      subjectPropertyId: row.subject_property_id,
+    },
+  }
+}
+
+/** One loan with its deal details, for the borrower profile. */
 export function useLoan(id: string) {
   return useQuery({
     queryKey: keys.loan(id),
     queryFn: async () => {
-      const row = unwrap<LoanRow | null>(await db().from('loans').select(LOAN_SELECT).eq('id', id).maybeSingle())
-      return row ? toLoan(row) : null
+      const row = unwrap<LoanProfileRow | null>(await db().from('loans').select(PROFILE_SELECT).eq('id', id).maybeSingle())
+      return row ? toProfile(row) : null
     },
   })
 }
@@ -305,6 +348,39 @@ export function useUpdateLead() {
       queryClient.invalidateQueries({ queryKey: ['loan'] })
       queryClient.invalidateQueries({ queryKey: ['contactLoans'] })
       queryClient.invalidateQueries({ queryKey: keys.contacts })
+    },
+  })
+}
+
+const detailColumns: Record<keyof LoanDetails, string> = {
+  occupancy: 'occupancy',
+  purchasePrice: 'purchase_price',
+  loanAmount: 'loan_amount',
+  noteRate: 'note_rate',
+  termMonths: 'term_months',
+  cashOutAmount: 'cash_out_amount',
+  contractDate: 'contract_date',
+  optionEndDate: 'option_end_date',
+  closingDate: 'closing_date',
+  vestingEntity: 'vesting_entity',
+  financedPropertiesCount: 'financed_properties_count',
+  subjectPropertyId: 'subject_property_id',
+}
+
+/** Saves any of the loan's deal details. Every screen that edits these values goes through here. */
+export function useUpdateLoanDetails(loanId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (changes: Partial<LoanDetails>) => {
+      const row = Object.fromEntries(
+        Object.entries(changes).map(([key, value]) => [detailColumns[key as keyof LoanDetails], value === '' ? null : value]),
+      )
+      const rows = unwrap<{ id: string }[]>(await db().from('loans').update(row).eq('id', loanId).select('id'))
+      if (rows.length === 0) throw new Error('You do not have permission to edit this loan.')
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.loan(loanId) })
+      queryClient.invalidateQueries({ queryKey: keys.pipeline })
     },
   })
 }

@@ -1,9 +1,12 @@
 import { Link } from 'react-router'
+import { cn } from 'cn'
 import { CalendarCheckIcon, KanbanIcon, PlusIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, PageHeader } from '@/components/shared'
 import { useNewLead } from '@/components/leads/new-lead-context'
 import { usePipeline } from '@/lib/api/loans'
+import { useMyOpenTasks } from '@/lib/api/tasks'
+import { dueLabel, todayIso } from '@/lib/dates'
 import { useAuth } from '@/lib/auth/context'
 import { isOnBoard } from '@/lib/pipeline/helpers'
 import { STAGES } from '@/lib/pipeline/stages'
@@ -44,6 +47,47 @@ function PipelineSnapshot() {
   )
 }
 
+/** Open tasks assigned to me that are overdue, due today, or undated, plus the next few upcoming. */
+function MyTasks() {
+  const tasks = useMyOpenTasks()
+  if (tasks.isLoading) return <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
+  if (tasks.isError) return <EmptyState icon={CalendarCheckIcon} title="Couldn't load tasks" description={tasks.error.message} />
+
+  const today = todayIso()
+  const due = (tasks.data ?? []).filter((t) => !t.dueOn || t.dueOn <= today)
+  const upcoming = (tasks.data ?? []).filter((t) => t.dueOn && t.dueOn > today).slice(0, 5)
+  if (due.length === 0 && upcoming.length === 0) {
+    return <EmptyState icon={CalendarCheckIcon} title="Nothing due" description="Add tasks from a borrower's Overview." />
+  }
+
+  const row = (t: (typeof due)[number]) => {
+    const label = t.dueOn ? dueLabel(t.dueOn, today) : null
+    return (
+      <li key={t.id}>
+        <Link to={`/loans/${t.loanId}`} className="block rounded-md px-2 py-1.5 hover:bg-muted">
+          <p className="text-sm">{t.title}</p>
+          <p className="text-xs text-muted-foreground">
+            {t.borrowerName}
+            {label && <span className={cn(label.overdue && 'font-medium text-destructive')}> · {label.text}</span>}
+          </p>
+        </Link>
+      </li>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {due.length > 0 ? <ul className="-mx-2">{due.map(row)}</ul> : <p className="text-sm text-muted-foreground">Nothing due today.</p>}
+      {upcoming.length > 0 && (
+        <div>
+          <p className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Coming up</p>
+          <ul className="-mx-2">{upcoming.map(row)}</ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function DashboardPage() {
   const { state } = useAuth()
   const name = state.status === 'signedIn' || state.status === 'preview' ? state.user.fullName.split(' ')[0] : ''
@@ -64,7 +108,11 @@ export function DashboardPage() {
           )}
         </Card>
         <Card title="Today's tasks">
-          <EmptyState icon={CalendarCheckIcon} title="Nothing due" description="Follow-ups and tasks will appear here." />
+          {state.status === 'preview' ? (
+            <EmptyState icon={CalendarCheckIcon} title="Preview mode" description="Connect Supabase to see your tasks." />
+          ) : (
+            <MyTasks />
+          )}
         </Card>
       </div>
     </>

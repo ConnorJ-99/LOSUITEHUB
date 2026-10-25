@@ -3,6 +3,7 @@
 // '@/components/ui' and are wrapped here.
 export { Card, type CardProps } from './Card'
 export { DataTable, type Column, type DataTableProps } from './DataTable'
+export { DateInput, type DateInputProps } from './DateInput'
 export { EmptyState, type EmptyStateProps } from './EmptyState'
 export { Field, FormGrid, type FieldProps, type FieldSpan } from './Field'
 export { Input, type InputProps } from './Input'

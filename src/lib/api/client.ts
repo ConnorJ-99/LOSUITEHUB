@@ -16,6 +16,10 @@ export const keys = {
   contacts: ['contacts'] as const,
   contactLoans: (contactId: string) => ['contactLoans', contactId] as const,
   orgMembers: ['orgMembers'] as const,
+  properties: (loanId: string) => ['properties', loanId] as const,
+  notes: (contactId: string) => ['notes', contactId] as const,
+  loanTasks: (loanId: string) => ['tasks', 'loan', loanId] as const,
+  myTasks: ['tasks', 'mine'] as const,
   matches: (email: string, phone: string) => ['matches', email, phone] as const,
 }
 
@@ -29,4 +33,11 @@ export function db(): SupabaseClient {
 export function unwrap<T>(result: { data: unknown; error: { message: string } | null }): T {
   if (result.error) throw new Error(result.error.message)
   return result.data as T
+}
+
+/** Postgres numeric columns can arrive as strings; normalize to number or null. */
+export function num(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
 }

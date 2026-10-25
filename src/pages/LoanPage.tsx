@@ -1,89 +1,41 @@
-import type * as React from 'react'
 import { useState } from 'react'
-import { Link, useParams } from 'react-router'
-import { ArrowLeftIcon, ChevronDownIcon, MailIcon, PencilIcon, PhoneIcon, SearchXIcon, TriangleAlertIcon } from 'lucide-react'
+import { Link, useParams, useSearchParams } from 'react-router'
+import { ArrowLeftIcon, ChevronDownIcon, PencilIcon, SearchXIcon, TriangleAlertIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, EmptyState } from '@/components/shared'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Card, EmptyState, Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/shared'
 import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
-import { StageBadge } from '@/components/pipeline/StageBadge'
 import { StageMenu } from '@/components/pipeline/StageMenu'
 import { useStageChanger } from '@/components/pipeline/useStageChanger'
-import { useContactLoans, useLoan, useStageHistory } from '@/lib/api/loans'
-import type { PipelineLoan } from '@/lib/api/types'
-import { daysSince, formatDaysInStage, formatPhone, fullName } from '@/lib/pipeline/helpers'
+import { NotesTab } from '@/components/profile/NotesTab'
+import { OverviewTab } from '@/components/profile/OverviewTab'
+import { PropertiesTab } from '@/components/profile/PropertiesTab'
+import { useLoan } from '@/lib/api/loans'
+import { daysSince, formatDaysInStage, fullName } from '@/lib/pipeline/helpers'
 import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 
-const dateTime = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
-const dateOnly = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+const TABS = ['overview', 'notes', 'properties'] as const
+type Tab = (typeof TABS)[number]
 
-function Detail({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-0.5">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm">{children}</dd>
-    </div>
-  )
-}
+/** Tabs planned for later phases, shown greyed out so the layout is clear. */
+const LATER_TABS = [
+  { label: '1003', phase: 'Phase 3' },
+  { label: 'Income', phase: 'Phase 4' },
+  { label: 'Documents', phase: 'Phase 6' },
+  { label: 'Loan Info', phase: 'Phase 5' },
+]
 
-function StageHistory({ loanId }: { loanId: string }) {
-  const history = useStageHistory(loanId)
-  if (history.isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>
-  if (history.isError) return <p className="text-sm text-destructive">{history.error.message}</p>
-  return (
-    <ol className="relative space-y-4 border-l pl-4">
-      {(history.data ?? []).map((entry) => (
-        <li key={entry.id} className="relative">
-          <span className="absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-card bg-primary" />
-          <p className="text-sm">
-            {entry.fromStage ? (
-              <>
-                {stageLabel(entry.fromStage)} → <span className="font-medium">{stageLabel(entry.toStage)}</span>
-              </>
-            ) : (
-              <>
-                Created in <span className="font-medium">{stageLabel(entry.toStage)}</span>
-              </>
-            )}
-          </p>
-          {entry.lostReason && <p className="text-xs text-muted-foreground">Reason: {entry.lostReason}</p>}
-          <p className="text-xs text-muted-foreground">
-            {dateTime.format(new Date(entry.changedAt))}
-            {entry.changedBy && ` · ${entry.changedBy.name}`}
-          </p>
-        </li>
-      ))}
-    </ol>
-  )
-}
-
-function OtherLoans({ loan }: { loan: PipelineLoan }) {
-  const loans = useContactLoans(loan.borrower?.id)
-  const others = (loans.data ?? []).filter((l) => l.id !== loan.id)
-  if (others.length === 0) return <p className="text-sm text-muted-foreground">This is their only loan so far.</p>
-  return (
-    <ul className="divide-y">
-      {others.map((other) => (
-        <li key={other.id}>
-          <Link to={`/loans/${other.id}`} className="flex items-center justify-between gap-3 py-2 hover:underline">
-            <span className="text-sm">
-              {purposeLabel(other.purpose)}
-              <span className="text-xs text-muted-foreground"> · {dateOnly.format(new Date(other.createdAt))}</span>
-              {other.id === loan.priorLoanId && <span className="text-xs text-muted-foreground"> · prior loan</span>}
-            </span>
-            <StageBadge stage={other.stage} />
-          </Link>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-/** Phase 1 borrower record. Phase 2 turns this into the full tabbed profile. */
+/** The borrower profile for one loan. Its layout adapts to the loan purpose. */
 export function LoanPage() {
   const { loanId = '' } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const loan = useLoan(loanId)
   const { requestChange, dialog } = useStageChanger()
   const [editing, setEditing] = useState(false)
+
+  const tabParam = searchParams.get('tab')
+  const tab: Tab = (TABS as readonly string[]).includes(tabParam ?? '') ? (tabParam as Tab) : 'overview'
+  const goToTab = (next: Tab) => setSearchParams(next === 'overview' ? {} : { tab: next }, { replace: true })
 
   if (loan.isLoading) return <p className="py-12 text-center text-sm text-muted-foreground">Loading…</p>
   if (loan.isError) {
@@ -108,7 +60,9 @@ export function LoanPage() {
 
   const data = loan.data
   const name = fullName(data.borrower)
-  const b = data.borrower
+  // Remount the Overview form after its saved values change, so it shows what was saved.
+  const { subjectPropertyId, ...savedDetails } = data.details
+  void subjectPropertyId
 
   return (
     <>
@@ -117,7 +71,7 @@ export function LoanPage() {
         Pipeline
       </Link>
 
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">{name}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -144,55 +98,34 @@ export function LoanPage() {
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
-          <Card title="Contact">
-            <dl className="grid gap-4 sm:grid-cols-2">
-              <Detail label="Phone">
-                {b?.phone ? (
-                  <a href={`tel:${b.phone}`} className="inline-flex items-center gap-1.5 text-primary hover:underline">
-                    <PhoneIcon className="size-3.5" />
-                    {formatPhone(b.phone)}
-                  </a>
-                ) : (
-                  '—'
-                )}
-              </Detail>
-              <Detail label="Email">
-                {b?.email ? (
-                  <a href={`mailto:${b.email}`} className="inline-flex items-center gap-1.5 break-all text-primary hover:underline">
-                    <MailIcon className="size-3.5 shrink-0" />
-                    {b.email}
-                  </a>
-                ) : (
-                  '—'
-                )}
-              </Detail>
-            </dl>
-          </Card>
-
-          <Card title="Loan">
-            <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Detail label="Purpose">{purposeLabel(data.purpose)}</Detail>
-              <Detail label="Stage">
-                <StageBadge stage={data.stage} />
-              </Detail>
-              <Detail label="Assigned LO">{data.assignedLo?.name ?? 'Unassigned'}</Detail>
-              <Detail label="Referral source">{data.referralSource ?? '—'}</Detail>
-              <Detail label="Created">{dateOnly.format(new Date(data.createdAt))}</Detail>
-              <Detail label="Co-borrowers">{data.coBorrowerCount || 'None'}</Detail>
-            </dl>
-          </Card>
-
-          <Card title="Other loans for this person">
-            <OtherLoans loan={data} />
-          </Card>
+      <Tabs value={tab} onValueChange={(v) => goToTab(v as Tab)}>
+        <div className="-mx-4 mb-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="notes">Notes</TabsTrigger>
+            <TabsTrigger value="properties">Properties</TabsTrigger>
+            {LATER_TABS.map((t) => (
+              <Tooltip key={t.label}>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0} className="cursor-not-allowed px-2.5 text-sm text-muted-foreground/60">
+                    {t.label}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>Coming in {t.phase}</TooltipContent>
+              </Tooltip>
+            ))}
+          </TabsList>
         </div>
-
-        <Card title="Stage history">
-          <StageHistory loanId={data.id} />
-        </Card>
-      </div>
+        <TabsContent value="overview">
+          <OverviewTab key={JSON.stringify(savedDetails)} loan={data} onGoToTab={goToTab} />
+        </TabsContent>
+        <TabsContent value="notes">
+          <NotesTab loan={data} />
+        </TabsContent>
+        <TabsContent value="properties">
+          <PropertiesTab loan={data} />
+        </TabsContent>
+      </Tabs>
 
       {editing && <EditLeadDialog loan={data} open={editing} onOpenChange={setEditing} />}
       {dialog}

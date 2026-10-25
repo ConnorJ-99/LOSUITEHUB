@@ -36,6 +36,8 @@ If the Phase 1 migration (`20261025000000_contacts_pipeline.sql`) fails partway,
 | `src/lib/pipeline/` | Stages, purposes, search and days-in-stage helpers, with tests |
 | `src/lib/api/` | Loading and saving data (TanStack Query + Supabase) |
 | `src/components/pipeline/`, `src/components/leads/` | Pipeline board/list, stage menu, New Lead and Edit forms |
+| `src/components/profile/` | Borrower profile tabs: Overview (purpose-aware), Notes, Properties, tasks |
+| `src/lib/dates.ts` | Due-date labels and "2 days ago" style times, with tests |
 | `src/components/shared/` | Shared form and layout components every screen uses |
 | `src/components/ui/` | Raw shadcn/ui primitives (wrapped by `shared/`) |
 | `src/components/layout/` | App shell and sidebar |
