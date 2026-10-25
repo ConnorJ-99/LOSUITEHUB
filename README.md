@@ -40,7 +40,7 @@ If the Phase 1 migration (`20261025000000_contacts_pipeline.sql`) fails partway,
 | `src/lib/dates.ts` | Due-date labels and "2 days ago" style times, with tests |
 | `src/components/urla/`, `src/lib/urla/`, `src/lib/api/urla.ts` | The 1003 tab: sections, answer lists and data |
 | `src/pages/SettingsPage.tsx` | Your profile and company details (used by 1003 section 9) |
-| `src/lib/mismo/` | MISMO 3.4 (ULAD) export for Arive: XML writer, field mapping, pre-export checklist, with tests |
+| `src/lib/mismo/` | MISMO 3.4 (ULAD) export and import: XML writer/reader, field mapping, checklist, import matching rules, with round-trip tests |
 | `src/components/shared/` | Shared form and layout components every screen uses |
 | `src/components/ui/` | Raw shadcn/ui primitives (wrapped by `shared/`) |
 | `src/components/layout/` | App shell and sidebar |

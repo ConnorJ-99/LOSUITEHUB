@@ -359,16 +359,20 @@ export function useUpdateLead() {
 }
 
 /** Saves any of the loan's deal details. Every screen that edits these values goes through here. */
+/** Writes deal details to the loan row (shared by the save hook and MISMO import). */
+export async function saveLoanDetails(loanId: string, changes: Partial<LoanDetails>): Promise<void> {
+  const row = Object.fromEntries(
+    Object.entries(changes).map(([key, value]) => [DETAIL_COLUMNS[key as keyof LoanDetails][0], value === '' ? null : value]),
+  )
+  if (Object.keys(row).length === 0) return
+  const rows = unwrap<{ id: string }[]>(await db().from('loans').update(row).eq('id', loanId).select('id'))
+  if (rows.length === 0) throw new Error('You do not have permission to edit this loan.')
+}
+
 export function useUpdateLoanDetails(loanId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (changes: Partial<LoanDetails>) => {
-      const row = Object.fromEntries(
-        Object.entries(changes).map(([key, value]) => [DETAIL_COLUMNS[key as keyof LoanDetails][0], value === '' ? null : value]),
-      )
-      const rows = unwrap<{ id: string }[]>(await db().from('loans').update(row).eq('id', loanId).select('id'))
-      if (rows.length === 0) throw new Error('You do not have permission to edit this loan.')
-    },
+    mutationFn: (changes: Partial<LoanDetails>) => saveLoanDetails(loanId, changes),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.loan(loanId) })
       queryClient.invalidateQueries({ queryKey: keys.pipeline })

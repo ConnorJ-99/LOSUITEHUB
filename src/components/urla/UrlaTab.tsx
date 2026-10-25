@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { DownloadIcon, PlusIcon, UserMinusIcon } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { DownloadIcon, FileUpIcon, PlusIcon, UserMinusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { SummaryBar, ToggleChip } from '@/components/shared'
@@ -14,7 +14,9 @@ import { AddressesSection } from './AddressesSection'
 import { AssetsSection, LiabilitiesSection } from './AssetLiabilitySections'
 import { CoBorrowerDialog } from './CoBorrowerDialog'
 import { DeclarationsSection, DemographicsSection } from './DeclarationsSections'
+import { MismoImportError, parseMismo34, type ImportResult } from '@/lib/mismo/parse'
 import { ExportDialog } from './ExportDialog'
+import { ImportDialog } from './ImportDialog'
 import { EmploymentSection, OtherIncomeSection } from './IncomeSections'
 import { LoanInfoSection } from './LoanInfoSection'
 import { OriginatorSection } from './OriginatorSection'
@@ -42,6 +44,20 @@ export function UrlaTab({ loan }: { loan: LoanProfile }) {
   const organization = useOrganization()
   const originator = useProfile(loan.assignedLo?.id)
   const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState<{ fileName: string; result: ImportResult } | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+
+  /** Read the chosen file and open the import preview. Nothing is saved until the user confirms. */
+  const onFile = async (file: File | undefined) => {
+    if (!file) return
+    try {
+      setImporting({ fileName: file.name, result: parseMismo34(await file.text()) })
+    } catch (e) {
+      toast.error(e instanceof MismoImportError ? e.message : `Couldn't read that file: ${(e as Error).message}`)
+    } finally {
+      if (fileInput.current) fileInput.current.value = ''
+    }
+  }
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
@@ -124,6 +140,18 @@ export function UrlaTab({ loan }: { loan: LoanProfile }) {
               <PlusIcon />
               Add co-borrower
             </Button>
+            <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>
+              <FileUpIcon />
+              Import MISMO file
+            </Button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".xml,application/xml,text/xml"
+              className="hidden"
+              aria-label="MISMO 3.4 file to import"
+              onChange={(e) => onFile(e.target.files?.[0])}
+            />
             {borrower.role === 'co_borrower' && (
               <div className="ml-auto">
                 {confirmRemove ? (
@@ -191,6 +219,17 @@ export function UrlaTab({ loan }: { loan: LoanProfile }) {
           </Button>
         }
       />
+
+      {importing && (
+        <ImportDialog
+          loan={loan}
+          fileName={importing.fileName}
+          result={importing.result}
+          existingBorrowers={borrowers}
+          existingProperties={properties.data ?? []}
+          onClose={() => setImporting(null)}
+        />
+      )}
 
       {exporting && (
         <ExportDialog
