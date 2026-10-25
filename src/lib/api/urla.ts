@@ -16,6 +16,7 @@ import type {
   PriorPropertyUsage,
   PriorTitleHeld,
 } from '@/lib/urla/options'
+import type { AssetUse } from '@/lib/calc'
 import { db, keys, num, unwrap } from './client'
 
 // ---------------------------------------------------------------------------
@@ -109,6 +110,8 @@ export interface Asset {
   giftSource: GiftSource | null
   giftDeposited: boolean | null
   description: string | null
+  /** Down payment funds, asset-depletion income, or reserves only. */
+  useAs: AssetUse
 }
 
 export interface Liability {

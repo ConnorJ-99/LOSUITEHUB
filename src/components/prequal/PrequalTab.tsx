@@ -11,7 +11,7 @@ import type { LoanProfile, Property } from '@/lib/api/types'
 import { useApplication, type Application } from '@/lib/api/urla'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { draftFrom, hasChanges, prequalChanges, prequalSummary, type PrequalDraft, type QuickBorrower } from '@/lib/prequal/draft'
-import { BorrowerSection, DebtsSection, LoanSection, SavingsSection } from './PrequalSections'
+import { BorrowerSection, DebtsSection, HomesSection, LoanSection, SavingsSection } from './PrequalSections'
 import { PrequalResults } from './PrequalResults'
 
 /** The phone prequal: a short 1003 with live qualification, saved into the same records. */
@@ -24,13 +24,13 @@ export function PrequalTab({ loan }: { loan: LoanProfile }) {
   if (app.data!.borrowers.length === 0) return <p className="py-12 text-center text-sm text-muted-foreground">No borrower on this loan.</p>
 
   const subject = properties.data?.find((p) => p.id === loan.details.subjectPropertyId) ?? null
-  const saved = draftFrom(loan, app.data!, subject, false)
+  const saved = draftFrom(loan, app.data!, properties.data ?? [], false)
   // Start fresh from the saved records whenever they change (after Save, or an edit on another tab).
   return <PrequalForm key={JSON.stringify(saved)} loan={loan} app={app.data!} subject={subject} properties={properties.data ?? []} saved={saved} />
 }
 
 function PrequalForm({ loan, app, subject, properties, saved }: { loan: LoanProfile; app: Application; subject: Property | null; properties: Property[]; saved: PrequalDraft }) {
-  const [draft, setDraft] = useState<PrequalDraft>(() => draftFrom(loan, app, subject))
+  const [draft, setDraft] = useState<PrequalDraft>(() => draftFrom(loan, app, properties))
   const [addingBorrower, setAddingBorrower] = useState(false)
   const save = useSavePrequal(loan.id, loan.organizationId)
   const updateStage = useUpdateStage()
@@ -68,6 +68,7 @@ function PrequalForm({ loan, app, subject, properties, saved }: { loan: LoanProf
             {dirty && <span className="ml-2 text-xs text-muted-foreground">Save first to add a co-borrower</span>}
           </div>
           <DebtsSection debts={draft.debts} borrowers={draft.borrowers} onChange={(debts) => setDraft((d) => ({ ...d, debts }))} />
+          <HomesSection homes={draft.properties} onChange={(properties) => setDraft((d) => ({ ...d, properties }))} />
           <SavingsSection assets={draft.assets} borrowers={draft.borrowers} onChange={(assets) => setDraft((d) => ({ ...d, assets }))} />
         </div>
         <div className="lg:sticky lg:top-6 lg:self-start">

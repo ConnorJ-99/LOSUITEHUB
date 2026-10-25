@@ -71,9 +71,9 @@ export const coBorrower: ApplicationBorrower = {
 export const application: Application = {
   borrowers: [primary, coBorrower],
   assets: [
-    { id: 's1', loanId: 'loan-1', contactId: 'c-1', isJoint: false, assetType: 'checking', institutionName: 'Test Bank', accountLast4: '5678', amount: 25000, giftSource: null, giftDeposited: null, description: null },
-    { id: 's2', loanId: 'loan-1', contactId: 'c-1', isJoint: true, assetType: 'gift_cash', institutionName: null, accountLast4: null, amount: 10000, giftSource: 'relative', giftDeposited: true, description: null },
-    { id: 's3', loanId: 'loan-1', contactId: 'c-2', isJoint: false, assetType: 'earnest_money', institutionName: null, accountLast4: null, amount: 5000, giftSource: null, giftDeposited: null, description: null },
+    { id: 's1', loanId: 'loan-1', contactId: 'c-1', isJoint: false, assetType: 'checking', institutionName: 'Test Bank', accountLast4: '5678', amount: 25000, giftSource: null, giftDeposited: null, description: null, useAs: 'down_payment' },
+    { id: 's2', loanId: 'loan-1', contactId: 'c-1', isJoint: true, assetType: 'gift_cash', institutionName: null, accountLast4: null, amount: 10000, giftSource: 'relative', giftDeposited: true, description: null, useAs: 'down_payment' },
+    { id: 's3', loanId: 'loan-1', contactId: 'c-2', isJoint: false, assetType: 'earnest_money', institutionName: null, accountLast4: null, amount: 5000, giftSource: null, giftDeposited: null, description: null, useAs: 'down_payment' },
   ],
   liabilities: [
     { id: 'l1', loanId: 'loan-1', contactId: 'c-1', isJoint: false, liabilityType: 'installment', creditorName: 'Test Auto Finance', accountLast4: null, unpaidBalance: 18000, monthlyPayment: 450, monthsRemaining: 40, toBePaidOff: false, description: null },

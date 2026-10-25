@@ -45,24 +45,29 @@ export function useSavePrequal(loanId: string, organizationId: string) {
       if (c.otherIncomes.remove.length) await run('Removing other income', db().from('other_incomes').delete().in('id', c.otherIncomes.remove))
 
       for (const d of c.debts.insert) {
-        await run('Adding a debt', db().from('liabilities').insert({ loan_id: loanId, contact_id: d.contactId, liability_type: d.liabilityType, creditor_name: d.creditorName.trim() || null, monthly_payment: d.monthlyPayment ?? 0 }).select('id'))
+        await run('Adding a debt', db().from('liabilities').insert({ loan_id: loanId, contact_id: d.contactId, liability_type: d.liabilityType, creditor_name: d.creditorName.trim() || null, monthly_payment: d.monthlyPayment ?? 0, to_be_paid_off: d.toBePaidOff, unpaid_balance: d.unpaidBalance }).select('id'))
       }
       for (const d of c.debts.update) {
-        await run('Saving a debt', db().from('liabilities').update({ contact_id: d.contactId, liability_type: d.liabilityType, creditor_name: d.creditorName.trim() || null, monthly_payment: d.monthlyPayment ?? 0 }).eq('id', d.id!).select('id'))
+        await run('Saving a debt', db().from('liabilities').update({ contact_id: d.contactId, liability_type: d.liabilityType, creditor_name: d.creditorName.trim() || null, monthly_payment: d.monthlyPayment ?? 0, to_be_paid_off: d.toBePaidOff, unpaid_balance: d.unpaidBalance }).eq('id', d.id!).select('id'))
       }
       if (c.debts.remove.length) await run('Removing a debt', db().from('liabilities').delete().in('id', c.debts.remove))
 
       for (const a of c.assets.insert) {
-        await run('Adding savings', db().from('assets').insert({ loan_id: loanId, contact_id: a.contactId, asset_type: a.assetType, institution_name: a.institutionName.trim() || null, amount: a.amount ?? 0 }).select('id'))
+        await run('Adding savings', db().from('assets').insert({ loan_id: loanId, contact_id: a.contactId, asset_type: a.assetType, institution_name: a.institutionName.trim() || null, amount: a.amount ?? 0, use_as: a.useAs }).select('id'))
       }
       for (const a of c.assets.update) {
-        await run('Saving savings', db().from('assets').update({ contact_id: a.contactId, asset_type: a.assetType, institution_name: a.institutionName.trim() || null, amount: a.amount ?? 0 }).eq('id', a.id!).select('id'))
+        await run('Saving savings', db().from('assets').update({ contact_id: a.contactId, asset_type: a.assetType, institution_name: a.institutionName.trim() || null, amount: a.amount ?? 0, use_as: a.useAs }).eq('id', a.id!).select('id'))
       }
       if (c.assets.remove.length) await run('Removing savings', db().from('assets').delete().in('id', c.assets.remove))
+
+      // Keep and rent stay retained (keep has no rent); sell marks the home pending sale.
+      for (const h of c.properties) {
+        await run('Saving a home', db().from('properties').update({ reo_disposition: h.plan === 'sell' ? 'pending_sale' : 'retain', monthly_rent: h.plan === 'keep' ? null : h.monthlyRent, estimated_value: h.estimatedValue, ...(h.plan === 'keep' ? { rental_income_method: 'lease' } : {}) }).eq('id', h.id).select('id'))
+      }
     },
     // Refresh even after a partial failure, so the screen shows what actually saved.
     onSettled: () => {
-      for (const key of [keys.loan(loanId), keys.application(loanId), keys.pipeline]) queryClient.invalidateQueries({ queryKey: key })
+      for (const key of [keys.loan(loanId), keys.application(loanId), keys.properties(loanId), keys.pipeline]) queryClient.invalidateQueries({ queryKey: key })
     },
   })
 }

@@ -1,7 +1,15 @@
 import type { LoanDetails, LoanProfile, MortgageType, Property } from '@/lib/api/types'
 import type { Application } from '@/lib/api/urla'
 import {
+  assetDepletionIncome,
   computeScenario,
+  DEFAULT_SELLING_COST_PCT,
+  fundsByUse,
+  reservesAfterClosing,
+  saleProceeds,
+  type AssetUse,
+  type FundsByUse,
+  type Reserves,
   DEFAULT_DOWN_PCT,
   dti,
   employmentMonthlyIncome,
@@ -64,8 +72,9 @@ export interface QuickDebt {
   liabilityType: LiabilityType
   creditorName: string
   monthlyPayment: number | null
-  /** Debts being paid off at closing don't count (kept from the 1003). */
+  /** Paid off at closing: the payment stops counting and the balance is due at closing. */
   toBePaidOff: boolean
+  unpaidBalance: number | null
 }
 
 export interface QuickAsset {
@@ -75,6 +84,24 @@ export interface QuickAsset {
   assetType: AssetType
   institutionName: string
   amount: number | null
+  useAs: AssetUse
+}
+
+/** What happens to a home they already own: keep it, rent it out, or sell it. */
+export type PropertyPlan = 'keep' | 'rent' | 'sell'
+
+export interface QuickProperty {
+  key: string
+  id: string
+  addressLine: string
+  plan: PropertyPlan
+  /** Gross monthly rent (rent plan). */
+  monthlyRent: number | null
+  estimatedValue: number | null
+  /** Selling costs for the sell plan (not saved; defaults to 8%). */
+  sellingCostPct: number
+  /** The saved property, for its mortgages, taxes, insurance and HOA. */
+  saved: Property
 }
 
 export interface PrequalLoan {
@@ -101,6 +128,8 @@ export interface PrequalDraft {
   borrowers: QuickBorrower[]
   debts: QuickDebt[]
   assets: QuickAsset[]
+  /** Homes they own (other than the subject), with a keep / rent / sell plan. */
+  properties: QuickProperty[]
 }
 
 const keyed = (prefix: string, id: string) => `${prefix}-${id}`
@@ -110,7 +139,8 @@ const keyed = (prefix: string, id: string) => `${prefix}-${id}`
  * suggestions (conventional, 30 years, DFW tax and insurance estimates);
  * without it, the draft is exactly what's saved, for comparing at Save.
  */
-export function draftFrom(loan: LoanProfile, app: Application, subject: Property | null, suggest = true): PrequalDraft {
+export function draftFrom(loan: LoanProfile, app: Application, properties: Property[], suggest = true): PrequalDraft {
+  const subject = properties.find((p) => p.id === loan.details.subjectPropertyId) ?? null
   const d = loan.details
   const mortgageType = d.mortgageType ?? (suggest ? 'conventional' : null)
   const hasDeal = d.purchasePrice !== null && d.loanAmount !== null && d.purchasePrice > 0
@@ -152,10 +182,40 @@ export function draftFrom(loan: LoanProfile, app: Application, subject: Property
       creditorName: l.creditorName ?? '',
       monthlyPayment: l.monthlyPayment,
       toBePaidOff: l.toBePaidOff,
+      unpaidBalance: l.unpaidBalance,
     })),
-    assets: app.assets.map((a) => ({ key: keyed('asset', a.id), id: a.id, contactId: a.contactId, assetType: a.assetType, institutionName: a.institutionName ?? '', amount: a.amount })),
+    assets: app.assets.map((a) => ({ key: keyed('asset', a.id), id: a.id, contactId: a.contactId, assetType: a.assetType, institutionName: a.institutionName ?? '', amount: a.amount, useAs: a.useAs })),
+    properties: planProperties(properties, subject),
   }
 }
+
+/** Owned homes that need a plan: not the subject property and not already sold. */
+function planProperties(properties: Property[], subject: Property | null): QuickProperty[] {
+  return ownedProperties(properties)
+    .filter((p) => p.id !== subject?.id && p.reoDisposition !== 'sold')
+    .map((p) => ({
+      key: keyed('home', p.id),
+      id: p.id,
+      addressLine: p.addressLine,
+      plan: p.reoDisposition === 'pending_sale' ? 'sell' : p.monthlyRent || p.rentalIncomeMethod === 'schedule_e' ? 'rent' : 'keep',
+      monthlyRent: p.monthlyRent,
+      estimatedValue: p.estimatedValue,
+      sellingCostPct: DEFAULT_SELLING_COST_PCT,
+      saved: p,
+    }))
+}
+
+/** Net monthly result of keeping or renting a home (a loss counts as debt). Null for the sell plan. */
+export function propertyMonthly(h: QuickProperty): number | null {
+  if (h.plan === 'sell') return null
+  return h.plan === 'rent'
+    ? propertyNetRental({ ...h.saved, monthlyRent: h.monthlyRent })
+    : propertyNetRental({ ...h.saved, monthlyRent: null, rentalIncomeMethod: 'lease' })
+}
+
+/** Net proceeds of selling a home (sell plan only). */
+export const propertyProceeds = (h: QuickProperty) =>
+  h.plan === 'sell' ? saleProceeds(h.estimatedValue, h.saved.liens.map((l) => l.balance ?? 0), h.sellingCostPct) : null
 
 /** The base loan amount: from price and down payment on a purchase, as entered otherwise. */
 export function draftLoanAmount(isPurchase: boolean, l: PrequalLoan): number | null {
@@ -193,8 +253,22 @@ export interface PrequalSummary {
   otherDebts: number
   dti: DtiResult
   max: MaxPurchaseResult | null
+  /** Max price at 43%, 45% and 50% DTI (purchase only). */
+  buyingPower: { dtiPct: number; price: number | null }[]
+  depletionIncome: number
   cash: CashToCloseEstimate | null
+  /** Balances of debts paid off at closing. */
+  payoffs: number
+  /** Down payment, closing costs and payoffs together. */
+  cashNeeded: number | null
+  /** Savings by use, and net proceeds from homes being sold. */
+  savings: FundsByUse
+  saleProceeds: number
+  /** Money available for closing: down payment accounts plus sale proceeds (null when nothing is entered). */
   funds: number | null
+  reserves: Reserves | null
+  /** Down payment that uses every available dollar after closing costs and payoffs (purchase only). */
+  useAllDownPayment: number | null
   /** Lowest estimated score among the borrowers. */
   creditScore: number | null
   checks: PrequalCheck[]
@@ -213,21 +287,20 @@ export function prequalSummary(loan: LoanProfile, draft: PrequalDraft, propertie
   const borrowerIncomes = draft.borrowers.map((b) =>
     round(b.jobs.reduce((s, j) => s + (j.monthly ?? 0) + j.otherPay, 0) + b.otherIncomes.reduce((s, i) => s + (i.monthly ?? 0), 0)),
   )
-  const rentalNets = ownedProperties(properties)
-    .filter((p) => p.id !== loan.details.subjectPropertyId && p.reoDisposition === 'retain')
-    .map(propertyNetRental)
+  const rentalNets = draft.properties.map(propertyMonthly).filter((n): n is number => n !== null)
   const rentalIncome = round(rentalNets.filter((n) => n > 0).reduce((s, n) => s + n, 0))
   const rentalLoss = round(rentalNets.filter((n) => n < 0).reduce((s, n) => s - n, 0))
-  const totalIncome = round(borrowerIncomes.reduce((s, n) => s + n, 0) + rentalIncome)
+  const depletionIncome = assetDepletionIncome(draft.assets)
+  const totalIncome = round(borrowerIncomes.reduce((s, n) => s + n, 0) + rentalIncome + depletionIncome)
   const otherDebts = round(draft.debts.filter((d) => !d.toBePaidOff).reduce((s, d) => s + (d.monthlyPayment ?? 0), 0) + rentalLoss)
   const ratios = housing !== null ? dti(housing, otherDebts, totalIncome) : { front: null, back: null }
 
-  const max =
+  const maxAt = (maxDtiPct: number) =>
     isPurchase && l.noteRate !== null && l.termMonths
       ? maxPurchasePrice({
           monthlyIncome: totalIncome,
           otherMonthlyDebts: otherDebts,
-          maxDtiPct: l.maxDtiPct,
+          maxDtiPct,
           downPayment: l.downPaymentMode === 'percent' ? { kind: 'percent', pct: l.downPaymentPct ?? 0 } : { kind: 'amount', amount: l.downPaymentAmount ?? 0 },
           noteRatePct: l.noteRate,
           termMonths: l.termMonths,
@@ -239,10 +312,18 @@ export function prequalSummary(loan: LoanProfile, draft: PrequalDraft, propertie
           upfrontFeePct: l.upfrontFeePct,
         })
       : null
+  const max = maxAt(l.maxDtiPct)
+  const buyingPower = isPurchase ? [43, 45, 50].map((dtiPct) => ({ dtiPct, price: maxAt(dtiPct)?.price ?? null })) : []
 
   const cash = isPurchase && l.purchasePrice && loanAmount !== null ? estimatedCashToClose(l.purchasePrice, loanAmount, loan.details.estimatedClosingCosts) : null
-  const enteredAssets = draft.assets.filter((a) => a.amount !== null)
-  const funds = enteredAssets.length ? round(enteredAssets.reduce((s, a) => s + (a.amount ?? 0), 0)) : null
+  const payoffs = round(draft.debts.filter((d) => d.toBePaidOff).reduce((s, d) => s + (d.unpaidBalance ?? 0), 0))
+  const cashNeeded = cash ? round(cash.total + payoffs) : payoffs > 0 ? payoffs : null
+  const savings = fundsByUse(draft.assets)
+  const proceeds = round(draft.properties.map(propertyProceeds).reduce<number>((s, p) => s + Math.max(p ?? 0, 0), 0))
+  const anyFunds = draft.assets.some((a) => a.amount !== null && a.useAs === 'down_payment') || proceeds > 0
+  const funds = anyFunds ? round(savings.downPayment + proceeds) : null
+  const reserves = funds !== null || savings.reserves > 0 ? reservesAfterClosing(funds ?? 0, cashNeeded ?? 0, savings.reserves, housing) : null
+  const useAllDownPayment = isPurchase && cash && funds !== null ? round(Math.max(funds - cash.closingCosts - payoffs, 0)) : null
   const scores = draft.borrowers.map((b) => b.creditScore).filter((s): s is number => s !== null)
   const creditScore = scores.length ? Math.min(...scores) : null
 
@@ -256,8 +337,16 @@ export function prequalSummary(loan: LoanProfile, draft: PrequalDraft, propertie
     otherDebts,
     dti: ratios,
     max,
+    buyingPower,
+    depletionIncome,
     cash,
+    payoffs,
+    cashNeeded,
+    savings,
+    saleProceeds: proceeds,
     funds,
+    reserves,
+    useAllDownPayment,
     creditScore,
     checks: prequalChecks({
       mortgageType: l.mortgageType,
@@ -265,7 +354,7 @@ export function prequalSummary(loan: LoanProfile, draft: PrequalDraft, propertie
       ltvPct: scenario.ltv,
       backDtiPct: ratios.back,
       maxDtiPct: l.maxDtiPct,
-      cashNeeded: cash?.total ?? null,
+      cashNeeded,
       funds,
       isPurchase,
     }),
@@ -290,6 +379,8 @@ export interface PrequalChanges {
   otherIncomes: RowChanges<QuickOtherIncome & { contactId: string }>
   debts: RowChanges<QuickDebt>
   assets: RowChanges<QuickAsset>
+  /** Homes whose plan, rent or value changed. */
+  properties: QuickProperty[]
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
@@ -320,12 +411,17 @@ export function prequalChanges(isPurchase: boolean, saved: PrequalDraft, draft: 
     otherIncomes: rowChanges(withContact(saved.borrowers, (b) => b.otherIncomes), withContact(draft.borrowers, (b) => b.otherIncomes), (i) => i.monthly === null),
     debts: rowChanges(saved.debts, draft.debts, (d) => d.monthlyPayment === null),
     assets: rowChanges(saved.assets, draft.assets, (a) => a.amount === null),
+    properties: draft.properties.filter((h) => {
+      const before = saved.properties.find((x) => x.key === h.key)
+      return !before || before.plan !== h.plan || before.monthlyRent !== h.monthlyRent || before.estimatedValue !== h.estimatedValue
+    }),
   }
 }
 
 export const hasChanges = (c: PrequalChanges) =>
   Object.keys(c.loan).length > 0 ||
   c.scores.length > 0 ||
+  c.properties.length > 0 ||
   [c.jobs, c.otherIncomes, c.debts, c.assets].some((r) => r.insert.length || r.update.length || r.remove.length)
 
 /**

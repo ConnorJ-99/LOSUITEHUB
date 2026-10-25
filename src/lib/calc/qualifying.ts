@@ -93,6 +93,8 @@ export interface QualifyingInput {
   debts: DebtLine[]
   /** Net rental results for other retained properties. */
   rentalNets: number[]
+  /** Loan-level income not tied to one borrower, such as asset depletion. */
+  otherIncome?: number
 }
 
 export interface QualifyingResult {
@@ -109,7 +111,7 @@ export interface QualifyingResult {
 export function qualifying(input: QualifyingInput): QualifyingResult {
   const rentalGain = input.rentalNets.filter((n) => n > 0).reduce((s, n) => s + n, 0)
   const rentalLoss = input.rentalNets.filter((n) => n < 0).reduce((s, n) => s - n, 0)
-  const totalIncome = round(input.borrowerIncomes.reduce((s, n) => s + n, 0) + rentalGain)
+  const totalIncome = round(input.borrowerIncomes.reduce((s, n) => s + n, 0) + rentalGain + (input.otherIncome ?? 0))
   const otherDebts = round(monthlyDebtPayments(input.debts) + rentalLoss)
   return { totalIncome, otherDebts, dti: dti(input.housingPayment, otherDebts, totalIncome) }
 }

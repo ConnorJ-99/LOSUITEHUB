@@ -5,8 +5,9 @@ import { Card, CurrencyInput, FormGrid, Input, NumberInput, PercentInput, Select
 import { SubHeading } from '@/components/urla/parts'
 import type { MortgageType, Property } from '@/lib/api/types'
 import { formatCurrency, formatPercent } from '@/lib/format'
-import { changeLoanType, type PrequalLoan, type PrequalSummary, type QuickAsset, type QuickBorrower, type QuickDebt } from '@/lib/prequal/draft'
-import { ASSET_OPTIONS, LIABILITY_OPTIONS, OTHER_INCOME_OPTIONS, type AssetType, type LiabilityType } from '@/lib/urla/options'
+import { changeLoanType, propertyMonthly, propertyProceeds, type PrequalLoan, type PrequalSummary, type PropertyPlan, type QuickAsset, type QuickBorrower, type QuickDebt, type QuickProperty } from '@/lib/prequal/draft'
+import { ASSET_OPTIONS, ASSET_USE_OPTIONS, LIABILITY_OPTIONS, OTHER_INCOME_OPTIONS, type AssetType, type LiabilityType } from '@/lib/urla/options'
+import { DEPLETION_MONTHS, depletionEligiblePct, round } from '@/lib/calc'
 import { DEFAULT_DTI_LABELS, LOAN_TYPES, newKey, TERMS } from './options'
 
 /** A row of fields with a remove button, used for jobs, income, debts and savings. */
@@ -70,6 +71,15 @@ export function LoanSection({
                     <ToggleChip label="$" pressed={loan.downPaymentMode === 'amount'} onChange={() => onChange({ ...loan, downPaymentMode: 'amount', downPaymentAmount: summary.scenario.downPayment?.amount ?? loan.downPaymentAmount })} />
                   </ToggleChipGroup>
                 </div>
+                {summary.useAllDownPayment !== null && summary.useAllDownPayment !== summary.scenario.downPayment?.amount && (
+                  <button
+                    type="button"
+                    className="self-start text-xs font-medium text-primary hover:underline"
+                    onClick={() => onChange({ ...loan, downPaymentMode: 'amount', downPaymentAmount: summary.useAllDownPayment })}
+                  >
+                    Use all available: {formatCurrency(summary.useAllDownPayment)} down
+                  </button>
+                )}
               </div>
               <CurrencyInput label="Loan amount" value={summary.loanAmount} readOnly span={1} hint={summary.scenario.ltv !== null ? `${formatPercent(summary.scenario.ltv, 2)} LTV` : undefined} />
             </>
@@ -221,7 +231,11 @@ export function DebtsSection({ debts, borrowers, onChange }: { debts: QuickDebt[
               <Select label="Type" value={d.liabilityType} options={choices(LIABILITY_OPTIONS, COMMON_DEBTS, d.liabilityType)} onChange={(liabilityType) => set(d.key, { liabilityType })} span={2} />
               <Input label="Creditor" value={d.creditorName} onChange={(creditorName) => set(d.key, { creditorName })} span={owners.length > 1 ? 1 : 2} />
               {owners.length > 1 && <Select label="Whose" value={d.contactId} options={owners} onChange={(contactId) => set(d.key, { contactId })} span={1} />}
-              <CurrencyInput label="Payment / mo" value={d.monthlyPayment} onChange={(monthlyPayment) => set(d.key, { monthlyPayment })} hint={d.toBePaidOff ? 'Paid off at closing (not counted)' : undefined} span={2} />
+              <CurrencyInput label="Payment / mo" value={d.monthlyPayment} onChange={(monthlyPayment) => set(d.key, { monthlyPayment })} hint={d.toBePaidOff ? 'Not counted: paid off at closing' : undefined} span={2} />
+              <CurrencyInput label="Balance" value={d.unpaidBalance} onChange={(unpaidBalance) => set(d.key, { unpaidBalance })} hint={d.toBePaidOff ? 'Due at closing' : undefined} span={2} />
+              <div className="flex items-end pb-1 sm:col-span-2 lg:col-span-4">
+                <ToggleChip label="Pay off at closing" pressed={d.toBePaidOff} onChange={(toBePaidOff) => set(d.key, { toBePaidOff })} />
+              </div>
             </Row>
           ))}
         </div>
@@ -231,7 +245,7 @@ export function DebtsSection({ debts, borrowers, onChange }: { debts: QuickDebt[
               key={p.label}
               size="sm"
               variant="outline"
-              onClick={() => onChange([...debts, { key: newKey(), id: null, contactId: borrowers[0].contactId, liabilityType: p.type, creditorName: p.name, monthlyPayment: null, toBePaidOff: false }])}
+              onClick={() => onChange([...debts, { key: newKey(), id: null, contactId: borrowers[0].contactId, liabilityType: p.type, creditorName: p.name, monthlyPayment: null, toBePaidOff: false, unpaidBalance: null }])}
             >
               <PlusIcon />
               {p.label}
@@ -249,7 +263,7 @@ export function SavingsSection({ assets, borrowers, onChange }: { assets: QuickA
   const set = (key: string, changes: Partial<QuickAsset>) => onChange(assets.map((a) => (a.key === key ? { ...a, ...changes } : a)))
   const owners = borrowers.map((b) => ({ value: b.contactId, label: b.firstName || 'Borrower' }))
   return (
-    <Card title="Savings for closing" description="Money available for the down payment and closing costs.">
+    <Card title="Savings" description="Down payment and closing money, retirement used for asset-depletion income, and reserves.">
       <div className="space-y-4">
         {assets.length === 0 && <p className="text-sm text-muted-foreground">Nothing entered yet.</p>}
         <div className="space-y-3">
@@ -259,14 +273,77 @@ export function SavingsSection({ assets, borrowers, onChange }: { assets: QuickA
               <Input label="Bank" value={a.institutionName} onChange={(institutionName) => set(a.key, { institutionName })} span={owners.length > 1 ? 1 : 2} />
               {owners.length > 1 && <Select label="Whose" value={a.contactId} options={owners} onChange={(contactId) => set(a.key, { contactId })} span={1} />}
               <CurrencyInput label="Amount" value={a.amount} onChange={(amount) => set(a.key, { amount })} span={2} />
+              <Select
+                label="Use as"
+                value={a.useAs}
+                options={ASSET_USE_OPTIONS}
+                onChange={(useAs) => set(a.key, { useAs })}
+                hint={a.useAs === 'depletion' ? `${depletionEligiblePct(a.assetType)}% ÷ ${DEPLETION_MONTHS} months = ${formatCurrency(round(((a.amount ?? 0) * depletionEligiblePct(a.assetType)) / 100 / DEPLETION_MONTHS))}/mo income` : undefined}
+                span={3}
+              />
             </Row>
           ))}
         </div>
-        <Button size="sm" variant="outline" onClick={() => onChange([...assets, { key: newKey(), id: null, contactId: borrowers[0].contactId, assetType: 'checking', institutionName: '', amount: null }])}>
+        <Button size="sm" variant="outline" onClick={() => onChange([...assets, { key: newKey(), id: null, contactId: borrowers[0].contactId, assetType: 'checking', institutionName: '', amount: null, useAs: 'down_payment' }])}>
           <PlusIcon />
           Account
         </Button>
       </div>
+    </Card>
+  )
+}
+
+const PLANS: { value: PropertyPlan; label: string }[] = [
+  { value: 'keep', label: 'Keep' },
+  { value: 'rent', label: 'Rent out' },
+  { value: 'sell', label: 'Sell' },
+]
+
+/** Homes they already own: keep (payment counts as debt), rent out (75% of rent less the payment), or sell (proceeds count toward closing). */
+export function HomesSection({ homes, onChange }: { homes: QuickProperty[]; onChange: (next: QuickProperty[]) => void }) {
+  const set = (key: string, changes: Partial<QuickProperty>) => onChange(homes.map((h) => (h.key === key ? { ...h, ...changes } : h)))
+  return (
+    <Card title="Homes they own" description="Add or edit owned homes and their mortgages on the 1003 (section 3).">
+      {homes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No other homes on the 1003.</p>
+      ) : (
+        <div className="space-y-4">
+          {homes.map((h) => {
+            const monthly = propertyMonthly(h)
+            const proceeds = propertyProceeds(h)
+            return (
+              <div key={h.key} className="space-y-3 border-t pt-3 first:border-t-0 first:pt-0">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium">{h.addressLine}</p>
+                  <ToggleChipGroup>
+                    {PLANS.map((p) => (
+                      <ToggleChip key={p.value} label={p.label} pressed={h.plan === p.value} onChange={() => set(h.key, { plan: p.value })} />
+                    ))}
+                  </ToggleChipGroup>
+                </div>
+                <FormGrid>
+                  {h.plan === 'rent' && <CurrencyInput label="Monthly rent" value={h.monthlyRent} onChange={(monthlyRent) => set(h.key, { monthlyRent })} span={2} hint="75% is counted" />}
+                  {h.plan === 'sell' && (
+                    <>
+                      <CurrencyInput label="Value" value={h.estimatedValue} onChange={(estimatedValue) => set(h.key, { estimatedValue })} span={2} />
+                      <PercentInput label="Selling costs" value={h.sellingCostPct} onChange={(v) => set(h.key, { sellingCostPct: v ?? 0 })} maxDecimals={2} span={2} />
+                    </>
+                  )}
+                </FormGrid>
+                <p className={proceeds !== null ? (proceeds < 0 ? 'text-sm text-destructive' : 'text-sm text-emerald-700') : monthly! < 0 ? 'text-sm text-destructive' : 'text-sm text-emerald-700'}>
+                  {proceeds !== null
+                    ? proceeds < 0
+                      ? `Selling costs ${formatCurrency(-proceeds)} more than the equity`
+                      : `+${formatCurrency(proceeds)} proceeds toward closing`
+                    : monthly! < 0
+                      ? `${formatCurrency(monthly)}/mo counted as debt`
+                      : `+${formatCurrency(monthly)}/mo rental income`}
+                </p>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </Card>
   )
 }

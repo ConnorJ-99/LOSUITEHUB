@@ -7,6 +7,7 @@ import { formatCurrency } from '@/lib/format'
 import { fullName } from '@/lib/pipeline/helpers'
 import {
   ASSET_OPTIONS,
+  ASSET_USE_OPTIONS,
   GIFT_SOURCE_OPTIONS,
   isExpenseLiability,
   isGift,
@@ -66,7 +67,7 @@ type AssetForm = Omit<Asset, 'id' | 'loanId' | 'assetType' | 'amount'> & { asset
 function AssetDialog({ loanId, organizationId, borrowers, asset, onClose }: { loanId: string; organizationId: string; borrowers: ApplicationBorrower[]; asset: Asset | null; onClose: () => void }) {
   const save = useSaveRow(loanId, organizationId, 'assets')
   const [form, setForm] = useState<AssetForm>(() =>
-    asset ?? { contactId: borrowers[0].contactId, isJoint: false, assetType: null, institutionName: null, accountLast4: null, amount: null, giftSource: null, giftDeposited: null, description: null },
+    asset ?? { contactId: borrowers[0].contactId, isJoint: false, assetType: null, institutionName: null, accountLast4: null, amount: null, giftSource: null, giftDeposited: null, description: null, useAs: 'down_payment' },
   )
   const set = <K extends keyof typeof form>(key: K) => (value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
   const gift = form.assetType ? isGift(form.assetType) : false
@@ -85,6 +86,7 @@ function AssetDialog({ loanId, organizationId, borrowers, asset, onClose }: { lo
       <OwnerFields borrowers={borrowers} contactId={form.contactId} isJoint={form.isJoint} onContact={set('contactId')} onJoint={set('isJoint')} />
       <FormGrid className="lg:grid-cols-4">
         <Select label="Type" value={form.assetType} onChange={set('assetType')} options={ASSET_OPTIONS} required span={2} />
+        <Select label="Use as" value={form.useAs} onChange={set('useAs')} options={ASSET_USE_OPTIONS} span={2} />
         <CurrencyInput label={gift ? 'Gift / grant amount' : 'Cash or market value'} value={form.amount} onChange={set('amount')} required span={2} />
         {gift ? (
           <Select<GiftSource> label="Source" value={form.giftSource} onChange={set('giftSource')} options={GIFT_SOURCE_OPTIONS} span={2} />

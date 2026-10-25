@@ -1,6 +1,8 @@
 // Answer lists for the 1003 (URLA). Values match the Postgres enums in
 // supabase/migrations/20261027000000_urla.sql.
 
+import type { AssetUse } from '@/lib/calc'
+
 export type Citizenship = 'us_citizen' | 'permanent_resident_alien' | 'non_permanent_resident_alien'
 export type MaritalStatus = 'married' | 'separated' | 'unmarried'
 export type AddressKind = 'current' | 'former' | 'mailing'
@@ -112,6 +114,12 @@ export const ASSET_GROUPS = [
 ] as const
 export type AssetType = (typeof ASSET_GROUPS)[number]['options'][number]['value']
 export const ASSET_OPTIONS: readonly { value: AssetType; label: string }[] = ASSET_GROUPS.flatMap((g) => [...g.options] as { value: AssetType; label: string }[])
+export const ASSET_USE_OPTIONS = [
+  { value: 'down_payment', label: 'Down payment and closing' },
+  { value: 'depletion', label: 'Asset-depletion income' },
+  { value: 'reserves', label: 'Reserves only' },
+] as const satisfies readonly { value: AssetUse; label: string }[]
+
 export const isGift = (t: AssetType) => t === 'gift_cash' || t === 'gift_equity' || t === 'grant'
 
 export const GIFT_SOURCE_OPTIONS = [

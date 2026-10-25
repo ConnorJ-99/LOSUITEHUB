@@ -1,6 +1,6 @@
 import type { LoanDetails, LoanProfile, Property } from '@/lib/api/types'
 import type { Application } from '@/lib/api/urla'
-import { borrowerMonthlyIncome, computeScenario, proposedHousingPayment, qualifying, type LoanPurposeKind, type QualifyingResult, type ScenarioInput, type ScenarioResult } from '@/lib/calc'
+import { assetDepletionIncome, borrowerMonthlyIncome, computeScenario, proposedHousingPayment, qualifying, type LoanPurposeKind, type QualifyingResult, type ScenarioInput, type ScenarioResult } from '@/lib/calc'
 import { ownedProperties, propertyNetRental } from './realEstate'
 
 export type ScenarioDetails = Pick<
@@ -33,6 +33,8 @@ export interface ApplicationSummary {
   housing: number | null
   /** Each borrower's monthly income from the 1003, in borrower order. */
   borrowerIncomes: number[]
+  /** Asset-depletion income from accounts marked for it (all borrowers). */
+  depletionIncome: number
   qualifying: QualifyingResult
 }
 
@@ -47,12 +49,14 @@ export function applicationSummary(loan: LoanProfile, app: Application, properti
     .filter((p) => p.id !== loan.details.subjectPropertyId && p.reoDisposition === 'retain')
     .map(propertyNetRental)
   const borrowerIncomes = app.borrowers.map((b) => borrowerMonthlyIncome(b.employments, b.otherIncomes.map((i) => i.monthlyAmount)).total)
+  const depletionIncome = assetDepletionIncome(app.assets)
   return {
     subject,
     isPurchase,
     scenario,
     housing,
     borrowerIncomes,
-    qualifying: qualifying({ borrowerIncomes, housingPayment: housing ?? 0, debts: app.liabilities, rentalNets }),
+    depletionIncome,
+    qualifying: qualifying({ borrowerIncomes, housingPayment: housing ?? 0, debts: app.liabilities, rentalNets, otherIncome: depletionIncome }),
   }
 }

@@ -22,7 +22,8 @@ export interface ImportedBorrower {
 }
 
 /** Owners are indexes into `borrowers`; more than one means joint. */
-export type ImportedAsset = Omit<Asset, 'id' | 'loanId' | 'contactId' | 'isJoint'> & { owners: number[] }
+// How an account is used (down payment, depletion, reserves) is LOSuite-only; imports keep the default.
+export type ImportedAsset = Omit<Asset, 'id' | 'loanId' | 'contactId' | 'isJoint' | 'useAs'> & { owners: number[] }
 export type ImportedLiability = Omit<Liability, 'id' | 'loanId' | 'contactId' | 'isJoint'> & { owners: number[] }
 
 export interface ImportedLien {

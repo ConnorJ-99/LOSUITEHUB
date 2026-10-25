@@ -62,6 +62,14 @@ export function PrequalResults({
                 <p className="text-xs text-muted-foreground">
                   {formatCurrency(s.max.payment.total)}/mo payment at {formatPercent(loan.maxDtiPct)} DTI, {formatCurrency(s.max.downPayment)} down
                 </p>
+                <div className="grid grid-cols-3 gap-2 pt-1">
+                  {s.buyingPower.map((b) => (
+                    <div key={b.dtiPct} className={cn('rounded-md border px-2 py-1.5 text-center', b.dtiPct === loan.maxDtiPct && 'border-primary bg-primary/5')}>
+                      <p className="text-[0.7rem] text-muted-foreground">{b.dtiPct}% DTI</p>
+                      <p className="text-sm font-medium tabular-nums">{b.price === null ? '—' : formatCurrency(b.price)}</p>
+                    </div>
+                  ))}
+                </div>
                 {loan.purchasePrice !== s.max.price && (
                   <Button size="sm" variant="outline" onClick={() => onUsePrice(s.max!.price)}>
                     Use this price
@@ -86,6 +94,11 @@ export function PrequalResults({
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
             <dt className="text-muted-foreground">Income / mo</dt>
             <dd className="text-right tabular-nums">{formatCurrency(s.totalIncome)}</dd>
+            {(s.rentalIncome > 0 || s.depletionIncome > 0) && (
+              <dd className="col-span-2 -mt-1 text-xs text-muted-foreground">
+                {[s.rentalIncome > 0 && `${formatCurrency(s.rentalIncome)} rental`, s.depletionIncome > 0 && `${formatCurrency(s.depletionIncome)} asset depletion`].filter(Boolean).join(' + ')} included
+              </dd>
+            )}
             <dt className="text-muted-foreground">Debts / mo</dt>
             <dd className="text-right tabular-nums">{formatCurrency(s.otherDebts)}</dd>
             <dt className="text-muted-foreground">DTI (housing / total)</dt>
@@ -95,9 +108,26 @@ export function PrequalResults({
             {s.cash && (
               <>
                 <dt className="text-muted-foreground">Cash to close</dt>
-                <dd className="text-right tabular-nums">{formatCurrency(s.cash.total)}</dd>
+                <dd className="text-right tabular-nums">{formatCurrency(s.cashNeeded ?? s.cash.total)}</dd>
                 <dd className="col-span-2 -mt-1 text-xs text-muted-foreground">
                   {formatCurrency(s.cash.downPayment)} down + {formatCurrency(s.cash.closingCosts)} closing costs{s.cash.closingCostsEstimated ? ' (est. 3%)' : ''}
+                  {s.payoffs > 0 && ` + ${formatCurrency(s.payoffs)} payoffs`}
+                </dd>
+              </>
+            )}
+            {s.funds !== null && (
+              <>
+                <dt className="text-muted-foreground">Funds for closing</dt>
+                <dd className="text-right tabular-nums">{formatCurrency(s.funds)}</dd>
+                {s.saleProceeds > 0 && <dd className="col-span-2 -mt-1 text-xs text-muted-foreground">Includes {formatCurrency(s.saleProceeds)} sale proceeds</dd>}
+              </>
+            )}
+            {s.reserves && (
+              <>
+                <dt className="text-muted-foreground">Reserves after closing</dt>
+                <dd className="text-right tabular-nums">
+                  {formatCurrency(s.reserves.amount)}
+                  {s.reserves.months !== null && <span className="text-muted-foreground"> · {s.reserves.months} mo</span>}
                 </dd>
               </>
             )}

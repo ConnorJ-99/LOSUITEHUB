@@ -101,7 +101,7 @@ The borrower profile adapts to the loan purpose. Shared core, with purpose-speci
 
 ## Must build (requested, not yet scheduled)
 
-- **Phone prequal tool**: built 2026-10-25 as the Prequal tab (see decisions log). Upgrades from the old app (buying power at 43/45/50%, payoff toggle, use-all-for-down, real estate keep/rent/sell, savings use-as and reserves) are next. See `docs/old-app-comparison.md` for the rest of the old app.
+- **Phone prequal tool**: built 2026-10-25 as the Prequal tab, with the old app's upgrades (buying power at 43/45/50%, payoff toggle, use-all-for-down, keep/rent/sell for owned homes, savings use-as, depletion income and reserves). See `docs/old-app-comparison.md` for the rest of the old app.
 
 ## Later (not now)
 
