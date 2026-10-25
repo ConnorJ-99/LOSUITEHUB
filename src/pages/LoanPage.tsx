@@ -10,16 +10,16 @@ import { useStageChanger } from '@/components/pipeline/useStageChanger'
 import { NotesTab } from '@/components/profile/NotesTab'
 import { OverviewTab } from '@/components/profile/OverviewTab'
 import { PropertiesTab } from '@/components/profile/PropertiesTab'
+import { UrlaTab } from '@/components/urla/UrlaTab'
 import { useLoan } from '@/lib/api/loans'
 import { daysSince, formatDaysInStage, fullName } from '@/lib/pipeline/helpers'
 import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 
-const TABS = ['overview', 'notes', 'properties'] as const
+const TABS = ['overview', 'notes', 'properties', '1003'] as const
 type Tab = (typeof TABS)[number]
 
 /** Tabs planned for later phases, shown greyed out so the layout is clear. */
 const LATER_TABS = [
-  { label: '1003', phase: 'Phase 3' },
   { label: 'Income', phase: 'Phase 4' },
   { label: 'Documents', phase: 'Phase 6' },
   { label: 'Loan Info', phase: 'Phase 5' },
@@ -104,6 +104,7 @@ export function LoanPage() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="notes">Notes</TabsTrigger>
             <TabsTrigger value="properties">Properties</TabsTrigger>
+            <TabsTrigger value="1003">1003</TabsTrigger>
             {LATER_TABS.map((t) => (
               <Tooltip key={t.label}>
                 <TooltipTrigger asChild>
@@ -124,6 +125,9 @@ export function LoanPage() {
         </TabsContent>
         <TabsContent value="properties">
           <PropertiesTab loan={data} />
+        </TabsContent>
+        <TabsContent value="1003">
+          <UrlaTab loan={data} />
         </TabsContent>
       </Tabs>
 

@@ -21,7 +21,7 @@ Runs the unit tests for the mortgage math in `src/lib/calc/`.
 
 1. Create a **separate dev project** at supabase.com (never use production).
 2. Copy `.env.example` to `.env.local` and paste in the dev project's URL and anon key (Project Settings → API).
-3. In the dev project's SQL Editor, run each file in `supabase/migrations/` in order (oldest first). Make sure no text is highlighted when you click Run, or only the highlighted part runs.
+3. In the dev project's SQL Editor, run each file in `supabase/migrations/` in order (oldest first). Make sure no text is highlighted when you click Run, or only the highlighted part runs. Newer scripts end with a confirmation row ("LOSuite … installed"); if you do not see it, the whole script did not run.
 4. Under Authentication → Users, add your user (email + password).
 5. Run `supabase/seed.sql` in the SQL Editor to create MPS Mortgage LLC and make you the owner. It is safe to run again.
 6. Restart `npm run dev` and sign in.
@@ -38,6 +38,8 @@ If the Phase 1 migration (`20261025000000_contacts_pipeline.sql`) fails partway,
 | `src/components/pipeline/`, `src/components/leads/` | Pipeline board/list, stage menu, New Lead and Edit forms |
 | `src/components/profile/` | Borrower profile tabs: Overview (purpose-aware), Notes, Properties, tasks |
 | `src/lib/dates.ts` | Due-date labels and "2 days ago" style times, with tests |
+| `src/components/urla/`, `src/lib/urla/`, `src/lib/api/urla.ts` | The 1003 tab: sections, answer lists and data |
+| `src/pages/SettingsPage.tsx` | Your profile and company details (used by 1003 section 9) |
 | `src/components/shared/` | Shared form and layout components every screen uses |
 | `src/components/ui/` | Raw shadcn/ui primitives (wrapped by `shared/`) |
 | `src/components/layout/` | App shell and sidebar |

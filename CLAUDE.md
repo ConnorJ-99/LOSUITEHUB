@@ -27,6 +27,17 @@ Arive remains the production LOS (disclosures, submission, underwriting). LOSuit
 7. Work in small phases. At the end of each phase: run tests, run the app, summarize what to click through, then commit.
 8. Before adding a new library, table or major pattern, explain why in one or two sentences and wait for approval.
 
+## Decisions log
+
+Choices Connor has approved. Follow them unless he changes them.
+
+- **No Social Security numbers, ever.** LOSuite does not store SSNs, including the last 4. The 1003 has no SSN field, MISMO export omits it (Connor adds it in Arive), and MISMO import discards any SSN in the file without saving it.
+- **Account numbers: last 4 digits only** for bank, investment and credit accounts.
+- **Notes belong to the person**, tagged with the loan they were written on.
+- **Values live in one place:** deal facts on `loans`, home facts on `properties`, existing mortgages on `property_liens`, person facts (identity, addresses, employment, other income) on the contact, application facts (assets, liabilities, declarations, demographics) on the loan.
+- **Phase 3 is split** into 3a (1003 data and tab), 3b (MISMO 3.4 export) and 3c (MISMO 3.4 import), each tested and committed separately.
+- **Every database script is safe to re-run and ends with a confirmation row** ("LOSuite … installed"). Connor pastes scripts into the Supabase SQL Editor, where highlighted text silently runs only part of a script and still says "Success". Test each script in PGlite (run twice, and a partial run followed by a full run) before handing it over.
+
 ## Core concepts
 
 ### Pipeline stages

@@ -61,13 +61,15 @@ export type LoanPurposeKind =
 export interface ExistingLien {
   position: 'first' | 'second'
   balance: number
+  /** Liens marked to be paid off at closing don't count toward CLTV. */
+  toBePaidOff?: boolean
 }
 
 /**
  * Which lien amounts count toward CLTV for a scenario.
  * - Purchase: just the new loan.
- * - Refinance: the new loan replaces the 1st lien; an existing 2nd stays.
- * - HELOC / HELOAN: the existing 1st stays and the new loan sits behind it.
+ * - Refinance: the new loan replaces the 1st lien; an existing 2nd stays unless it's being paid off.
+ * - HELOC / HELOAN: the existing 1st stays (unless paid off) and the new loan sits behind it.
  * - DSCR: treated as a purchase when there is a purchase price, else a refinance.
  */
 export function combinedLienAmounts(
@@ -76,8 +78,9 @@ export function combinedLienAmounts(
   liens: ExistingLien[],
   hasPurchasePrice = false,
 ): number[] {
-  const first = liens.filter((l) => l.position === 'first').map((l) => l.balance)
-  const seconds = liens.filter((l) => l.position === 'second').map((l) => l.balance)
+  const remaining = liens.filter((l) => !l.toBePaidOff)
+  const first = remaining.filter((l) => l.position === 'first').map((l) => l.balance)
+  const seconds = remaining.filter((l) => l.position === 'second').map((l) => l.balance)
   switch (purpose) {
     case 'purchase':
       return [loanAmount]

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dueLabel, formatIsoDate, relativeTime, todayIso } from './dates'
+import { dueLabel, formatIsoDate, joinMonths, relativeTime, splitMonths, todayIso } from './dates'
 
 describe('dates', () => {
   it('formats calendar dates without timezone drift', () => {
@@ -26,5 +26,16 @@ describe('dates', () => {
     expect(relativeTime(new Date(2026, 9, 24, 9, 0).toISOString(), now)).toBe('yesterday')
     expect(relativeTime(new Date(2026, 9, 21, 9, 0).toISOString(), now)).toBe('4 days ago')
     expect(relativeTime(new Date(2026, 8, 1, 9, 0).toISOString(), now)).toBe('Sep 1, 2026')
+  })
+})
+
+describe('years and months', () => {
+  it('splits and joins month counts', () => {
+    expect(splitMonths(30)).toEqual({ years: '2', months: '6' })
+    expect(splitMonths(null)).toEqual({ years: '', months: '' })
+    expect(joinMonths('2', '6')).toBe(30)
+    expect(joinMonths('', '')).toBeNull()
+    expect(joinMonths('1', '')).toBe(12)
+    expect(joinMonths('-3', 'x')).toBe(0)
   })
 })

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { db, keys, num, unwrap } from './client'
-import type { Lien, Property, PropertyStatus, PropertyType } from './types'
+import type { Lien, MortgageType, Occupancy, Property, PropertyStatus, PropertyType, ReoDisposition } from './types'
 
 interface LienRow {
   id: string
@@ -13,6 +13,9 @@ interface LienRow {
   is_heloc: boolean
   originated_on: string | null
   is_texas_cash_out: boolean
+  to_be_paid_off: boolean
+  credit_limit: number | string | null
+  mortgage_type: MortgageType | null
 }
 
 interface PropertyRow {
@@ -33,14 +36,17 @@ interface PropertyRow {
   monthly_rent: number | string | null
   is_homestead: boolean
   listing_url: string | null
+  unit_count: number | null
+  reo_disposition: ReoDisposition | null
+  reo_occupancy: Occupancy | null
   created_at: string
   liens: LienRow[]
 }
 
 const PROPERTY_SELECT = `
   id, loan_id, address_line, city, state, zip, county, property_type, status, list_price, estimated_value,
-  annual_taxes, annual_insurance, monthly_hoa, monthly_rent, is_homestead, listing_url, created_at,
-  liens:property_liens ( id, property_id, position, lender, balance, note_rate, monthly_payment, is_heloc, originated_on, is_texas_cash_out )
+  annual_taxes, annual_insurance, monthly_hoa, monthly_rent, is_homestead, listing_url, unit_count, reo_disposition, reo_occupancy, created_at,
+  liens:property_liens ( id, property_id, position, lender, balance, note_rate, monthly_payment, is_heloc, originated_on, is_texas_cash_out, to_be_paid_off, credit_limit, mortgage_type )
 `
 
 function toLien(r: LienRow): Lien {
@@ -55,6 +61,9 @@ function toLien(r: LienRow): Lien {
     isHeloc: r.is_heloc,
     originatedOn: r.originated_on,
     isTexasCashOut: r.is_texas_cash_out,
+    toBePaidOff: r.to_be_paid_off,
+    creditLimit: num(r.credit_limit),
+    mortgageType: r.mortgage_type,
   }
 }
 
@@ -77,6 +86,9 @@ function toProperty(r: PropertyRow): Property {
     monthlyRent: num(r.monthly_rent),
     isHomestead: r.is_homestead,
     listingUrl: r.listing_url,
+    unitCount: r.unit_count,
+    reoDisposition: r.reo_disposition,
+    reoOccupancy: r.reo_occupancy,
     createdAt: r.created_at,
     liens: r.liens.map(toLien).sort((a, b) => a.position.localeCompare(b.position)),
   }
@@ -114,6 +126,9 @@ function propertyRow(p: PropertyInput) {
     monthly_rent: p.monthlyRent,
     is_homestead: p.isHomestead,
     listing_url: p.listingUrl?.trim() || null,
+    unit_count: p.unitCount,
+    reo_disposition: p.reoDisposition,
+    reo_occupancy: p.reoOccupancy,
   }
 }
 
@@ -175,6 +190,9 @@ export function useSaveLien(loanId: string, organizationId: string) {
         is_heloc: l.isHeloc,
         originated_on: l.originatedOn || null,
         is_texas_cash_out: l.isTexasCashOut,
+        to_be_paid_off: l.toBePaidOff,
+        credit_limit: l.creditLimit,
+        mortgage_type: l.mortgageType,
       }
       if (id) {
         unwrap(await db().from('property_liens').update(row).eq('id', id).select('id'))

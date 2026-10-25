@@ -53,7 +53,11 @@ export interface ContactSummary extends Contact {
 }
 
 export type Occupancy = 'primary' | 'second_home' | 'investment'
-export type PropertyStatus = 'interested' | 'offer_made' | 'under_contract' | 'passed' | 'current_home'
+export type PropertyStatus = 'interested' | 'offer_made' | 'under_contract' | 'passed' | 'current_home' | 'owned'
+export type MortgageType = 'conventional' | 'fha' | 'va' | 'usda_rural' | 'other'
+export type AmortizationType = 'fixed' | 'arm'
+export type EstateType = 'fee_simple' | 'leasehold'
+export type ReoDisposition = 'retain' | 'pending_sale' | 'sold'
 export type PropertyType = 'single_family' | 'condo' | 'townhouse' | 'two_to_four_unit' | 'manufactured' | 'other'
 export type NoteKind = 'note' | 'call' | 'text' | 'email' | 'meeting'
 
@@ -72,6 +76,22 @@ export interface LoanDetails {
   vestingEntity: string | null
   financedPropertiesCount: number | null
   subjectPropertyId: string | null
+  // Lender loan information (1003 sections 4 and L)
+  mortgageType: MortgageType | null
+  amortizationType: AmortizationType
+  titleNames: string | null
+  titleManner: string | null
+  estateType: EstateType
+  hasBalloon: boolean
+  hasInterestOnly: boolean
+  hasNegativeAmortization: boolean
+  hasPrepaymentPenalty: boolean
+  improvementsAmount: number | null
+  estimatedClosingCosts: number | null
+  prepaidItemsAmount: number | null
+  discountPointsAmount: number | null
+  sellerCredits: number | null
+  lenderCredits: number | null
 }
 
 /** The full borrower profile for one loan. */
@@ -91,6 +111,9 @@ export interface Lien {
   isHeloc: boolean
   originatedOn: string | null
   isTexasCashOut: boolean
+  toBePaidOff: boolean
+  creditLimit: number | null
+  mortgageType: MortgageType | null
 }
 
 export interface Property {
@@ -111,6 +134,9 @@ export interface Property {
   monthlyRent: number | null
   isHomestead: boolean
   listingUrl: string | null
+  unitCount: number | null
+  reoDisposition: ReoDisposition | null
+  reoOccupancy: Occupancy | null
   createdAt: string
   liens: Lien[]
 }

@@ -65,6 +65,12 @@ describe('combinedLienAmounts', () => {
     expect(cltv(amounts, 500_000)).toBe(70)
   })
 
+  it('liens being paid off at closing drop out of CLTV', () => {
+    const payingOffSecond = [liens[0], { ...liens[1], toBePaidOff: true }]
+    expect(combinedLienAmounts('refinance_cash_out', 300_000, payingOffSecond)).toEqual([300_000])
+    expect(combinedLienAmounts('heloc', 100_000, [{ ...liens[0], toBePaidOff: true }])).toEqual([100_000])
+  })
+
   it('DSCR follows purchase or refinance depending on price', () => {
     expect(combinedLienAmounts('investment_dscr', 200_000, liens, true)).toEqual([200_000])
     expect(combinedLienAmounts('investment_dscr', 200_000, liens, false)).toEqual([200_000, 40_000])

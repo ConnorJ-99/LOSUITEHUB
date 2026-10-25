@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { CurrencyInput, DateInput, FormGrid, Input, PercentInput, Select, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { useSaveLien, type LienInput } from '@/lib/api/properties'
 import type { Lien } from '@/lib/api/types'
+import { MORTGAGE_TYPE_OPTIONS } from './options'
 
 const POSITION_OPTIONS = [
   { value: 'first', label: '1st lien' },
@@ -34,8 +35,32 @@ export function LienDialog({
   const save = useSaveLien(loanId, organizationId)
   const [form, setForm] = useState<LienInput>(() =>
     lien
-      ? { position: lien.position, lender: lien.lender, balance: lien.balance, noteRate: lien.noteRate, monthlyPayment: lien.monthlyPayment, isHeloc: lien.isHeloc, originatedOn: lien.originatedOn, isTexasCashOut: lien.isTexasCashOut }
-      : { position: takenPositions.includes('first') ? 'second' : 'first', lender: '', balance: null, noteRate: null, monthlyPayment: null, isHeloc: false, originatedOn: null, isTexasCashOut: false },
+      ? {
+          position: lien.position,
+          lender: lien.lender,
+          balance: lien.balance,
+          noteRate: lien.noteRate,
+          monthlyPayment: lien.monthlyPayment,
+          isHeloc: lien.isHeloc,
+          originatedOn: lien.originatedOn,
+          isTexasCashOut: lien.isTexasCashOut,
+          toBePaidOff: lien.toBePaidOff,
+          creditLimit: lien.creditLimit,
+          mortgageType: lien.mortgageType,
+        }
+      : {
+          position: takenPositions.includes('first') ? 'second' : 'first',
+          lender: '',
+          balance: null,
+          noteRate: null,
+          monthlyPayment: null,
+          isHeloc: false,
+          originatedOn: null,
+          isTexasCashOut: false,
+          toBePaidOff: false,
+          creditLimit: null,
+          mortgageType: null,
+        },
   )
   const set = <K extends keyof LienInput>(key: K) => (value: LienInput[K]) => setForm((f) => ({ ...f, [key]: value }))
   const positionTaken = takenPositions.includes(form.position)
@@ -77,10 +102,13 @@ export function LienDialog({
             <PercentInput label="Rate" value={form.noteRate} onChange={set('noteRate')} />
             <CurrencyInput label="Monthly P&I" value={form.monthlyPayment} onChange={set('monthlyPayment')} />
             <DateInput label="Originated / closed on" value={form.originatedOn} onChange={set('originatedOn')} span={2} />
+            <Select label="Mortgage type" value={form.mortgageType} onChange={set('mortgageType')} options={MORTGAGE_TYPE_OPTIONS} span={2} />
+            {form.isHeloc && <CurrencyInput label="Credit limit" value={form.creditLimit} onChange={set('creditLimit')} span={2} />}
           </FormGrid>
           <ToggleChipGroup>
             <ToggleChip label="HELOC" pressed={form.isHeloc} onChange={set('isHeloc')} />
             <ToggleChip label="Texas cash-out §50(a)(6)" pressed={form.isTexasCashOut} onChange={set('isTexasCashOut')} />
+            <ToggleChip label="Paid off at closing" pressed={form.toBePaidOff} onChange={set('toBePaidOff')} />
           </ToggleChipGroup>
           {form.isTexasCashOut && !form.originatedOn && (
             <p className="text-xs text-amber-700">Add the closing date so the 1-year seasoning check can run.</p>

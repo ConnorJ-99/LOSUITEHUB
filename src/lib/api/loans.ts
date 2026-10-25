@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
 import type { LoanPurpose, PipelineStage } from '@/lib/pipeline/stages'
 import { db, keys, num, unwrap } from './client'
-import type { Contact, LoanDetails, LoanProfile, Occupancy, OrgMember, PipelineLoan, StageHistoryEntry } from './types'
+import type { Contact, LoanDetails, LoanProfile, OrgMember, PipelineLoan, StageHistoryEntry } from './types'
 
 // ---------------------------------------------------------------------------
 // Row shapes returned by Supabase, and mappers to the app's types
@@ -35,26 +35,46 @@ const LOAN_SELECT = `
   borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, email, phone ) )
 `
 
-interface LoanProfileRow extends LoanRow {
-  organization_id: string
-  occupancy: Occupancy
-  purchase_price: number | string | null
-  loan_amount: number | string | null
-  note_rate: number | string | null
-  term_months: number | null
-  cash_out_amount: number | string | null
-  contract_date: string | null
-  option_end_date: string | null
-  closing_date: string | null
-  vesting_entity: string | null
-  financed_properties_count: number | null
-  subject_property_id: string | null
+/**
+ * Every deal-fact column on loans: [database column, is it numeric?].
+ * The profile query, the row conversion and the save all come from this list.
+ */
+const DETAIL_COLUMNS: Record<keyof LoanDetails, [string, boolean]> = {
+  occupancy: ['occupancy', false],
+  purchasePrice: ['purchase_price', true],
+  loanAmount: ['loan_amount', true],
+  noteRate: ['note_rate', true],
+  termMonths: ['term_months', true],
+  cashOutAmount: ['cash_out_amount', true],
+  contractDate: ['contract_date', false],
+  optionEndDate: ['option_end_date', false],
+  closingDate: ['closing_date', false],
+  vestingEntity: ['vesting_entity', false],
+  financedPropertiesCount: ['financed_properties_count', true],
+  subjectPropertyId: ['subject_property_id', false],
+  mortgageType: ['mortgage_type', false],
+  amortizationType: ['amortization_type', false],
+  titleNames: ['title_names', false],
+  titleManner: ['title_manner', false],
+  estateType: ['estate_type', false],
+  hasBalloon: ['has_balloon', false],
+  hasInterestOnly: ['has_interest_only', false],
+  hasNegativeAmortization: ['has_negative_amortization', false],
+  hasPrepaymentPenalty: ['has_prepayment_penalty', false],
+  improvementsAmount: ['improvements_amount', true],
+  estimatedClosingCosts: ['estimated_closing_costs', true],
+  prepaidItemsAmount: ['prepaid_items_amount', true],
+  discountPointsAmount: ['discount_points_amount', true],
+  sellerCredits: ['seller_credits', true],
+  lenderCredits: ['lender_credits', true],
 }
 
-const PROFILE_SELECT = `${LOAN_SELECT},
-  organization_id, occupancy, purchase_price, loan_amount, note_rate, term_months, cash_out_amount,
-  contract_date, option_end_date, closing_date, vesting_entity, financed_properties_count, subject_property_id
-`
+interface LoanProfileRow extends LoanRow {
+  organization_id: string
+  [column: string]: unknown
+}
+
+const PROFILE_SELECT = `${LOAN_SELECT}, organization_id, ${Object.values(DETAIL_COLUMNS).map(([c]) => c).join(', ')}`
 
 export function toContact(row: ContactRow): Contact {
   return { id: row.id, firstName: row.first_name, lastName: row.last_name, email: row.email, phone: row.phone }
@@ -97,24 +117,10 @@ export function usePipeline() {
 }
 
 function toProfile(row: LoanProfileRow): LoanProfile {
-  return {
-    ...toLoan(row),
-    organizationId: row.organization_id,
-    details: {
-      occupancy: row.occupancy,
-      purchasePrice: num(row.purchase_price),
-      loanAmount: num(row.loan_amount),
-      noteRate: num(row.note_rate),
-      termMonths: row.term_months,
-      cashOutAmount: num(row.cash_out_amount),
-      contractDate: row.contract_date,
-      optionEndDate: row.option_end_date,
-      closingDate: row.closing_date,
-      vestingEntity: row.vesting_entity,
-      financedPropertiesCount: row.financed_properties_count,
-      subjectPropertyId: row.subject_property_id,
-    },
-  }
+  const details = Object.fromEntries(
+    Object.entries(DETAIL_COLUMNS).map(([key, [column, numeric]]) => [key, numeric ? num(row[column]) : (row[column] ?? null)]),
+  ) as unknown as LoanDetails
+  return { ...toLoan(row), organizationId: row.organization_id, details }
 }
 
 /** One loan with its deal details, for the borrower profile. */
@@ -352,28 +358,13 @@ export function useUpdateLead() {
   })
 }
 
-const detailColumns: Record<keyof LoanDetails, string> = {
-  occupancy: 'occupancy',
-  purchasePrice: 'purchase_price',
-  loanAmount: 'loan_amount',
-  noteRate: 'note_rate',
-  termMonths: 'term_months',
-  cashOutAmount: 'cash_out_amount',
-  contractDate: 'contract_date',
-  optionEndDate: 'option_end_date',
-  closingDate: 'closing_date',
-  vestingEntity: 'vesting_entity',
-  financedPropertiesCount: 'financed_properties_count',
-  subjectPropertyId: 'subject_property_id',
-}
-
 /** Saves any of the loan's deal details. Every screen that edits these values goes through here. */
 export function useUpdateLoanDetails(loanId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (changes: Partial<LoanDetails>) => {
       const row = Object.fromEntries(
-        Object.entries(changes).map(([key, value]) => [detailColumns[key as keyof LoanDetails], value === '' ? null : value]),
+        Object.entries(changes).map(([key, value]) => [DETAIL_COLUMNS[key as keyof LoanDetails][0], value === '' ? null : value]),
       )
       const rows = unwrap<{ id: string }[]>(await db().from('loans').update(row).eq('id', loanId).select('id'))
       if (rows.length === 0) throw new Error('You do not have permission to edit this loan.')

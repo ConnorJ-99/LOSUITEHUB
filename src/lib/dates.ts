@@ -46,3 +46,15 @@ export function relativeTime(isoTimestamp: string, now: Date = new Date()): stri
   if (days < 7) return `${days} days ago`
   return monthDayYear.format(new Date(isoTimestamp))
 }
+
+/** A month count as separate years and months, for "time at address" style inputs. */
+export function splitMonths(total: number | null): { years: string; months: string } {
+  if (total === null || total === undefined) return { years: '', months: '' }
+  return { years: String(Math.floor(total / 12)), months: String(total % 12) }
+}
+
+/** Years + months inputs back to a single month count (null when both are blank). */
+export function joinMonths(years: string, months: string): number | null {
+  if (years.trim() === '' && months.trim() === '') return null
+  return Math.max(0, Math.floor(Number(years) || 0)) * 12 + Math.max(0, Math.floor(Number(months) || 0))
+}

@@ -25,9 +25,10 @@ export function SummaryBar({ items, action, className }: SummaryBarProps) {
       )}
     >
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <dl className="flex flex-1 flex-wrap gap-x-6 gap-y-2">
+        {/* One swipeable row on phones so the bar stays short; wraps on larger screens. */}
+        <dl className="-mx-4 flex min-w-0 flex-1 gap-x-5 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:gap-x-6 sm:gap-y-2 sm:overflow-visible sm:px-0">
           {items.map((item) => (
-            <div key={item.label} className="min-w-20">
+            <div key={item.label} className="min-w-20 shrink-0">
               <dt className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{item.label}</dt>
               <dd className={cn('text-sm font-semibold tabular-nums', item.warning && 'text-destructive')}>
                 {item.value}

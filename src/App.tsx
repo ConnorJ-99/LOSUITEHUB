@@ -1,7 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { BuildingIcon, SearchIcon, SettingsIcon } from 'lucide-react'
+import { BuildingIcon, SearchIcon } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -15,6 +15,7 @@ import { LoanPage } from '@/pages/LoanPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { PipelinePage } from '@/pages/PipelinePage'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
+import { SettingsPage } from '@/pages/SettingsPage'
 
 /** Shows the sign-in page until there's a session, then the app shell. */
 function AuthGate() {
@@ -56,17 +57,7 @@ const router = createBrowserRouter([
           />
         ),
       },
-      {
-        path: 'settings',
-        element: (
-          <PlaceholderPage
-            title="Settings"
-            phase="a later phase"
-            icon={SettingsIcon}
-            description="Organization details, team members and roles."
-          />
-        ),
-      },
+      { path: 'settings', element: <SettingsPage /> },
       { path: 'dev/components', element: <ComponentLibraryPage /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],

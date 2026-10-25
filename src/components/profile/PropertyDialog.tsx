@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { CurrencyInput, FormGrid, Input, Select, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { useSaveProperty, type PropertyInput } from '@/lib/api/properties'
 import type { Property, PropertyStatus } from '@/lib/api/types'
-import { PROPERTY_STATUS_OPTIONS, PROPERTY_TYPE_OPTIONS } from './options'
+import { OCCUPANCY_OPTIONS, PROPERTY_STATUS_OPTIONS, PROPERTY_TYPE_OPTIONS, REO_DISPOSITION_OPTIONS, UNIT_COUNT_OPTIONS } from './options'
 
 const blank = (status: PropertyStatus): PropertyInput => ({
   addressLine: '',
@@ -24,6 +24,9 @@ const blank = (status: PropertyStatus): PropertyInput => ({
   monthlyRent: null,
   isHomestead: status === 'current_home',
   listingUrl: '',
+  unitCount: 1,
+  reoDisposition: status === 'current_home' || status === 'owned' ? 'retain' : null,
+  reoOccupancy: status === 'current_home' ? 'primary' : null,
 })
 
 function fromProperty(p: Property): PropertyInput {
@@ -43,6 +46,9 @@ function fromProperty(p: Property): PropertyInput {
     monthlyRent: p.monthlyRent,
     isHomestead: p.isHomestead,
     listingUrl: p.listingUrl,
+    unitCount: p.unitCount,
+    reoDisposition: p.reoDisposition,
+    reoOccupancy: p.reoOccupancy,
   }
 }
 
@@ -115,10 +121,25 @@ export function PropertyDialog({
             <CurrencyInput label="Annual taxes" value={form.annualTaxes} onChange={set('annualTaxes')} span={2} />
             <CurrencyInput label="Annual insurance" value={form.annualInsurance} onChange={set('annualInsurance')} span={2} />
             <CurrencyInput label="Monthly HOA" value={form.monthlyHoa} onChange={set('monthlyHoa')} span={2} />
-            {(showRent || form.monthlyRent !== null) && (
+            {(showRent || form.monthlyRent !== null || form.status === 'owned') && (
               <CurrencyInput label="Monthly rent" value={form.monthlyRent} onChange={set('monthlyRent')} span={2} />
             )}
+            <Select
+              label="Units"
+              value={form.unitCount ? (String(form.unitCount) as (typeof UNIT_COUNT_OPTIONS)[number]['value']) : null}
+              onChange={(v) => set('unitCount')(Number(v))}
+              options={UNIT_COUNT_OPTIONS}
+            />
           </FormGrid>
+          {(form.status === 'current_home' || form.status === 'owned') && (
+            <div className="space-y-2 rounded-lg border border-dashed p-3">
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Real estate owned (1003 section 3)</p>
+              <FormGrid className="lg:grid-cols-4">
+                <Select label="After closing" value={form.reoDisposition} onChange={set('reoDisposition')} options={REO_DISPOSITION_OPTIONS} span={2} />
+                <Select label="Intended occupancy" value={form.reoOccupancy} onChange={set('reoOccupancy')} options={OCCUPANCY_OPTIONS} span={2} />
+              </FormGrid>
+            </div>
+          )}
           <ToggleChipGroup>
             <ToggleChip label="Texas homestead" pressed={form.isHomestead} onChange={set('isHomestead')} />
           </ToggleChipGroup>

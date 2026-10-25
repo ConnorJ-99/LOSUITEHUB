@@ -20,6 +20,9 @@ export const keys = {
   notes: (contactId: string) => ['notes', contactId] as const,
   loanTasks: (loanId: string) => ['tasks', 'loan', loanId] as const,
   myTasks: ['tasks', 'mine'] as const,
+  application: (loanId: string) => ['application', loanId] as const,
+  organization: ['organization'] as const,
+  myProfile: ['myProfile'] as const,
   matches: (email: string, phone: string) => ['matches', email, phone] as const,
 }
 

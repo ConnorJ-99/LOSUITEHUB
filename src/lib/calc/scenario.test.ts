@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeScenario, type ScenarioInput } from './scenario'
+import { computeScenario, proposedHousingPayment, type ScenarioInput } from './scenario'
 
 const home = { estimatedValue: 500_000, annualTaxes: 9_600, annualInsurance: 2_400, monthlyHoa: 50, monthlyRent: null }
 
@@ -105,5 +105,31 @@ describe('computeScenario', () => {
     expect(r.cltv).toBeNull()
     expect(r.refinance).toBeNull()
     expect(r.payment?.total).toBe(1199.1)
+  })
+})
+
+describe('proposedHousingPayment', () => {
+  it('is the new PITI on a purchase or refinance', () => {
+    const input: ScenarioInput = { purpose: 'purchase', purchasePrice: 400_000, loanAmount: 380_000, noteRatePct: 6.5, termMonths: 360, property: home, liens: [] }
+    expect(proposedHousingPayment(input, computeScenario(input))).toBe(3451.86)
+  })
+
+  it('adds the kept 1st lien, taxes and insurance on a HELOC', () => {
+    const input: ScenarioInput = {
+      purpose: 'heloc',
+      purchasePrice: null,
+      loanAmount: 100_000,
+      noteRatePct: 8.4,
+      termMonths: null,
+      property: home,
+      liens: [{ position: 'first', balance: 300_000, monthlyPayment: 2_000, noteRate: 3 }],
+    }
+    // 700 interest-only + 2,000 1st lien + 800 taxes + 200 insurance + 50 HOA
+    expect(proposedHousingPayment(input, computeScenario(input))).toBe(3750)
+  })
+
+  it('is null without a payment', () => {
+    const input: ScenarioInput = { purpose: 'purchase', purchasePrice: 400_000, loanAmount: null, noteRatePct: null, termMonths: null, property: null, liens: [] }
+    expect(proposedHousingPayment(input, computeScenario(input))).toBeNull()
   })
 })

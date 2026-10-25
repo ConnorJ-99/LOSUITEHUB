@@ -1,6 +1,7 @@
 import { combinedLienAmounts, downPayment, dscr, refinanceBenefit, type DownPayment, type LoanPurposeKind, type RefinanceBenefit } from './loan'
 import { monthlyInterestOnly, monthlyPrincipalAndInterest, piti, type PitiResult } from './payment'
 import { cltv, ltv, qualifyingValue } from './ratios'
+import { round } from './round'
 
 export interface ScenarioProperty {
   estimatedValue: number | null
@@ -15,6 +16,7 @@ export interface ScenarioLien {
   balance: number | null
   monthlyPayment: number | null
   noteRate: number | null
+  toBePaidOff?: boolean
 }
 
 export interface ScenarioInput {
@@ -60,7 +62,7 @@ export function computeScenario(input: ScenarioInput): ScenarioResult {
   else value = homeValue
   if (value !== null && value <= 0) value = null
 
-  const knownLiens = liens.filter((l) => l.balance !== null).map((l) => ({ position: l.position, balance: l.balance as number }))
+  const knownLiens = liens.filter((l) => l.balance !== null).map((l) => ({ position: l.position, balance: l.balance as number, toBePaidOff: l.toBePaidOff }))
   const firstLien = liens.find((l) => l.position === 'first') ?? null
   const firstLienBalance = firstLien?.balance ?? null
 
@@ -106,4 +108,19 @@ export function computeScenario(input: ScenarioInput): ScenarioResult {
     dscr: purpose === 'investment_dscr' && payment && property?.monthlyRent ? dscr(property.monthlyRent, payment.total) : null,
     refinance,
   }
+}
+
+/**
+ * Full monthly housing payment after closing, for DTI. Purchases and
+ * refinances use the new PITI. HELOC/HELOAN keep the existing 1st lien, so
+ * the housing payment is that payment plus the new 2nd plus taxes, insurance and HOA.
+ */
+export function proposedHousingPayment(input: ScenarioInput, result: ScenarioResult): number | null {
+  if (!result.payment) return null
+  if (input.purpose !== 'heloc' && input.purpose !== 'heloan') return result.payment.total
+  const firstLienPayment = input.liens.find((l) => l.position === 'first' && !l.toBePaidOff)?.monthlyPayment ?? 0
+  const p = input.property
+  return round(
+    result.payment.total + firstLienPayment + (p?.annualTaxes ?? 0) / 12 + (p?.annualInsurance ?? 0) / 12 + (p?.monthlyHoa ?? 0),
+  )
 }
