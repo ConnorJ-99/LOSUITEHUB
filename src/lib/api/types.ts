@@ -137,9 +137,15 @@ export interface Property {
   unitCount: number | null
   reoDisposition: ReoDisposition | null
   reoOccupancy: Occupancy | null
+  /** Set from the Income tab: 75% of the lease, or the Schedule E figure. */
+  rentalIncomeMethod: RentalIncomeMethod
+  /** Schedule E monthly income before the property's payment (Income tab). */
+  scheduleEMonthlyIncome: number | null
   createdAt: string
   liens: Lien[]
 }
+
+export type RentalIncomeMethod = 'lease' | 'schedule_e'
 
 export interface Note {
   id: string

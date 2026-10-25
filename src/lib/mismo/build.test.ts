@@ -93,6 +93,13 @@ describe('MISMO 3.4 export', () => {
     expect(xml).toMatch(/<LiabilityPayoffStatusIndicator>false<\/LiabilityPayoffStatusIndicator>\s*<LiabilityType>MortgageLoan<\/LiabilityType>\s*<LiabilityUnpaidBalanceAmount>150000/)
   })
 
+  it("uses the Schedule E figure for a rental's net income when the Income tab chose it", () => {
+    const withScheduleE = properties.map((p) => (p.id === 'prop-rental' ? { ...p, rentalIncomeMethod: 'schedule_e' as const, scheduleEMonthlyIncome: 1650 } : p))
+    const doc = buildMismo34({ createdAt: '2026-10-25T12:00:00Z', loan, application, properties: withScheduleE, organization, originator })
+    // 1,650 Schedule E − 1,500 payment (1,100 mortgage + 300 taxes + 100 insurance)
+    expect(doc).toContain('<OwnedPropertyRentalIncomeNetAmount>150</OwnedPropertyRentalIncomeNetAmount>')
+  })
+
   it('maps the loan terms, purpose and URLA closing figures', () => {
     expect(xml).toContain('<LoanPurposeType>Refinance</LoanPurposeType>')
     expect(xml).toContain('<RefinanceCashOutDeterminationType>CashOut</RefinanceCashOutDeterminationType>')

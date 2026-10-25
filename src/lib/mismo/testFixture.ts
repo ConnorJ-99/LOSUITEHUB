@@ -83,7 +83,7 @@ export const application: Application = {
 export const property = (over: Partial<Property>): Property => ({
   id: 'p', loanId: 'loan-1', addressLine: '', city: 'Dallas', state: 'TX', zip: '75201', county: null, propertyType: 'single_family',
   status: 'current_home', listPrice: null, estimatedValue: null, annualTaxes: null, annualInsurance: null, monthlyHoa: null, monthlyRent: null,
-  isHomestead: false, listingUrl: null, unitCount: 1, reoDisposition: 'retain', reoOccupancy: null, createdAt: '2026-10-24T00:00:00Z', liens: [], ...over,
+  isHomestead: false, listingUrl: null, unitCount: 1, reoDisposition: 'retain', reoOccupancy: null, rentalIncomeMethod: 'lease', scheduleEMonthlyIncome: null, createdAt: '2026-10-24T00:00:00Z', liens: [], ...over,
 })
 
 export const properties: Property[] = [

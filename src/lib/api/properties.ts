@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { db, keys, num, unwrap } from './client'
-import type { Lien, MortgageType, Occupancy, Property, PropertyStatus, PropertyType, ReoDisposition } from './types'
+import type { Lien, MortgageType, Occupancy, Property, PropertyStatus, PropertyType, RentalIncomeMethod, ReoDisposition } from './types'
 
 interface LienRow {
   id: string
@@ -39,13 +39,16 @@ interface PropertyRow {
   unit_count: number | null
   reo_disposition: ReoDisposition | null
   reo_occupancy: Occupancy | null
+  rental_income_method: RentalIncomeMethod
+  schedule_e_monthly_income: number | string | null
   created_at: string
   liens: LienRow[]
 }
 
 const PROPERTY_SELECT = `
   id, loan_id, address_line, city, state, zip, county, property_type, status, list_price, estimated_value,
-  annual_taxes, annual_insurance, monthly_hoa, monthly_rent, is_homestead, listing_url, unit_count, reo_disposition, reo_occupancy, created_at,
+  annual_taxes, annual_insurance, monthly_hoa, monthly_rent, is_homestead, listing_url, unit_count, reo_disposition, reo_occupancy,
+  rental_income_method, schedule_e_monthly_income, created_at,
   liens:property_liens ( id, property_id, position, lender, balance, note_rate, monthly_payment, is_heloc, originated_on, is_texas_cash_out, to_be_paid_off, credit_limit, mortgage_type )
 `
 
@@ -89,6 +92,8 @@ function toProperty(r: PropertyRow): Property {
     unitCount: r.unit_count,
     reoDisposition: r.reo_disposition,
     reoOccupancy: r.reo_occupancy,
+    rentalIncomeMethod: r.rental_income_method,
+    scheduleEMonthlyIncome: num(r.schedule_e_monthly_income),
     createdAt: r.created_at,
     liens: r.liens.map(toLien).sort((a, b) => a.position.localeCompare(b.position)),
   }
@@ -107,7 +112,8 @@ export function useProperties(loanId: string) {
   })
 }
 
-export type PropertyInput = Omit<Property, 'id' | 'loanId' | 'createdAt' | 'liens'>
+// Rental method and Schedule E income are set from the Income tab, not the property form.
+export type PropertyInput = Omit<Property, 'id' | 'loanId' | 'createdAt' | 'liens' | 'rentalIncomeMethod' | 'scheduleEMonthlyIncome'>
 
 function propertyRow(p: PropertyInput) {
   return {

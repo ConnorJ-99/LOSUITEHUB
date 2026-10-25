@@ -6,10 +6,9 @@ import { PropertyDialog } from '@/components/profile/PropertyDialog'
 import { OCCUPANCY_OPTIONS, REO_DISPOSITION_OPTIONS } from '@/components/profile/options'
 import { useDeleteLien, useProperties } from '@/lib/api/properties'
 import type { Lien, LoanProfile, Property } from '@/lib/api/types'
-import { netMonthlyRental } from '@/lib/calc'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { labelFor } from '@/lib/urla/options'
-import { ownedProperties } from '@/lib/urla/realEstate'
+import { ownedProperties, propertyNetRental, usesScheduleE } from '@/lib/urla/realEstate'
 import { AddButton, SectionCard } from './parts'
 
 type DialogState = { kind: 'property'; property: Property | null } | { kind: 'lien'; property: Property; lien: Lien | null } | null
@@ -40,13 +39,7 @@ export function RealEstateSection({ loan }: { loan: LoanProfile }) {
           {owned.map((p) => {
             const net =
               p.reoDisposition === 'retain' && p.id !== loan.details.subjectPropertyId
-                ? netMonthlyRental({
-                    monthlyRent: p.monthlyRent,
-                    annualTaxes: p.annualTaxes,
-                    annualInsurance: p.annualInsurance,
-                    monthlyHoa: p.monthlyHoa,
-                    lienPayments: p.liens.filter((l) => !l.toBePaidOff).map((l) => l.monthlyPayment ?? 0),
-                  })
+                ? propertyNetRental(p)
                 : null
             return (
               <li key={p.id} className="rounded-lg border p-3">
@@ -63,7 +56,7 @@ export function RealEstateSection({ loan }: { loan: LoanProfile }) {
                         p.reoDisposition && labelFor(REO_DISPOSITION_OPTIONS, p.reoDisposition),
                         p.reoOccupancy && labelFor(OCCUPANCY_OPTIONS, p.reoOccupancy),
                         p.monthlyRent !== null && `${formatCurrency(p.monthlyRent)}/mo rent`,
-                        net !== null && `net rental ${formatCurrency(net)}/mo (est.)`,
+                        net !== null && `net rental ${formatCurrency(net)}/mo ${usesScheduleE(p) ? '(Schedule E)' : '(75% of lease)'}`,
                       ].filter(Boolean).join(' · ')}
                     </p>
                   </div>

@@ -38,6 +38,7 @@ Choices Connor has approved. Follow them unless he changes them.
 - **Phase 3 is split** into 3a (1003 data and tab), 3b (MISMO 3.4 export) and 3c (MISMO 3.4 import), each tested and committed separately.
 - **MISMO 3.4 export follows Fannie Mae's ULAD layout** (`src/lib/mismo/`). Structure, element order, xlink relationships and most enumerations are confirmed against the MISMO reference model and the GSEs' ULAD xlink guide. Values that couldn't be confirmed publicly are marked "best effort" in `maps.ts` (asset types, military status, seller-relationship and both-sexes ULAD extensions). Lender credits and title vesting are not exported yet. A real Arive import is the final test; adjust `maps.ts` based on what Arive does.
 - **MISMO import replaces, never merges** the imported borrowers' addresses, jobs and other income, and the loan's assets and liabilities, so re-importing a file gives the same result. Person fields are only written when the file has a value. The loan purpose is never changed by an import. Existing liens keep their rate, closing date and Texas cash-out flag (MISMO doesn't carry them). Properties are matched by address. SSNs in a file are counted and discarded.
+- **Income worksheets keep their inputs; the 1003 keeps the figure.** Each worksheet (`income_worksheets`) saves the numbers typed from pay stubs, W-2s, returns or bank statements, so the math can be reopened. "Push to 1003" copies the result into one place: the job's income field (base, overtime, bonus, commission or self-employed) or, for rentals, the property (monthly rent for the 75%-of-lease method, or `schedule_e_monthly_income` with `rental_income_method = schedule_e`). The worksheet shows when the 1003 no longer matches. Self-employed income follows Fannie Mae Form 1084 add-backs and the two-year rule (average if steady or rising, most recent year if declining, flag a 20%+ drop). Declining overtime/bonus/commission uses the lower current rate.
 - **Every database script is safe to re-run and ends with a confirmation row** ("LOSuite … installed"). Connor pastes scripts into the Supabase SQL Editor, where highlighted text silently runs only part of a script and still says "Success". Test each script in PGlite (run twice, and a partial run followed by a full run) before handing it over.
 
 ## Core concepts
@@ -95,6 +96,10 @@ The borrower profile adapts to the loan purpose. Shared core, with purpose-speci
 4. **Income calculator** with push-to-1003.
 5. **Loan Info + Product Search + lender admin.**
 6. **PDF generators:** pre-approval letter first.
+
+## Must build (requested, not yet scheduled)
+
+- **Phone prequal tool** (requested 2026-10-25): a short version of the 1003 Connor can fill in while on the phone with a borrower, showing their qualification live as he types: income, debts, front and back DTI, LTV/CLTV, payment, and max purchase price or loan amount. It must work on both computer and phone. It saves into the same records as the full 1003 (no separate copy of anything, per rule 4), so the full application picks up where the call left off. It should reuse the qualifying and income calculations from Phases 3 and 4, and the Product Search once Phase 5 exists. Connor decides where it goes in the phase order.
 
 ## Later (not now)
 

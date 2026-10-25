@@ -1,9 +1,9 @@
 import type { Organization, Profile } from '@/lib/api/settings'
 import type { LoanProfile, Property } from '@/lib/api/types'
 import type { Address, Application, ApplicationBorrower, Asset, Employment, Liability } from '@/lib/api/urla'
-import { netMonthlyRental, round } from '@/lib/calc'
+import { round } from '@/lib/calc'
 import { phoneDigits } from '@/lib/pipeline/helpers'
-import { ownedProperties } from '@/lib/urla/realEstate'
+import { ownedProperties, propertyNetRental, usesScheduleE } from '@/lib/urla/realEstate'
 import * as map from './maps'
 import { el, leaf, serialize, type XChild, type XNode } from './xml'
 
@@ -474,7 +474,6 @@ export function buildMismo34(input: MismoInput): string {
   for (const p of ownedProperties(properties)) {
     const isSubject = p.id === subject?.id
     const retained = (p.reoDisposition ?? 'retain') === 'retain'
-    const lienPayments = p.liens.filter((l) => !l.toBePaidOff).map((l) => l.monthlyPayment ?? 0)
     const assetLabel = addAsset(
       [
         el('OWNED_PROPERTY', [
@@ -485,9 +484,7 @@ export function buildMismo34(input: MismoInput): string {
             leaf('OwnedPropertyRentalIncomeGrossAmount', p.monthlyRent),
             leaf(
               'OwnedPropertyRentalIncomeNetAmount',
-              retained && !isSubject && p.monthlyRent
-                ? netMonthlyRental({ monthlyRent: p.monthlyRent, annualTaxes: p.annualTaxes, annualInsurance: p.annualInsurance, monthlyHoa: p.monthlyHoa, lienPayments })
-                : null,
+              retained && !isSubject && (p.monthlyRent || usesScheduleE(p)) ? propertyNetRental(p) : null,
             ),
             leaf('OwnedPropertySubjectIndicator', isSubject),
           ]),

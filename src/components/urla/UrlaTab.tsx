@@ -7,7 +7,6 @@ import { useProperties } from '@/lib/api/properties'
 import { useOrganization, useProfile } from '@/lib/api/settings'
 import type { LoanProfile } from '@/lib/api/types'
 import { useApplication, useRemoveBorrower } from '@/lib/api/urla'
-import { borrowerMonthlyIncome, computeScenario, netMonthlyRental, proposedHousingPayment, qualifying } from '@/lib/calc'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { fullName } from '@/lib/pipeline/helpers'
 import { AddressesSection } from './AddressesSection'
@@ -22,7 +21,7 @@ import { LoanInfoSection } from './LoanInfoSection'
 import { OriginatorSection } from './OriginatorSection'
 import { PersonSection } from './PersonSection'
 import { RealEstateSection } from './RealEstateSection'
-import { ownedProperties } from '@/lib/urla/realEstate'
+import { applicationSummary } from '@/lib/urla/summary'
 
 const NAV = [
   { id: 'section-1', label: '1. Borrower' },
@@ -68,38 +67,8 @@ export function UrlaTab({ loan }: { loan: LoanProfile }) {
   if (borrowers.length === 0) return <p className="py-12 text-center text-sm text-muted-foreground">No borrower on this loan.</p>
 
   const borrower = borrowers.find((b) => b.contactId === selectedId) ?? borrowers[0]
-  const subject = properties.data?.find((p) => p.id === loan.details.subjectPropertyId) ?? null
-  const isPurchase = loan.purpose === 'purchase' || (loan.purpose === 'investment_dscr' && loan.details.purchasePrice !== null)
-
   // Key figures for the summary bar.
-  const scenarioInput = {
-    purpose: loan.purpose,
-    purchasePrice: loan.details.purchasePrice,
-    loanAmount: loan.details.loanAmount,
-    noteRatePct: loan.details.noteRate,
-    termMonths: loan.details.termMonths,
-    property: subject,
-    liens: subject?.liens ?? [],
-  }
-  const scenario = computeScenario(scenarioInput)
-  const housing = proposedHousingPayment(scenarioInput, scenario)
-  const rentalNets = ownedProperties(properties.data)
-    .filter((p) => p.id !== loan.details.subjectPropertyId && p.reoDisposition === 'retain')
-    .map((p) =>
-      netMonthlyRental({
-        monthlyRent: p.monthlyRent,
-        annualTaxes: p.annualTaxes,
-        annualInsurance: p.annualInsurance,
-        monthlyHoa: p.monthlyHoa,
-        lienPayments: p.liens.filter((l) => !l.toBePaidOff).map((l) => l.monthlyPayment ?? 0),
-      }),
-    )
-  const q = qualifying({
-    borrowerIncomes: borrowers.map((b) => borrowerMonthlyIncome(b.employments, b.otherIncomes.map((i) => i.monthlyAmount)).total),
-    housingPayment: housing ?? 0,
-    debts: liabilities,
-    rentalNets,
-  })
+  const { subject, isPurchase, scenario, housing, qualifying: q } = applicationSummary(loan, app.data!, properties.data)
 
   // Remount a borrower's forms when their saved data changes, so they show what was saved.
   const borrowerKey = `${borrower.contactId}:${JSON.stringify(borrower.person)}`

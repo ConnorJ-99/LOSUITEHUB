@@ -26,15 +26,17 @@ export interface FieldProps {
   hint?: string
   error?: string
   span?: FieldSpan
+  /** Keep the label for screen readers only (e.g. inside a table with its own headings). */
+  hideLabel?: boolean
   className?: string
   children: React.ReactNode
 }
 
 /** Label + control + hint/error. Required fields get a red asterisk. */
-export function Field({ label, htmlFor, required, hint, error, span = 1, className, children }: FieldProps) {
+export function Field({ label, htmlFor, required, hint, error, span = 1, hideLabel, className, children }: FieldProps) {
   return (
     <div className={cn('flex min-w-0 flex-col gap-1.5', spanClass[span], className)}>
-      <Label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground">
+      <Label htmlFor={htmlFor} className={cn('text-xs font-medium text-muted-foreground', hideLabel && 'sr-only')}>
         {label}
         {required && <span className="text-destructive">*</span>}
       </Label>

@@ -14,6 +14,7 @@ interface AffixedNumberInputProps {
   hint?: string
   error?: string
   span?: FieldSpan
+  hideLabel?: boolean
   id?: string
   prefix?: string
   suffix?: string
@@ -34,6 +35,7 @@ function AffixedNumberInput({
   hint,
   error,
   span,
+  hideLabel,
   id,
   prefix,
   suffix,
@@ -45,7 +47,7 @@ function AffixedNumberInput({
   const shown = draft ?? formatNumber(value, maxDecimals)
 
   return (
-    <Field label={label} htmlFor={inputId} required={required} hint={hint} error={error} span={span}>
+    <Field label={label} htmlFor={inputId} required={required} hint={hint} error={error} span={span} hideLabel={hideLabel}>
       <div className="relative">
         {prefix && (
           <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-sm text-muted-foreground">
@@ -92,4 +94,13 @@ export function CurrencyInput(props: CurrencyInputProps) {
 /** Percent input; the value is a percent number (6.5 means 6.5%). */
 export function PercentInput({ maxDecimals = 3, ...props }: PercentInputProps) {
   return <AffixedNumberInput {...props} suffix="%" maxDecimals={maxDecimals} />
+}
+
+export type PlainNumberInputProps = Omit<AffixedNumberInputProps, 'prefix' | 'maxDecimals'> & {
+  maxDecimals?: number
+}
+
+/** Plain number input for hours, months and counts, with an optional unit after it. */
+export function NumberInput({ maxDecimals = 2, ...props }: PlainNumberInputProps) {
+  return <AffixedNumberInput {...props} maxDecimals={maxDecimals} />
 }

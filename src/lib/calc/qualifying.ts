@@ -60,18 +60,29 @@ export interface RentalProperty {
   monthlyHoa: number | null
   /** Monthly payments on liens that stay after closing. */
   lienPayments: number[]
+  /** "schedule_e" uses the Income tab's Schedule E figure instead of 75% of the lease. */
+  rentalMethod?: 'lease' | 'schedule_e'
+  /** Schedule E monthly income before the property's payment (Income tab worksheet). */
+  scheduleEMonthly?: number | null
+}
+
+/** A property's full monthly cost: remaining lien payments, taxes, insurance and HOA. */
+export function rentalPropertyCost(p: Pick<RentalProperty, 'lienPayments' | 'annualTaxes' | 'annualInsurance' | 'monthlyHoa'>): number {
+  return round(p.lienPayments.reduce((sum, x) => sum + x, 0) + (p.annualTaxes ?? 0) / 12 + (p.annualInsurance ?? 0) / 12 + (p.monthlyHoa ?? 0))
 }
 
 /** Share of gross rent counted as income (the usual 25% vacancy and maintenance factor). */
 export const RENTAL_INCOME_FACTOR = 0.75
 
 /**
- * Net monthly rental for a retained property: 75% of gross rent minus its
- * full monthly cost (liens, taxes, insurance, HOA). Negative means a loss.
+ * Net monthly rental for a retained property: 75% of gross rent (or the
+ * Schedule E figure, when that method is chosen) minus its full monthly
+ * cost (liens, taxes, insurance, HOA). Negative means a loss.
  */
 export function netMonthlyRental(p: RentalProperty): number {
-  const costs = p.lienPayments.reduce((sum, x) => sum + x, 0) + (p.annualTaxes ?? 0) / 12 + (p.annualInsurance ?? 0) / 12 + (p.monthlyHoa ?? 0)
-  return round((p.monthlyRent ?? 0) * RENTAL_INCOME_FACTOR - costs)
+  const costs = rentalPropertyCost(p)
+  const income = p.rentalMethod === 'schedule_e' && p.scheduleEMonthly != null ? p.scheduleEMonthly : (p.monthlyRent ?? 0) * RENTAL_INCOME_FACTOR
+  return round(income - costs)
 }
 
 export interface QualifyingInput {
