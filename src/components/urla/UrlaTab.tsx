@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { PlusIcon, UserMinusIcon } from 'lucide-react'
+import { DownloadIcon, PlusIcon, UserMinusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { SummaryBar, ToggleChip } from '@/components/shared'
 import { useProperties } from '@/lib/api/properties'
+import { useOrganization, useProfile } from '@/lib/api/settings'
 import type { LoanProfile } from '@/lib/api/types'
 import { useApplication, useRemoveBorrower } from '@/lib/api/urla'
 import { borrowerMonthlyIncome, computeScenario, netMonthlyRental, proposedHousingPayment, qualifying } from '@/lib/calc'
@@ -13,6 +14,7 @@ import { AddressesSection } from './AddressesSection'
 import { AssetsSection, LiabilitiesSection } from './AssetLiabilitySections'
 import { CoBorrowerDialog } from './CoBorrowerDialog'
 import { DeclarationsSection, DemographicsSection } from './DeclarationsSections'
+import { ExportDialog } from './ExportDialog'
 import { EmploymentSection, OtherIncomeSection } from './IncomeSections'
 import { LoanInfoSection } from './LoanInfoSection'
 import { OriginatorSection } from './OriginatorSection'
@@ -37,6 +39,9 @@ export function UrlaTab({ loan }: { loan: LoanProfile }) {
   const app = useApplication(loan.id)
   const properties = useProperties(loan.id)
   const removeBorrower = useRemoveBorrower(loan.id)
+  const organization = useOrganization()
+  const originator = useProfile(loan.assignedLo?.id)
+  const [exporting, setExporting] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
@@ -178,8 +183,25 @@ export function UrlaTab({ loan }: { loan: LoanProfile }) {
           { label: 'Debts / mo', value: formatCurrency(q.otherDebts) },
           { label: 'DTI', value: q.dti.front === null ? '—' : `${formatPercent(q.dti.front, 1)} / ${formatPercent(q.dti.back, 1)}`, warning: (q.dti.back ?? 0) > 50 },
         ]}
-        action={<span className="hidden text-xs text-muted-foreground sm:inline">MISMO export arrives in part 3b</span>}
+        action={
+          <Button onClick={() => setExporting(true)}>
+            <DownloadIcon />
+            <span className="hidden sm:inline">Export MISMO 3.4</span>
+            <span className="sm:hidden">Export</span>
+          </Button>
+        }
       />
+
+      {exporting && (
+        <ExportDialog
+          loan={loan}
+          application={app.data!}
+          properties={properties.data ?? []}
+          organization={organization.data ?? null}
+          originator={originator.data ?? null}
+          onClose={() => setExporting(false)}
+        />
+      )}
 
       {adding && (
         <CoBorrowerDialog

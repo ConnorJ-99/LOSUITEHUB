@@ -36,6 +36,7 @@ Choices Connor has approved. Follow them unless he changes them.
 - **Notes belong to the person**, tagged with the loan they were written on.
 - **Values live in one place:** deal facts on `loans`, home facts on `properties`, existing mortgages on `property_liens`, person facts (identity, addresses, employment, other income) on the contact, application facts (assets, liabilities, declarations, demographics) on the loan.
 - **Phase 3 is split** into 3a (1003 data and tab), 3b (MISMO 3.4 export) and 3c (MISMO 3.4 import), each tested and committed separately.
+- **MISMO 3.4 export follows Fannie Mae's ULAD layout** (`src/lib/mismo/`). Structure, element order, xlink relationships and most enumerations are confirmed against the MISMO reference model and the GSEs' ULAD xlink guide. Values that couldn't be confirmed publicly are marked "best effort" in `maps.ts` (asset types, military status, seller-relationship and both-sexes ULAD extensions). Lender credits and title vesting are not exported yet. A real Arive import is the final test; adjust `maps.ts` based on what Arive does.
 - **Every database script is safe to re-run and ends with a confirmation row** ("LOSuite … installed"). Connor pastes scripts into the Supabase SQL Editor, where highlighted text silently runs only part of a script and still says "Success". Test each script in PGlite (run twice, and a partial run followed by a full run) before handing it over.
 
 ## Core concepts
