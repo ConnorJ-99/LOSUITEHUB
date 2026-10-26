@@ -37,6 +37,8 @@ export const keys = {
   noteReadings: (loanId: string) => ['noteReadings', loanId] as const,
   webForms: (loanId: string) => ['webForms', loanId] as const,
   openWebForms: ['openWebForms'] as const,
+  documentRules: ['documentRules'] as const,
+  documentRequests: (loanId: string) => ['documentRequests', loanId] as const,
 }
 
 /** The Supabase client, or a clear error in preview mode (no .env.local). */

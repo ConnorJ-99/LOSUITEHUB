@@ -18,6 +18,7 @@ import {
 import type { LoanProfile } from '@/lib/api/types'
 import { useApplication } from '@/lib/api/urla'
 import { formatIsoDate } from '@/lib/dates'
+import { RequestChecklist } from './RequestChecklist'
 
 const KIND_OPTIONS = DOCUMENT_KIND_GROUPS.flatMap((g) => g.kinds.map(([value, label]) => ({ value: value as DocumentKind, label })))
 const sizeLabel = (bytes: number | null) => (bytes === null ? '' : bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`)
@@ -99,6 +100,8 @@ export function DocumentsTab({ loan }: { loan: LoanProfile }) {
 
   return (
     <div className="space-y-4">
+      <RequestChecklist loan={loan} docs={list} people={people} />
+
       <Card
         title="Upload"
         description="Pick what the files are and whose they are, then choose or drop them here. PDFs or photos, up to 25 MB each."

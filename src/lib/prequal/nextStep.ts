@@ -4,6 +4,7 @@
 // Settings.
 
 import { emailSignature, complianceIssues, MAX_TEXT_LENGTH, type Signer } from '../../../supabase/functions/assistant/followUp'
+import type { DocumentKind } from '@/lib/api/documents'
 import type { IncomeDocType } from '@/lib/api/types'
 import type { DraftMessage } from '@/lib/queue/today'
 import type { OtherIncomeType } from '@/lib/urla/options'
@@ -39,6 +40,9 @@ export function nextStep(r: Readiness, stage: string): NextStep | null {
     if (r.reasons.some((x) => x.missing === 'credit')) {
       return { action: 'pull_credit', title: 'Pull credit', detail: "Pull credit, then mark the Workflow's \"Pull credit\" step done. Request documents at the same time." }
     }
+    if (r.reasons.every((x) => x.missing === 'documents')) {
+      return { action: 'request_documents', title: 'Follow up on documents', detail: 'The documents above were asked for and haven\'t come in yet. Mark them received on the Documents tab as they arrive.' }
+    }
     return { action: 'request_documents', title: 'Request documents', detail: 'Ask for the documents below, then do the income worksheets as they come in.' }
   }
   return EARLY_STAGES.includes(stage)
@@ -51,6 +55,8 @@ export function nextStep(r: Readiness, stage: string): NextStep | null {
 // ---------------------------------------------------------------------------
 
 export interface ChecklistPerson {
+  /** The borrower's contact, so requests can be tracked per person. */
+  contactId?: string | null
   firstName: string
   jobs: { employerName: string; selfEmployed: boolean }[]
   otherIncomes: OtherIncomeType[]
@@ -72,13 +78,73 @@ export interface DocItem {
   short: string
   /** Full wording, for an email. */
   full: string
+  /** The document type that satisfies it. */
+  kind: DocumentKind
 }
 
 export interface DocGroup {
   /** A borrower's first name, or "Homes you own". */
   title: string
+  /** Whose items they are; null for the whole file (homes). */
+  contactId: string | null
   items: DocItem[]
 }
+
+export type DocumentCondition =
+  | 'everyone'
+  | 'wage_earner'
+  | 'self_employed'
+  | 'bank_statement_income'
+  | 'form_1099_income'
+  | 'asset_based_income'
+  | 'award_income'
+  | 'support_income'
+  | 'bank_accounts'
+  | 'investment_accounts'
+  | 'gift'
+  | 'bankruptcy'
+  | 'foreclosure'
+  | 'late_or_collection'
+  | 'owns_home'
+  | 'rental_or_dscr'
+
+/** One checklist rule (Settings). {income} and {each_job} are filled in per person. */
+export interface DocRule {
+  key: string
+  condition: DocumentCondition
+  shortText: string
+  fullText: string
+  kind: DocumentKind
+  sortOrder: number
+  active: boolean
+}
+
+/** LOSuite's starter checklist. The database seeds the same list (a test keeps them identical). */
+export const DEFAULT_DOCUMENT_RULES: DocRule[] = [
+  ['id', 'everyone', 'a photo of your ID', "A photo of your driver's license or other ID", 'photo_id', 10],
+  ['bank_statements_income', 'bank_statement_income', 'business bank statements (12-24 months)', '12 to 24 months of business bank statements, all pages', 'bank_statement', 20],
+  ['business_proof', 'bank_statement_income', 'a CPA letter or business license', 'A CPA letter or business license showing at least 2 years in business', 'other', 30],
+  ['forms_1099', 'form_1099_income', '1099s (2 years)', '1099s for the last 2 years', 'form_1099', 40],
+  ['asset_statements', 'asset_based_income', 'investment/retirement statements (3 months)', 'The last 3 months of statements for your investment and retirement accounts', 'investment_statement', 50],
+  ['paystubs', 'wage_earner', 'pay stubs (last 30 days)', 'Pay stubs covering the last 30 days{each_job}', 'paystub', 60],
+  ['w2s', 'wage_earner', 'W-2s (2 years)', 'W-2s for the last 2 years', 'w2', 70],
+  ['tax_returns', 'self_employed', 'tax returns (2 years)', 'Personal tax returns for the last 2 years, all pages and schedules', 'tax_return', 80],
+  ['business_returns', 'self_employed', 'business returns (2 years)', 'Business tax returns for the last 2 years (1120S or 1065 with K-1s) if you own 25% or more', 'business_return', 90],
+  ['pl', 'self_employed', 'a year-to-date P&L', 'A year-to-date profit and loss statement', 'profit_loss', 100],
+  ['award', 'award_income', '{income} award letter', 'Your {income} award letter', 'award_letter', 110],
+  ['support_order', 'support_income', 'divorce decree or support order', 'The divorce decree or court order, and proof of the last 6 months of payments received', 'divorce_decree', 120],
+  ['bank_statements', 'bank_accounts', 'bank statements (2 months)', 'The last 2 months of statements for each bank account, all pages', 'bank_statement', 130],
+  ['investment_statements', 'investment_accounts', 'investment/retirement statements', 'The latest statement for each investment or retirement account', 'investment_statement', 140],
+  ['gift_letter', 'gift', 'a gift letter', "A signed gift letter (I'll send you the form) and proof of the transfer", 'gift_letter', 150],
+  ['bankruptcy', 'bankruptcy', 'bankruptcy discharge papers', 'Your bankruptcy discharge papers', 'bankruptcy_papers', 160],
+  ['foreclosure', 'foreclosure', 'foreclosure/short sale papers', 'The closing or completion papers for the foreclosure, short sale or deed in lieu', 'other', 170],
+  ['explanation', 'late_or_collection', 'a short letter about the late payment', 'A short letter explaining the late payment or collection', 'explanation_letter', 180],
+  ['home_statements', 'owns_home', 'mortgage statements and insurance for homes you own', 'For each home you own: the latest mortgage statement and the homeowners insurance declarations page', 'mortgage_statement', 190],
+  ['leases', 'rental_or_dscr', 'current leases', 'A copy of the current lease for each rented home', 'lease', 200],
+].map(([key, condition, shortText, fullText, kind, sortOrder]) => ({ key, condition, shortText, fullText, kind, sortOrder, active: true }) as DocRule)
+
+/** Conditions about the whole file rather than one person. */
+const FILE_CONDITIONS: DocumentCondition[] = ['owns_home', 'rental_or_dscr']
 
 const AWARD_LETTER: Partial<Record<OtherIncomeType, string>> = {
   social_security: 'Social Security',
@@ -91,54 +157,55 @@ const BANKABLE = ['checking', 'savings', 'money_market', 'certificate_of_deposit
 const INVESTMENT = ['mutual_fund', 'stocks', 'stock_options', 'bonds', 'retirement', 'trust_account']
 const GIFT = ['gift_cash', 'gift_equity', 'grant']
 
-/** What to ask each person for, from how they earn money, what they have and their credit history. */
-export function documentChecklist(input: ChecklistInput): DocGroup[] {
+/**
+ * What to ask each person for, from how they earn money, what they have and
+ * their credit history, by the company's checklist rules (turned-off rules
+ * are skipped).
+ */
+export function documentChecklist(input: ChecklistInput, rules: DocRule[] = DEFAULT_DOCUMENT_RULES): DocGroup[] {
   const doc = input.incomeDocType ?? 'full_doc'
+  const active = rules.filter((r) => r.active).sort((a, b) => a.sortOrder - b.sortOrder)
+  const fill = (text: string, values: Record<string, string>) => text.replace(/\{(\w+)\}/g, (m, k: string) => values[k] ?? m)
+
   const groups: DocGroup[] = input.people.map((p) => {
-    const items: DocItem[] = [{ key: 'id', short: 'a photo of your ID', full: "A photo of your driver's license or other ID" }]
-    const add = (key: string, short: string, full: string) => items.push({ key, short, full })
     const wage = p.jobs.filter((j) => !j.selfEmployed)
     const selfEmployed = p.jobs.filter((j) => j.selfEmployed)
-
-    if (doc === 'bank_statement' && p.jobs.length) {
-      add('bank_statements_income', 'business bank statements (12-24 months)', '12 to 24 months of business bank statements, all pages')
-      add('business_proof', 'a CPA letter or business license', 'A CPA letter or business license showing at least 2 years in business')
-    } else if (doc === 'form_1099' && p.jobs.length) {
-      add('forms_1099', '1099s (2 years)', '1099s for the last 2 years')
-    } else if (doc === 'asset_based') {
-      add('asset_statements', 'investment/retirement statements (3 months)', 'The last 3 months of statements for your investment and retirement accounts')
-    } else if (doc !== 'dscr') {
-      if (wage.length) {
-        add('paystubs', 'pay stubs (last 30 days)', `Pay stubs covering the last 30 days${wage.length > 1 ? ' from each job' : ''}`)
-        add('w2s', 'W-2s (2 years)', 'W-2s for the last 2 years')
-      }
-      if (selfEmployed.length) {
-        add('tax_returns', 'tax returns (2 years)', 'Personal tax returns for the last 2 years, all pages and schedules')
-        add('business_returns', 'business returns (2 years)', 'Business tax returns for the last 2 years (1120S or 1065 with K-1s) if you own 25% or more')
-        add('pl', 'a year-to-date P&L', 'A year-to-date profit and loss statement')
-      }
+    const bankStatementIncome = doc === 'bank_statement' && p.jobs.length > 0
+    const income1099 = doc === 'form_1099' && p.jobs.length > 0
+    const fullDoc = !bankStatementIncome && !income1099 && doc !== 'asset_based' && doc !== 'dscr'
+    const has: Record<Exclude<DocumentCondition, 'award_income' | 'owns_home' | 'rental_or_dscr'>, boolean> = {
+      everyone: true,
+      wage_earner: fullDoc && wage.length > 0,
+      self_employed: fullDoc && selfEmployed.length > 0,
+      bank_statement_income: bankStatementIncome,
+      form_1099_income: income1099,
+      asset_based_income: doc === 'asset_based',
+      support_income: p.otherIncomes.some((t) => SUPPORT.includes(t)),
+      bank_accounts: p.assetTypes.some((t) => BANKABLE.includes(t)),
+      investment_accounts: doc !== 'asset_based' && p.assetTypes.some((t) => INVESTMENT.includes(t)),
+      gift: p.assetTypes.some((t) => GIFT.includes(t)),
+      bankruptcy: p.creditEvents.some((t) => t === 'bankruptcy_ch7' || t === 'bankruptcy_ch13'),
+      foreclosure: p.creditEvents.some((t) => t === 'foreclosure' || t === 'short_sale' || t === 'deed_in_lieu'),
+      late_or_collection: p.creditEvents.some((t) => t === 'late_payment' || t === 'collection'),
     }
-    for (const t of p.otherIncomes) {
-      if (AWARD_LETTER[t] && !items.some((i) => i.key === `award_${t}`)) add(`award_${t}`, `${AWARD_LETTER[t]} award letter`, `Your ${AWARD_LETTER[t]} award letter`)
-    }
-    if (p.otherIncomes.some((t) => SUPPORT.includes(t))) add('support_order', 'divorce decree or support order', 'The divorce decree or court order, and proof of the last 6 months of payments received')
-
-    if (p.assetTypes.some((t) => BANKABLE.includes(t))) add('bank_statements', 'bank statements (2 months)', 'The last 2 months of statements for each bank account, all pages')
-    if (doc !== 'asset_based' && p.assetTypes.some((t) => INVESTMENT.includes(t))) add('investment_statements', 'investment/retirement statements', 'The latest statement for each investment or retirement account')
-    if (p.assetTypes.some((t) => GIFT.includes(t))) add('gift_letter', 'a gift letter', "A signed gift letter (I'll send you the form) and proof of the transfer")
-
-    if (p.creditEvents.some((t) => t === 'bankruptcy_ch7' || t === 'bankruptcy_ch13')) add('bankruptcy', 'bankruptcy discharge papers', 'Your bankruptcy discharge papers')
-    if (p.creditEvents.some((t) => t === 'foreclosure' || t === 'short_sale' || t === 'deed_in_lieu')) add('foreclosure', 'foreclosure/short sale papers', 'The closing or completion papers for the foreclosure, short sale or deed in lieu')
-    if (p.creditEvents.some((t) => t === 'late_payment' || t === 'collection')) add('explanation', 'a short letter about the late payment', 'A short letter explaining the late payment or collection')
-    return { title: p.firstName, items }
+    const values = { each_job: wage.length > 1 ? ' from each job' : '' }
+    const items: DocItem[] = active.flatMap((r): DocItem[] => {
+      if (FILE_CONDITIONS.includes(r.condition)) return []
+      if (r.condition === 'award_income') {
+        const types = [...new Set(p.otherIncomes.filter((t) => AWARD_LETTER[t]))]
+        return types.map((t) => ({ key: `${r.key}_${t}`, short: fill(r.shortText, { ...values, income: AWARD_LETTER[t]! }), full: fill(r.fullText, { ...values, income: AWARD_LETTER[t]! }), kind: r.kind }))
+      }
+      return has[r.condition as keyof typeof has] ? [{ key: r.key, short: fill(r.shortText, values), full: fill(r.fullText, values), kind: r.kind }] : []
+    })
+    return { title: p.firstName, contactId: p.contactId ?? null, items }
   })
 
-  if (input.homes.length || doc === 'dscr') {
-    const items: DocItem[] = []
-    if (input.homes.length) items.push({ key: 'home_statements', short: 'mortgage statements and insurance for homes you own', full: 'For each home you own: the latest mortgage statement and the homeowners insurance declarations page' })
-    if (input.homes.some((h) => h.rented) || doc === 'dscr') items.push({ key: 'leases', short: 'current leases', full: 'A copy of the current lease for each rented home' })
-    groups.push({ title: HOMES, items })
+  const fileHas: Record<'owns_home' | 'rental_or_dscr', boolean> = {
+    owns_home: input.homes.length > 0,
+    rental_or_dscr: input.homes.some((h) => h.rented) || doc === 'dscr',
   }
+  const fileItems = active.filter((r) => FILE_CONDITIONS.includes(r.condition) && fileHas[r.condition as keyof typeof fileHas]).map((r) => ({ key: r.key, short: r.shortText, full: r.fullText, kind: r.kind }))
+  if (fileItems.length) groups.push({ title: HOMES, contactId: null, items: fileItems })
   return groups.filter((g) => g.items.length)
 }
 
@@ -192,6 +259,7 @@ export function requestIssues(d: DraftMessage, signer: Signer): string[] {
 export function checklistFrom(draft: PrequalDraft, incomeDocType: IncomeDocType | null, events: { contactId: string; eventType: CreditEventType }[]): ChecklistInput {
   return {
     people: draft.borrowers.map((b) => ({
+      contactId: b.contactId,
       firstName: b.firstName,
       jobs: b.jobs.filter((j) => j.employerName.trim()).map((j) => ({ employerName: j.employerName, selfEmployed: j.selfEmployed })),
       otherIncomes: b.otherIncomes.filter((o) => o.monthly !== null).map((o) => o.incomeType),

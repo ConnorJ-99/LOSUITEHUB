@@ -81,7 +81,7 @@ describe('documentRequest', () => {
     expect(d.body).toContain('- W-2s for the last 2 years')
     expect(d.body).toContain('MPS Mortgage LLC, NMLS #2501110')
     expect(d.body).not.toContain('Marcus:') // one person: no headings
-    const two = documentRequest('email', { firstName: 'Jane', contact: null }, [{ title: 'Jane', items: groups[0].items }, { title: 'Sam', items: groups[0].items.slice(0, 1) }, { title: 'Homes you own', items: groups[0].items.slice(0, 1) }], signer)
+    const two = documentRequest('email', { firstName: 'Jane', contact: null }, [{ title: 'Jane', contactId: null, items: groups[0].items }, { title: 'Sam', contactId: null, items: groups[0].items.slice(0, 1) }, { title: 'Homes you own', contactId: null, items: groups[0].items.slice(0, 1) }], signer)
     expect(two.body).toContain('From you:')
     expect(two.body).toContain('From Sam:')
     expect(two.body).toContain('Homes you own:')

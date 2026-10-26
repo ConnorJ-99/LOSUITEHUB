@@ -1,11 +1,14 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { AlertOctagonIcon, ArrowRightIcon, BadgeCheckIcon, CheckCircle2Icon, FileSearchIcon, FileTextIcon, MoonIcon, ScaleIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, DateInput, TextArea, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { EditDialog } from '@/components/urla/parts'
+import { keys } from '@/lib/api/client'
 import { useCreditEvents } from '@/lib/api/creditEvents'
+import { addDocumentRequests, useDocumentRequests, useDocumentRules } from '@/lib/api/documentRules'
 import { useWorksheets } from '@/lib/api/income'
 import { useLoanFile } from '@/lib/api/loanfile'
 import { useUpdateStage } from '@/lib/api/loans'
@@ -46,11 +49,15 @@ export function useReadinessSources(loan: LoanProfile, app: Application | undefi
   const worksheets = useWorksheets(loan.id)
   const file = useLoanFile(loan.id)
   const events = useCreditEvents(loan.id, app?.borrowers.map((b) => b.contactId) ?? [])
-  const ready = !!app && !!worksheets.data && !!file.data && (events.data !== undefined || (app?.borrowers.length ?? 0) === 0)
+  const rules = useDocumentRules()
+  const requests = useDocumentRequests(loan.id)
+  const ready = !!app && !!worksheets.data && !!file.data && !!rules.data && (events.data !== undefined || (app?.borrowers.length ?? 0) === 0)
   return {
     ready,
     worksheets: worksheets.data ?? [],
     creditEvents: events.data ?? [],
+    rules: rules.data ?? [],
+    waitingRequests: (requests.data ?? []).filter((r) => r.status === 'requested').map((r) => ({ label: shortLabel(r.label), contactId: r.contactId })),
     creditPulled: !!file.data?.marks.some((m) => m.stepKey === 'credit' && m.status === 'done'),
   }
 }
@@ -71,7 +78,7 @@ export function useSavedReadiness(loan: LoanProfile): ReadinessView | null {
   const summary = prequalSummary(loan, draft, properties.data)
   return {
     result: readiness(readinessInput({ loan, app: app.data, summary, maxDtiPct: draft.loan.maxDtiPct, mortgageType: loan.details.mortgageType, ...sources, hasAssets: app.data.assets.length > 0, today: todayIso() })),
-    checklist: documentChecklist(checklistFrom(draft, loan.details.incomeDocType, sources.creditEvents)),
+    checklist: documentChecklist(checklistFrom(draft, loan.details.incomeDocType, sources.creditEvents), sources.rules),
   }
 }
 
@@ -82,9 +89,12 @@ export function useLiveReadiness(loan: LoanProfile, app: Application, summary: P
   const hasAssets = draft.assets.some((a) => (a.amount ?? 0) > 0)
   return {
     result: readiness(readinessInput({ loan, app, summary, maxDtiPct: draft.loan.maxDtiPct, mortgageType: draft.loan.mortgageType, ...sources, hasAssets, draftBorrowers: draft.borrowers, today: todayIso() })),
-    checklist: documentChecklist(checklistFrom(draft, loan.details.incomeDocType, sources.creditEvents)),
+    checklist: documentChecklist(checklistFrom(draft, loan.details.incomeDocType, sources.creditEvents), sources.rules),
   }
 }
+
+/** "Pay stubs covering the last 30 days" → "pay stubs covering the last 30 days" (for lists inside a sentence). "W-2s" and "VOE" keep their capitals. */
+const shortLabel = (label: string) => (/^[A-Z]([a-z]|\s)/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label)
 
 function NurtureDialog({ loan, result, onClose }: { loan: LoanProfile; result: Readiness; onClose: () => void }) {
   const [reasons, setReasons] = useState<NurtureReason[]>(result.nurture)
@@ -135,6 +145,7 @@ function RequestDialog({ loan, checklist, onClose }: { loan: LoanProfile; checkl
   const profile = useProfile(loan.assignedLo?.id)
   const org = useOrganization()
   const queue = useQueueIntroEmails(loan.id, loan.organizationId)
+  const queryClient = useQueryClient()
   const id = (g: DocGroup, key: string) => `${g.title}:${key}`
   const picked = checklist.map((g) => ({ ...g, items: g.items.filter((i) => !off.has(id(g, i.key))) })).filter((g) => g.items.length)
   const b = loan.borrower
@@ -152,8 +163,12 @@ function RequestDialog({ loan, checklist, onClose }: { loan: LoanProfile; checkl
     const signer = { loName: profile.data?.fullName ?? null, loNmls: profile.data?.nmls ?? null, loPhone: profile.data?.phone ?? null, companyName: org.data?.name ?? 'MPS Mortgage LLC', companyNmls: org.data?.nmls ?? '2501110' }
     const draft = documentRequest(channel, { firstName: b.firstName, contact: channel === 'text' ? b.phone : b.email }, picked, signer)
     queue.mutate([{ title: `Document request (${channel}) to ${b.firstName}`, draft }], {
-      onSuccess: () => {
-        toast.success('Document request added to the Action Queue')
+      onSuccess: async () => {
+        // Track each item as requested, so the Documents tab can tick them off as they arrive.
+        const items = picked.flatMap((g) => g.items.map((i) => ({ contactId: g.contactId, ruleKey: i.key, label: i.full, kind: i.kind })))
+        const tracked = await addDocumentRequests(loan.id, loan.organizationId, items).catch(() => null)
+        queryClient.invalidateQueries({ queryKey: keys.documentRequests(loan.id) })
+        toast.success(`Document request added to the Action Queue${tracked ? `; ${tracked} item${tracked === 1 ? '' : 's'} now tracked on the Documents tab` : ''}`)
         onClose()
       },
       onError: (e) => toast.error(e.message),

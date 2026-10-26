@@ -95,10 +95,12 @@ export interface ReadinessInput {
   creditEvents: ReadinessCreditEvent[]
   creditPulled: boolean
   hasAssets: boolean
+  /** Documents asked for and not received yet, e.g. "pay stubs (Dana)". */
+  outstandingDocs?: string[]
 }
 
 /** What's missing, for picking the next step (needs-documents reasons only). */
-export type MissingCode = 'score' | 'income' | 'start_date' | 'event_date' | 'credit' | 'income_docs' | 'assets'
+export type MissingCode = 'score' | 'income' | 'start_date' | 'event_date' | 'credit' | 'income_docs' | 'assets' | 'documents'
 
 export interface ReadinessReason {
   level: Exclude<ReadinessLevel, 'ready'>
@@ -197,6 +199,8 @@ export function readiness(i: ReadinessInput): Readiness {
   if (!i.creditPulled) need('credit', 'Credit not pulled yet.')
   for (const j of i.jobs.filter((x) => x.hasIncome && !x.hasWorksheet)) need('income_docs', `Income not documented for ${j.employerName} (${j.borrowerName}): pay stubs, W-2s or returns, then an income worksheet.`)
   if (!i.hasAssets) need('assets', 'No savings or assets entered.')
+  const waiting = i.outstandingDocs ?? []
+  if (waiting.length) need('documents', `Still waiting on: ${waiting.slice(0, 6).join(', ')}${waiting.length > 6 ? ` and ${waiting.length - 6} more` : ''}.`)
 
   reasons.sort((a, b) => LEVEL_ORDER.indexOf(a.level) - LEVEL_ORDER.indexOf(b.level))
   const level = reasons[0]?.level ?? 'ready'

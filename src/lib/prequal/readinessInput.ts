@@ -26,6 +26,8 @@ export interface ReadinessSources {
   creditPulled: boolean
   hasAssets: boolean
   today: string
+  /** Document requests still waiting (label and whose). */
+  waitingRequests?: { label: string; contactId: string | null }[]
   /** The Prequal form's jobs, before they're saved (otherwise the saved jobs are used). */
   draftBorrowers?: QuickBorrower[]
 }
@@ -76,5 +78,6 @@ export function readinessInput(s: ReadinessSources): ReadinessInput {
     creditEvents: s.creditEvents.map((e) => ({ type: e.eventType, date: e.eventDate, daysLate: e.daysLate, isMortgage: e.isMortgage, borrowerName: name(e.contactId) })),
     creditPulled: s.creditPulled,
     hasAssets: s.hasAssets,
+    outstandingDocs: (s.waitingRequests ?? []).map((r) => (r.contactId && s.app.borrowers.length > 1 ? `${r.label} (${name(r.contactId)})` : r.label)),
   }
 }
