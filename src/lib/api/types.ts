@@ -190,4 +190,6 @@ export interface Task {
   completedAt: string | null
   assignedTo: MemberRef | null
   createdAt: string
+  /** Set when the task was made from a contract deadline (e.g. "contract:option_end"). */
+  sourceKey: string | null
 }

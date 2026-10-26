@@ -11,10 +11,11 @@ interface TaskRow {
   due_on: string | null
   completed_at: string | null
   created_at: string
+  source_key: string | null
   assigned: { id: string; full_name: string | null; email: string } | null
 }
 
-const TASK_SELECT = 'id, loan_id, title, due_on, completed_at, created_at, assigned:profiles!tasks_assigned_to_fkey ( id, full_name, email )'
+const TASK_SELECT = 'id, loan_id, title, due_on, completed_at, created_at, source_key, assigned:profiles!tasks_assigned_to_fkey ( id, full_name, email )'
 
 function toTask(r: TaskRow): Task {
   return {
@@ -24,6 +25,7 @@ function toTask(r: TaskRow): Task {
     dueOn: r.due_on,
     completedAt: r.completed_at,
     createdAt: r.created_at,
+    sourceKey: r.source_key,
     assignedTo: r.assigned ? { id: r.assigned.id, name: r.assigned.full_name || r.assigned.email } : null,
   }
 }

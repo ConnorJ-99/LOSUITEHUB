@@ -14,6 +14,8 @@ export interface TeamMemberRecord {
   profileId: string | null
   name: string | null
   company: string | null
+  email: string | null
+  phone: string | null
 }
 
 interface TemplateRow {
@@ -69,17 +71,19 @@ export function useLoanFile(loanId: string) {
       const [milestones, steps, team] = await Promise.all([
         db().from('loan_milestones').select('milestone, reached_on').eq('loan_id', loanId),
         db().from('loan_steps').select('step_key, status, done_on').eq('loan_id', loanId),
-        db().from('loan_team_members').select('id, role, profile_id, name, company').eq('loan_id', loanId),
+        db().from('loan_team_members').select('id, role, profile_id, name, company, email, phone').eq('loan_id', loanId),
       ])
       return {
         milestones: unwrap<{ milestone: Milestone; reached_on: string }[]>(milestones).map((m) => ({ milestone: m.milestone, reachedOn: m.reached_on })),
         marks: unwrap<{ step_key: string; status: 'done' | 'na'; done_on: string | null }[]>(steps).map((s) => ({ stepKey: s.step_key, status: s.status, doneOn: s.done_on })),
-        team: unwrap<{ id: string; role: TeamRole; profile_id: string | null; name: string | null; company: string | null }[]>(team).map((t) => ({
+        team: unwrap<{ id: string; role: TeamRole; profile_id: string | null; name: string | null; company: string | null; email: string | null; phone: string | null }[]>(team).map((t) => ({
           id: t.id,
           role: t.role,
           profileId: t.profile_id,
           name: t.name,
           company: t.company,
+          email: t.email,
+          phone: t.phone,
         })),
       }
     },

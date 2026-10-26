@@ -6,6 +6,7 @@ import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, CurrencyInput, DateInput, EmptyState, FormGrid, Select } from '@/components/shared'
 import { SectionCard, YesNo } from '@/components/urla/parts'
+import { ContractFollowThrough } from './ContractFollowThrough'
 import { ContractReadingCard } from './ContractReadingCard'
 import { useDraft } from '@/components/urla/useDraft'
 import {
@@ -210,6 +211,7 @@ function ContractTerms({ loan, saved }: { loan: LoanProfile; saved: TermsForm })
 
   const application = app.data!
   const summary = applicationSummary(loan, application, properties.data)
+  const propertyAddress = summary.subject ? [summary.subject.addressLine, summary.subject.city, [summary.subject.state, summary.subject.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ') : null
   const docs = useLoanDocuments(loan.id, CONTRACT_KINDS)
   const flags = contractFlags({
     mortgageType: loan.details.mortgageType,
@@ -255,7 +257,7 @@ function ContractTerms({ loan, saved }: { loan: LoanProfile; saved: TermsForm })
         loan={loan}
         app={application}
         hasDocuments={(docs.data ?? []).length > 0}
-        now={{ details: loan.details, earnestMoney: saved.earnestMoney, propertyAddress: summary.subject ? [summary.subject.addressLine, summary.subject.city, summary.subject.state, summary.subject.zip].filter(Boolean).join(', ') : null }}
+        now={{ details: loan.details, earnestMoney: saved.earnestMoney, propertyAddress }}
       />
       <FlagList flags={flags} ready={anyTerms} />
       <SectionCard
@@ -283,6 +285,7 @@ function ContractTerms({ loan, saved }: { loan: LoanProfile; saved: TermsForm })
         </FormGrid>
         <YesNo label="Mandatory HOA (HOA addendum attached)" value={form.hasHoaAddendum} onChange={set('hasHoaAddendum')} />
       </SectionCard>
+      <ContractFollowThrough loan={loan} app={application} propertyAddress={propertyAddress} />
     </div>
   )
 }
