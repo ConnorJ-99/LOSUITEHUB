@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertOctagonIcon, CheckCircle2Icon, FileSearchIcon, MoonIcon, ScaleIcon } from 'lucide-react'
+import { AlertOctagonIcon, ArrowRightIcon, BadgeCheckIcon, CheckCircle2Icon, FileSearchIcon, FileTextIcon, MoonIcon, ScaleIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,9 @@ import { fullName } from '@/lib/pipeline/helpers'
 import { draftFrom, prequalSummary, type PrequalDraft, type PrequalSummary } from '@/lib/prequal/draft'
 import { LEVEL_LABEL, NURTURE_LABEL, readiness, type NurtureReason, type Readiness, type ReadinessLevel } from '@/lib/prequal/readiness'
 import { readinessInput } from '@/lib/prequal/readinessInput'
+import { checklistFrom, documentChecklist, documentRequest, nextStep, type DocGroup } from '@/lib/prequal/nextStep'
+import { useQueueIntroEmails } from '@/lib/api/contract'
+import { useOrganization, useProfile } from '@/lib/api/settings'
 import type { Application } from '@/lib/api/urla'
 
 const LEVEL_STYLE: Record<ReadinessLevel, { icon: typeof CheckCircle2Icon; box: string; text: string }> = {
@@ -52,23 +55,35 @@ export function useReadinessSources(loan: LoanProfile, app: Application | undefi
   }
 }
 
+/** The readiness result and the documents to ask for. */
+export interface ReadinessView {
+  result: Readiness
+  checklist: DocGroup[]
+}
+
 /** Readiness from the saved records (for the Overview). */
-export function useSavedReadiness(loan: LoanProfile): Readiness | null {
+export function useSavedReadiness(loan: LoanProfile): ReadinessView | null {
   const app = useApplication(loan.id)
   const properties = useProperties(loan.id)
   const sources = useReadinessSources(loan, app.data)
   if (!sources.ready || !app.data || !properties.data || app.data.borrowers.length === 0) return null
   const draft = draftFrom(loan, app.data, properties.data, false)
   const summary = prequalSummary(loan, draft, properties.data)
-  return readiness(readinessInput({ loan, app: app.data, summary, maxDtiPct: draft.loan.maxDtiPct, mortgageType: loan.details.mortgageType, ...sources, hasAssets: app.data.assets.length > 0, today: todayIso() }))
+  return {
+    result: readiness(readinessInput({ loan, app: app.data, summary, maxDtiPct: draft.loan.maxDtiPct, mortgageType: loan.details.mortgageType, ...sources, hasAssets: app.data.assets.length > 0, today: todayIso() })),
+    checklist: documentChecklist(checklistFrom(draft, loan.details.incomeDocType, sources.creditEvents)),
+  }
 }
 
 /** Readiness from the Prequal tab's live draft. */
-export function useLiveReadiness(loan: LoanProfile, app: Application, summary: PrequalSummary, draft: PrequalDraft): Readiness | null {
+export function useLiveReadiness(loan: LoanProfile, app: Application, summary: PrequalSummary, draft: PrequalDraft): ReadinessView | null {
   const sources = useReadinessSources(loan, app)
   if (!sources.ready) return null
   const hasAssets = draft.assets.some((a) => (a.amount ?? 0) > 0)
-  return readiness(readinessInput({ loan, app, summary, maxDtiPct: draft.loan.maxDtiPct, mortgageType: draft.loan.mortgageType, ...sources, hasAssets, draftBorrowers: draft.borrowers, today: todayIso() }))
+  return {
+    result: readiness(readinessInput({ loan, app, summary, maxDtiPct: draft.loan.maxDtiPct, mortgageType: draft.loan.mortgageType, ...sources, hasAssets, draftBorrowers: draft.borrowers, today: todayIso() })),
+    checklist: documentChecklist(checklistFrom(draft, loan.details.incomeDocType, sources.creditEvents)),
+  }
 }
 
 function NurtureDialog({ loan, result, onClose }: { loan: LoanProfile; result: Readiness; onClose: () => void }) {
@@ -113,14 +128,91 @@ function NurtureDialog({ loan, result, onClose }: { loan: LoanProfile; result: R
   )
 }
 
-/** The readiness result with its reasons, and Move to Nurture when it's not ready. */
-export function ReadinessCard({ loan, result, compact }: { loan: LoanProfile; result: Readiness | null; compact?: boolean }) {
+/** Pick the documents and text or email; the request goes to the Action Queue. */
+function RequestDialog({ loan, checklist, onClose }: { loan: LoanProfile; checklist: DocGroup[]; onClose: () => void }) {
+  const [channel, setChannel] = useState<'text' | 'email'>('email')
+  const [off, setOff] = useState<Set<string>>(new Set())
+  const profile = useProfile(loan.assignedLo?.id)
+  const org = useOrganization()
+  const queue = useQueueIntroEmails(loan.id, loan.organizationId)
+  const id = (g: DocGroup, key: string) => `${g.title}:${key}`
+  const picked = checklist.map((g) => ({ ...g, items: g.items.filter((i) => !off.has(id(g, i.key))) })).filter((g) => g.items.length)
+  const b = loan.borrower
+  const toggle = (key: string, on: boolean) =>
+    setOff((s) => {
+      const next = new Set(s)
+      if (on) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
+  const submit = () => {
+    if (!b) return toast.error('This file has no borrower.')
+    if (picked.length === 0) return toast.error('Pick at least one document')
+    const signer = { loName: profile.data?.fullName ?? null, loNmls: profile.data?.nmls ?? null, loPhone: profile.data?.phone ?? null, companyName: org.data?.name ?? 'MPS Mortgage LLC', companyNmls: org.data?.nmls ?? '2501110' }
+    const draft = documentRequest(channel, { firstName: b.firstName, contact: channel === 'text' ? b.phone : b.email }, picked, signer)
+    queue.mutate([{ title: `Document request (${channel}) to ${b.firstName}`, draft }], {
+      onSuccess: () => {
+        toast.success('Document request added to the Action Queue')
+        onClose()
+      },
+      onError: (e) => toast.error(e.message),
+    })
+  }
+
+  return (
+    <EditDialog
+      title="Draft document request"
+      description="A starter list from how they earn money, what they have and their credit history. The draft goes to the Action Queue for you to approve and send."
+      open
+      onOpenChange={(o) => !o && onClose()}
+      onSubmit={submit}
+      saving={queue.isPending}
+      submitLabel="Add to Action Queue"
+      wide
+    >
+      <div className="space-y-3">
+        <ToggleChipGroup>
+          <ToggleChip label="Email" pressed={channel === 'email'} onChange={() => setChannel('email')} />
+          <ToggleChip label="Text" pressed={channel === 'text'} onChange={() => setChannel('text')} />
+        </ToggleChipGroup>
+        {checklist.map((g) => (
+          <div key={g.title}>
+            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{g.title}</p>
+            <ul className="mt-1 space-y-1">
+              {g.items.map((i) => {
+                const on = !off.has(id(g, i.key))
+                return (
+                  <li key={i.key} className="flex items-center justify-between gap-2 text-sm">
+                    <span className={cn(!on && 'text-muted-foreground line-through')}>{i.full}</span>
+                    <ToggleChip label="Ask" pressed={on} onChange={(p) => toggle(id(g, i.key), p)} />
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        ))}
+        {channel === 'text' && <p className="text-xs text-muted-foreground">Texts list the short names; if the list is too long for one text, it says the full list is coming by email.</p>}
+      </div>
+    </EditDialog>
+  )
+}
+
+/** The readiness result with its reasons, and the next step with its button. */
+export function ReadinessCard({ loan, view, compact }: { loan: LoanProfile; view: ReadinessView | null; compact?: boolean }) {
   const [nurturing, setNurturing] = useState(false)
-  if (!result) return null
+  const [requesting, setRequesting] = useState(false)
+  const updateStage = useUpdateStage()
+  if (!view) return null
+  const result = view.result
+  const next = nextStep(result, loan.stage)
   const style = LEVEL_STYLE[result.level]
   const Icon = style.icon
   const groups = (['not_ready', 'manual_review', 'needs_documents'] as const).map((level) => ({ level, items: result.reasons.filter((r) => r.level === level) })).filter((g) => g.items.length)
   const canNurture = result.level === 'not_ready' && NURTURE_STAGES.has(loan.stage)
+  const canRequest = result.level !== 'not_ready' && view.checklist.length > 0
+  const preApprove = () =>
+    updateStage.mutate({ loanId: loan.id, stage: 'pre_approved' }, { onSuccess: () => toast.success('Moved to Pre-Approved'), onError: (e) => toast.error(e.message) })
 
   return (
     <Card title="Readiness" description={compact ? undefined : 'Worked out from the prequal, documents and credit history. Your rules, no AI.'}>
@@ -140,14 +232,39 @@ export function ReadinessCard({ loan, result, compact }: { loan: LoanProfile; re
             </ul>
           </div>
         ))}
-        {canNurture && (
-          <Button variant="outline" size="sm" onClick={() => setNurturing(true)}>
-            <MoonIcon />
-            Move to Nurture
-          </Button>
+        {next && (
+          <div className="rounded-lg border bg-muted/30 p-3">
+            <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              <ArrowRightIcon className="size-3.5" />
+              Next step
+            </p>
+            <p className="mt-1 text-sm font-medium">{next.title}</p>
+            <p className="text-sm text-muted-foreground">{next.detail}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {canNurture && (
+                <Button variant="outline" size="sm" onClick={() => setNurturing(true)}>
+                  <MoonIcon />
+                  Move to Nurture
+                </Button>
+              )}
+              {next.action === 'pre_approve' && (
+                <Button size="sm" onClick={preApprove} disabled={updateStage.isPending}>
+                  <BadgeCheckIcon />
+                  Move to Pre-Approved
+                </Button>
+              )}
+              {canRequest && (
+                <Button variant={next.action === 'request_documents' ? 'default' : 'outline'} size="sm" onClick={() => setRequesting(true)}>
+                  <FileTextIcon />
+                  Draft document request
+                </Button>
+              )}
+            </div>
+          </div>
         )}
       </div>
       {nurturing && <NurtureDialog loan={loan} result={result} onClose={() => setNurturing(false)} />}
+      {requesting && <RequestDialog loan={loan} checklist={view.checklist} onClose={() => setRequesting(false)} />}
     </Card>
   )
 }

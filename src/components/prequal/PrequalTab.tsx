@@ -78,7 +78,7 @@ function PrequalForm({ loan, app, subject, properties, saved }: { loan: LoanProf
           <CreditHistorySection loan={loan} app={app} />
         </div>
         <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
-          <ReadinessCard loan={loan} result={live} />
+          <ReadinessCard loan={loan} view={live} />
           <PrequalResults
             isPurchase={isPurchase}
             loan={draft.loan}

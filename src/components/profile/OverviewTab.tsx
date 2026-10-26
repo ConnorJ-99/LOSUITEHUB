@@ -300,7 +300,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
 
         <div className="order-first space-y-4 lg:order-none">
           {/* Readiness matters until the file is pre-approved. */}
-          {['lead', 'contacted', 'pre_qualified', 'nurture'].includes(loan.stage) && <ReadinessCard loan={loan} result={readinessResult} compact />}
+          {['lead', 'contacted', 'pre_qualified', 'nurture'].includes(loan.stage) && <ReadinessCard loan={loan} view={readinessResult} compact />}
           <TasksCard loanId={loan.id} organizationId={loan.organizationId} />
           <Card title="At a glance">
             <dl className="space-y-3">

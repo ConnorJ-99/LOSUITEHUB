@@ -97,10 +97,14 @@ export interface ReadinessInput {
   hasAssets: boolean
 }
 
+/** What's missing, for picking the next step (needs-documents reasons only). */
+export type MissingCode = 'score' | 'income' | 'start_date' | 'event_date' | 'credit' | 'income_docs' | 'assets'
+
 export interface ReadinessReason {
   level: Exclude<ReadinessLevel, 'ready'>
   text: string
   nurture?: NurtureReason
+  missing?: MissingCode
 }
 
 export interface Readiness {
@@ -147,6 +151,7 @@ const LEVEL_ORDER: ReadinessLevel[] = ['not_ready', 'manual_review', 'needs_docu
 export function readiness(i: ReadinessInput): Readiness {
   const reasons: ReadinessReason[] = []
   const add = (level: ReadinessReason['level'], text: string, nurture?: NurtureReason) => reasons.push({ level, text, ...(nurture ? { nurture } : {}) })
+  const need = (missing: MissingCode, text: string) => reasons.push({ level: 'needs_documents', text, missing })
   const type = i.mortgageType ?? 'conventional'
 
   // Not ready → Nurture
@@ -185,13 +190,13 @@ export function readiness(i: ReadinessInput): Readiness {
   }
 
   // Needs documents (or information)
-  if (i.creditScore === null) add('needs_documents', 'Ask for an estimated credit score.')
-  if (i.totalIncome <= 0) add('needs_documents', 'No income entered yet.')
-  for (const j of i.jobs.filter((x) => x.selfEmployed && x.hasIncome && !x.startDate)) add('needs_documents', `When did ${j.borrowerName} start self-employment at ${j.employerName}?`)
-  for (const e of i.creditEvents.filter((x) => !x.date && x.type !== 'collection')) add('needs_documents', `Date of the ${EVENT_LABEL[e.type].toLowerCase()} (${e.borrowerName}).`)
-  if (!i.creditPulled) add('needs_documents', 'Credit not pulled yet.')
-  for (const j of i.jobs.filter((x) => x.hasIncome && !x.hasWorksheet)) add('needs_documents', `Income not documented for ${j.employerName} (${j.borrowerName}): pay stubs, W-2s or returns, then an income worksheet.`)
-  if (!i.hasAssets) add('needs_documents', 'No savings or assets entered.')
+  if (i.creditScore === null) need('score', 'Ask for an estimated credit score.')
+  if (i.totalIncome <= 0) need('income', 'No income entered yet.')
+  for (const j of i.jobs.filter((x) => x.selfEmployed && x.hasIncome && !x.startDate)) need('start_date', `When did ${j.borrowerName} start self-employment at ${j.employerName}?`)
+  for (const e of i.creditEvents.filter((x) => !x.date && x.type !== 'collection')) need('event_date', `Date of the ${EVENT_LABEL[e.type].toLowerCase()} (${e.borrowerName}).`)
+  if (!i.creditPulled) need('credit', 'Credit not pulled yet.')
+  for (const j of i.jobs.filter((x) => x.hasIncome && !x.hasWorksheet)) need('income_docs', `Income not documented for ${j.employerName} (${j.borrowerName}): pay stubs, W-2s or returns, then an income worksheet.`)
+  if (!i.hasAssets) need('assets', 'No savings or assets entered.')
 
   reasons.sort((a, b) => LEVEL_ORDER.indexOf(a.level) - LEVEL_ORDER.indexOf(b.level))
   const level = reasons[0]?.level ?? 'ready'
