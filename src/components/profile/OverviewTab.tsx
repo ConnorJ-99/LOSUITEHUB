@@ -17,6 +17,7 @@ import { formatPhone } from '@/lib/pipeline/helpers'
 import { purposeLabel } from '@/lib/pipeline/stages'
 import { noteKindLabel, OCCUPANCY_OPTIONS, TERM_OPTIONS } from './options'
 import { TasksCard } from './TasksCard'
+import { WebFormsCard } from './WebFormsCard'
 import { ReadinessCard, useSavedReadiness } from '@/components/prequal/Readiness'
 import { TexasFlags } from './TexasFlags'
 import { ActionQueueCard } from '@/components/queue/ActionQueueCard'
@@ -292,6 +293,8 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
               </Detail>
             </dl>
           </Card>
+
+          <WebFormsCard loan={loan} />
 
           <Card title="Other loans for this person">
             <OtherLoans loan={loan} />
