@@ -66,7 +66,8 @@ export function WorkflowPanel({ workflow, loanId, organizationId, days, onOpenSe
         onError: (e) => toast.error(e.message),
       },
     )
-  const isUrla = (step: StepResult) => step.ruleKey === 'urla_complete'
+  // Finishing the 1003 completes this step, or clears a block caused by missing 1003 fields.
+  const isUrla = (step: StepResult) => step.ruleKey === 'urla_complete' || (step.ruleKey === 'ready_to_submit' && step.status === 'blocked')
   /** The step's main button: fill the 1003's missing fields, open its section, or mark it done today. */
   const act = (step: StepResult) => (isUrla(step) ? onCompleteFields() : step.actionTarget ? onOpenSection(step.actionTarget) : markStep(step, 'done'))
   const label = (step: StepResult) => (isUrla(step) ? 'Complete fields' : (step.actionLabel ?? 'Mark done'))
@@ -132,6 +133,7 @@ export function WorkflowPanel({ workflow, loanId, organizationId, days, onOpenSe
                   secondaryLabel={open ? 'Skip' : undefined}
                   onSecondary={() => markStep(s, 'na')}
                   menu={open ? menuFor(s) : undefined}
+                  actionFixesBlock={isUrla(s)}
                   busy={mark.isPending}
                 />
               )

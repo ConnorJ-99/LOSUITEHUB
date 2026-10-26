@@ -116,10 +116,12 @@ export interface StepRowProps {
   busy?: boolean
   /** Extra choices in a ⋯ menu, e.g. "Mark done anyway". */
   menu?: { label: string; onSelect: () => void }[]
+  /** Keep the main button usable on a blocked step (when it fixes the block, e.g. Complete fields). */
+  actionFixesBlock?: boolean
 }
 
 /** One workflow step: icon, name and owner, status pill, and an outlined action button. */
-export function StepRow({ icon: Icon, name, owner, status, reason, actionLabel, onAction, secondaryLabel, onSecondary, detail, busy, menu }: StepRowProps) {
+export function StepRow({ icon: Icon, name, owner, status, reason, actionLabel, onAction, secondaryLabel, onSecondary, detail, busy, menu, actionFixesBlock }: StepRowProps) {
   return (
     <li className="flex items-start gap-3 px-3 py-3">
       <span className={cn('mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md', status === 'blocked' ? 'bg-red-50 text-red-600' : status === 'done' ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground')}>
@@ -143,7 +145,7 @@ export function StepRow({ icon: Icon, name, owner, status, reason, actionLabel, 
           </Button>
         )}
         {actionLabel && (
-          <Button size="sm" variant="outline" onClick={onAction} disabled={status === 'blocked' || busy}>
+          <Button size="sm" variant="outline" onClick={onAction} disabled={(status === 'blocked' && !actionFixesBlock) || busy}>
             {actionLabel}
           </Button>
         )}
