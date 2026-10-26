@@ -100,6 +100,8 @@ export interface LoanDetails {
   /** Mortgage insurance overrides; null uses the loan type's default. */
   miRatePct: number | null
   upfrontFeePct: number | null
+  /** The file's loan number in Arive. */
+  ariveLoanNumber: string | null
 }
 
 /** The full borrower profile for one loan. */

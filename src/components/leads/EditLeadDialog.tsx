@@ -11,10 +11,13 @@ import { PURPOSES, type LoanPurpose } from '@/lib/pipeline/stages'
 /** Edit the person's contact details and the loan's basics from the record page. */
 export function EditLeadDialog({
   loan,
+  ariveLoanNumber,
   open,
   onOpenChange,
 }: {
   loan: PipelineLoan
+  /** Shown and saved when given (the loan file page). */
+  ariveLoanNumber?: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -28,6 +31,7 @@ export function EditLeadDialog({
     purpose: loan.purpose as LoanPurpose,
     referralSource: loan.referralSource ?? '',
     assignedLoId: loan.assignedLo?.id ?? null,
+    ariveLoanNumber: ariveLoanNumber ?? '',
   }))
   const [submitted, setSubmitted] = useState(false)
   const set = <K extends keyof typeof form>(key: K) => (value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
@@ -47,7 +51,7 @@ export function EditLeadDialog({
         loanId: loan.id,
         contactId: loan.borrower.id,
         contact: { firstName: form.firstName, lastName: form.lastName, phone: form.phone, email: form.email },
-        loan: { purpose: form.purpose, referralSource: form.referralSource, assignedLoId: form.assignedLoId },
+        loan: { purpose: form.purpose, referralSource: form.referralSource, assignedLoId: form.assignedLoId, ...(ariveLoanNumber !== undefined ? { ariveLoanNumber: form.ariveLoanNumber } : {}) },
       },
       {
         onSuccess: () => {
@@ -81,6 +85,7 @@ export function EditLeadDialog({
               span={2}
             />
             <Input label="Referral source" value={form.referralSource} onChange={set('referralSource')} span={4} />
+            {ariveLoanNumber !== undefined && <Input label="Arive loan number" value={form.ariveLoanNumber} onChange={set('ariveLoanNumber')} span={2} />}
           </FormGrid>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

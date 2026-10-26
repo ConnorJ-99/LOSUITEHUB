@@ -107,10 +107,16 @@ export interface StepRowProps {
   reason?: string
   actionLabel?: string
   onAction?: () => void
+  /** A quieter second button, e.g. "N/A" or "Undo". */
+  secondaryLabel?: string
+  onSecondary?: () => void
+  /** Extra text under the owner, e.g. "Done Oct 21" or "2 required fields missing". */
+  detail?: string
+  busy?: boolean
 }
 
 /** One workflow step: icon, name and owner, status pill, and an outlined action button. */
-export function StepRow({ icon: Icon, name, owner, status, reason, actionLabel, onAction }: StepRowProps) {
+export function StepRow({ icon: Icon, name, owner, status, reason, actionLabel, onAction, secondaryLabel, onSecondary, detail, busy }: StepRowProps) {
   return (
     <li className="flex items-start gap-3 px-3 py-3">
       <span className={cn('mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md', status === 'blocked' ? 'bg-red-50 text-red-600' : status === 'done' ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground')}>
@@ -121,14 +127,24 @@ export function StepRow({ icon: Icon, name, owner, status, reason, actionLabel, 
           <span className={cn('text-sm font-medium', status === 'na' && 'text-muted-foreground')}>{name}</span>
           <StatusPill status={status} />
         </div>
-        <p className="text-xs text-muted-foreground">{owner}</p>
+        <p className="text-xs text-muted-foreground">
+          {owner}
+          {detail && ` · ${detail}`}
+        </p>
         {status === 'blocked' && reason && <p className="mt-0.5 text-xs text-red-600">{reason}</p>}
       </div>
-      {actionLabel && status !== 'done' && status !== 'na' && (
-        <Button size="sm" variant="outline" onClick={onAction} disabled={status === 'blocked'}>
-          {actionLabel}
-        </Button>
-      )}
+      <div className="flex shrink-0 items-center gap-1">
+        {secondaryLabel && (
+          <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={onSecondary} disabled={busy}>
+            {secondaryLabel}
+          </Button>
+        )}
+        {actionLabel && (
+          <Button size="sm" variant="outline" onClick={onAction} disabled={status === 'blocked' || busy}>
+            {actionLabel}
+          </Button>
+        )}
+      </div>
     </li>
   )
 }

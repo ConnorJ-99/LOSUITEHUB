@@ -105,10 +105,12 @@ export interface TeamMember {
   name: string | null
   /** People who can be picked for this role. */
   options?: string[]
+  /** Offer "Enter name…" for outside contacts (title, agents). */
+  allowCustom?: boolean
 }
 
 /** "Assigned team 2/4" with a dropdown chip per role. Filled dot = assigned; hollow dot and italic "Unassigned" = open. */
-export function TeamRow({ members, onAssign }: { members: TeamMember[]; onAssign?: (role: string, name: string | null) => void }) {
+export function TeamRow({ members, onAssign, onCustom }: { members: TeamMember[]; onAssign?: (role: string, name: string | null) => void; onCustom?: (role: string) => void }) {
   const assigned = members.filter((m) => m.name).length
   return (
     <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
@@ -137,6 +139,7 @@ export function TeamRow({ members, onAssign }: { members: TeamMember[]; onAssign
                     {o}
                   </DropdownMenuItem>
                 ))}
+                {m.allowCustom && onCustom && <DropdownMenuItem onSelect={() => onCustom(m.role)}>{m.name ? 'Change name…' : 'Enter name…'}</DropdownMenuItem>}
                 {m.name && (
                   <>
                     <DropdownMenuSeparator />

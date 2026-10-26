@@ -72,6 +72,7 @@ const DETAIL_COLUMNS: Record<keyof LoanDetails, [string, boolean]> = {
   estimatedMonthlyHoa: ['estimated_monthly_hoa', true],
   miRatePct: ['mi_rate_pct', true],
   upfrontFeePct: ['upfront_fee_pct', true],
+  ariveLoanNumber: ['arive_loan_number', false],
 }
 
 interface LoanProfileRow extends LoanRow {
@@ -319,7 +320,7 @@ export interface LeadEdits {
   loanId: string
   contactId: string
   contact: Pick<Contact, 'firstName' | 'lastName' | 'email' | 'phone'>
-  loan: { purpose: LoanPurpose; referralSource: string | null; assignedLoId: string | null }
+  loan: { purpose: LoanPurpose; referralSource: string | null; assignedLoId: string | null; ariveLoanNumber?: string | null }
 }
 
 /** Saves edits to the person and the loan from the record page. */
@@ -346,6 +347,7 @@ export function useUpdateLead() {
             purpose: loan.purpose,
             referral_source: loan.referralSource?.trim() || null,
             assigned_lo_id: loan.assignedLoId,
+            ...(loan.ariveLoanNumber !== undefined ? { arive_loan_number: loan.ariveLoanNumber?.trim() || null } : {}),
           })
           .eq('id', loanId)
           .select('id'),

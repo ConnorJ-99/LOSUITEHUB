@@ -36,6 +36,8 @@ async function loadCurrentUser(user: User): Promise<CurrentUser> {
     .from('organization_members')
     .select('role, organization:organizations(id, name), profile:profiles(full_name)')
     .eq('user_id', user.id)
+    // Always the same company: the one joined first (a user in several companies otherwise got a random one).
+    .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle<MembershipRow>()
 

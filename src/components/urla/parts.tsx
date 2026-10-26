@@ -29,7 +29,7 @@ export function SectionCard({
   children: React.ReactNode
 }) {
   return (
-    <section id={id} className="scroll-mt-20">
+    <section id={id} className="scroll-mt-28">
       <Card
         title={title}
         description={description}

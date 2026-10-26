@@ -1,9 +1,8 @@
 # LOSuite v3 project guide (draft)
 
-Updated by Connor on 2026-10-25 (adds the Loan file UI and Phase 1b). **Status: draft, kept alongside CLAUDE.md.** Where it disagrees with what's built: the Prequal tab stays (Connor's choice), and already-built work (pipeline, profile, 1003 + MISMO, income calculators, phone prequal, Action Queue and Today) is not rebuilt.
+Updated by Connor on 2026-10-25 (adds the Loan file UI, Phase 1b, and 5c Borrower documents and e-sign). **Status: draft, kept alongside CLAUDE.md.** Where it disagrees with what's built: the Prequal tab stays (Connor's choice), and already-built work (pipeline, profile, 1003 + MISMO, income calculators, phone prequal, Action Queue and Today) is not rebuilt. The document templates folder it mentions (docs/document-templates/) is not in the repo yet.
 
 ---
-
 
 ## What this is
 LOSuite is the **loan officer assistant** for **MPS Mortgage LLC** (NMLS #2501110), a mortgage brokerage in Dallas-Fort Worth, Texas. It takes a borrower from **lead → pre-qualified → pre-approved → under contract → closed**, then keeps tracking them after closing.
@@ -115,6 +114,12 @@ Purchase, Refinance (rate/term and cash-out), HELOC/HELOAN (2nd liens; **CLTV is
 - Preview it, then export a borrower-facing PDF that's saved to the file. Mark one option as recommended. Saved estimates can be reopened and duplicated.
 - Every estimate carries the disclaimer: **"This is an estimate only and not a loan commitment or official Loan Estimate…"** (wording in `docs/PORTING.md`). Official Loan Estimates still come from Arive.
 
+### 5c. Borrower documents and e-sign
+- Templates and full build instructions: `docs/document-templates/README.md`. Templates include the pre-approval letter, Initial Fees Worksheet, e-sign consent, credit authorization, borrower certification and authorization to obtain information, and the Certificate of Completion.
+- **Every generated document is exactly one page.** Templates are stored in the database with versions and edited in Settings → Documents. Brand logo and LO details come from Settings.
+- E-sign envelopes go out through the Action Queue (Connor approves first), with one link per borrower, a code sent to contact info already on file, e-sign consent before signing, a sealed final PDF with an audit certificate, and Workflow steps updated on completion.
+- No official Loan Estimates or government forms (4506-C, SSA-89) are recreated as templates.
+
 ### 6. Contract intake (transaction coordinator)
 - Upload the executed purchase contract (TREC 1-4 Family Resale and the common addenda first).
 - The assistant extracts:
@@ -185,7 +190,7 @@ Do not build these unless Connor asks for them by name: a call list or dialer, r
 5. **Lead intake** from mps.mortgage forms with duplicate check and first-touch drafts.
 6. **1003 + MISMO 3.4** import/export (test round-trip into Arive).
 7. **Documents:** checklist rules, requests, upload, classification. Then **AI income calculators** with push-to-1003.
-8. **Fees, letters and estimates:** fee sheet with smart defaults and housing expenses; letter templates, live preview, PDF, versioning; then payment estimates from the Properties tab (one or more homes, different rates and down payments) with PDF and drafted send-off message.
+8. **Fees, letters, documents and estimates:** fee sheet with smart defaults and housing expenses; document templates (letters, worksheet, disclosures) with live preview, one-page PDF and versioning; e-sign envelopes; then payment estimates from the Properties tab (one or more homes, different rates and down payments) with PDF and drafted send-off message.
 9. **Loan Info + Product Search + lender admin. Conditions and milestone updates.**
 10. **After closing:** closed-loan tracking and reminders.
 
