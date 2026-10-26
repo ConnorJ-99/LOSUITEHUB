@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { CheckCircle2Icon } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import type { UrlaSectionId, UrlaValidation } from '@/lib/loanfile/urla'
 import { SectionChecklist } from './SectionChecklist'
@@ -10,7 +11,7 @@ const jump = (anchor: string) => document.getElementById(anchor)?.scrollIntoView
  * Top of the 1003 tab: the URLA section list with each section's status,
  * and Validate Application, which lists every missing field and jumps to it.
  */
-export function UrlaChecklistPanel({ validation, borrowerCount }: { validation: UrlaValidation; borrowerCount: number }) {
+export function UrlaChecklistPanel({ validation, borrowerCount, onCompleteFields }: { validation: UrlaValidation; borrowerCount: number; onCompleteFields: () => void }) {
   const [active, setActive] = useState<UrlaSectionId | null>(null)
   const [validating, setValidating] = useState(false)
   const anchorOf = (id: UrlaSectionId) => validation.sections.find((s) => s.id === id)?.anchor ?? 'section-1'
@@ -72,6 +73,15 @@ export function UrlaChecklistPanel({ validation, borrowerCount }: { validation: 
                   </div>
                 ))}
               <p className="text-xs text-muted-foreground">Person fields (Borrower Info, Declarations, Demographics) are shown for the borrower picked at the top of the 1003.</p>
+              <Button
+                className="w-full"
+                onClick={() => {
+                  setValidating(false)
+                  onCompleteFields()
+                }}
+              >
+                Complete fields
+              </Button>
             </div>
           )}
         </DialogContent>

@@ -1,7 +1,8 @@
 import type * as React from 'react'
-import { ArrowRightIcon, CalendarClockIcon, ChevronRightIcon, UsersIcon, type LucideIcon } from 'lucide-react'
+import { ArrowRightIcon, CalendarClockIcon, ChevronRightIcon, MoreHorizontalIcon, UsersIcon, type LucideIcon } from 'lucide-react'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { daysAtStep, groupCountLabel, groupCounts, type StepStatus } from '@/lib/loanfile/display'
 import { StatusPill } from './HeaderParts'
 
@@ -113,10 +114,12 @@ export interface StepRowProps {
   /** Extra text under the owner, e.g. "Done Oct 21" or "2 required fields missing". */
   detail?: string
   busy?: boolean
+  /** Extra choices in a ⋯ menu, e.g. "Mark done anyway". */
+  menu?: { label: string; onSelect: () => void }[]
 }
 
 /** One workflow step: icon, name and owner, status pill, and an outlined action button. */
-export function StepRow({ icon: Icon, name, owner, status, reason, actionLabel, onAction, secondaryLabel, onSecondary, detail, busy }: StepRowProps) {
+export function StepRow({ icon: Icon, name, owner, status, reason, actionLabel, onAction, secondaryLabel, onSecondary, detail, busy, menu }: StepRowProps) {
   return (
     <li className="flex items-start gap-3 px-3 py-3">
       <span className={cn('mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md', status === 'blocked' ? 'bg-red-50 text-red-600' : status === 'done' ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground')}>
@@ -143,6 +146,22 @@ export function StepRow({ icon: Icon, name, owner, status, reason, actionLabel, 
           <Button size="sm" variant="outline" onClick={onAction} disabled={status === 'blocked' || busy}>
             {actionLabel}
           </Button>
+        )}
+        {menu && menu.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon-sm" variant="ghost" aria-label={`More for ${name}`} disabled={busy}>
+                <MoreHorizontalIcon />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {menu.map((m) => (
+                <DropdownMenuItem key={m.label} onSelect={m.onSelect}>
+                  {m.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
     </li>

@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
 import type { Milestone, StepMark, StepTemplate } from '@/lib/loanfile/workflow'
+import type { FieldChanges } from '@/lib/loanfile/urla'
 import { db, keys, unwrap } from './client'
+import { saveLoanDetails } from './loans'
+import { toSnake } from './urla'
 
 export type TeamRole = 'processor' | 'lender_ae' | 'title' | 'escrow_officer' | 'buyer_agent' | 'listing_agent'
 
@@ -160,3 +163,34 @@ export function useSetLoanOfficer(loanId: string) {
     onSettled: invalidate,
   })
 }
+
+/**
+ * Saves the "Complete fields" card: each value goes to its own record (the
+ * loan, a property, a person, a job, declarations), the same places the
+ * 1003 edits. Only filled-in values are written.
+ */
+export function useSaveMissingFields(loanId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (c: FieldChanges) => {
+      const check = (label: string, result: { error: { message: string } | null }) => {
+        if (result.error) throw new Error(`${label}: ${result.error.message}`)
+      }
+      await saveLoanDetails(loanId, c.loan)
+      for (const [id, fields] of Object.entries(c.properties)) check('Saving the property', await db().from('properties').update(snake(fields)).eq('id', id).select('id'))
+      for (const [id, fields] of Object.entries(c.people)) check('Saving the borrower', await db().from('contacts').update(snake(fields)).eq('id', id).select('id'))
+      for (const [contactId, score] of Object.entries(c.scores)) {
+        check('Saving the credit score', await db().from('loan_borrowers').update({ estimated_credit_score: score }).eq('loan_id', loanId).eq('contact_id', contactId).select('contact_id'))
+      }
+      for (const [id, fields] of Object.entries(c.jobs)) check('Saving the job', await db().from('employments').update(snake(fields)).eq('id', id).select('id'))
+      for (const [contactId, fields] of Object.entries(c.declarations)) {
+        check('Saving declarations', await db().from('borrower_declarations').upsert({ ...snake(fields), loan_id: loanId, contact_id: contactId }, { onConflict: 'loan_id,contact_id' }).select('loan_id'))
+      }
+    },
+    onSettled: () => {
+      for (const key of [keys.application(loanId), keys.loan(loanId), keys.properties(loanId), keys.loanFile(loanId), keys.pipeline]) queryClient.invalidateQueries({ queryKey: key })
+    },
+  })
+}
+
+const snake = (fields: Record<string, unknown>) => Object.fromEntries(Object.entries(fields).map(([k, v]) => [toSnake(k), v]))

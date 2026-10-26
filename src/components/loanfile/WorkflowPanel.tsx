@@ -53,7 +53,7 @@ const iconFor = (key: string) => ICONS[key] ?? CircleDotIcon
  * group, and the step checklist. Steps done outside LOSuite (disclosures,
  * submission, closing) are tracked here, never performed here.
  */
-export function WorkflowPanel({ workflow, loanId, organizationId, days, onOpenSection }: { workflow: Workflow; loanId: string; organizationId: string; days: number; onOpenSection: (section: string) => void }) {
+export function WorkflowPanel({ workflow, loanId, organizationId, days, onOpenSection, onCompleteFields }: { workflow: Workflow; loanId: string; organizationId: string; days: number; onOpenSection: (section: string) => void; onCompleteFields: () => void }) {
   const mark = useMarkStep(loanId, organizationId)
   const [openGroup, setOpenGroup] = useState<string | null>(workflow.currentGroup)
   const groupLabel = (id: string) => GROUPS.find((g) => g.id === id)?.label ?? id
@@ -66,8 +66,18 @@ export function WorkflowPanel({ workflow, loanId, organizationId, days, onOpenSe
         onError: (e) => toast.error(e.message),
       },
     )
-  /** The step's main button: open its section, or mark it done today. */
-  const act = (step: StepResult) => (step.actionTarget ? onOpenSection(step.actionTarget) : markStep(step, 'done'))
+  const isUrla = (step: StepResult) => step.ruleKey === 'urla_complete'
+  /** The step's main button: fill the 1003's missing fields, open its section, or mark it done today. */
+  const act = (step: StepResult) => (isUrla(step) ? onCompleteFields() : step.actionTarget ? onOpenSection(step.actionTarget) : markStep(step, 'done'))
+  const label = (step: StepResult) => (isUrla(step) ? 'Complete fields' : (step.actionLabel ?? 'Mark done'))
+  /** Overrides for steps whose main button doesn't mark them done (blocked, worked out from the file, or opening a section). */
+  const menuFor = (step: StepResult) =>
+    step.status === 'blocked' || step.ruleKey || step.actionTarget
+      ? [
+          { label: 'Mark done anyway', onSelect: () => markStep(step, 'done') },
+          ...(isUrla(step) ? [{ label: 'Open the 1003', onSelect: () => onOpenSection('1003') }] : []),
+        ]
+      : undefined
 
   const next = workflow.next
   return (
@@ -78,9 +88,9 @@ export function WorkflowPanel({ workflow, loanId, organizationId, days, onOpenSe
           eyebrow={`${groupLabel(next.group)} · Your next step`}
           title={next.name}
           description={next.reason ?? `${OWNER_LABEL[next.owner]}'s step${next.actionTarget ? '' : '. Do it in Arive or with the lender, then mark it here.'}`}
-          actionLabel={next.actionLabel ?? 'Mark done'}
+          actionLabel={label(next)}
           onAction={() => act(next)}
-          alsoReady={workflow.alsoReady.map((s) => ({ icon: iconFor(s.key), label: s.name, actionLabel: s.actionLabel ?? 'Mark done', onAction: () => act(s) }))}
+          alsoReady={workflow.alsoReady.map((s) => ({ icon: iconFor(s.key), label: s.name, actionLabel: label(s), onAction: () => act(s) }))}
         />
       ) : (
         workflow.totalCount > 0 && workflow.doneCount === workflow.totalCount && (
@@ -117,10 +127,11 @@ export function WorkflowPanel({ workflow, loanId, organizationId, days, onOpenSe
                   status={s.status}
                   reason={s.reason ?? undefined}
                   detail={s.status === 'done' ? (s.auto ? 'Done from the file' : s.doneOn ? `Done ${formatIsoDate(s.doneOn)}` : undefined) : s.status !== 'blocked' ? (s.reason ?? undefined) : undefined}
-                  actionLabel={open ? (s.actionLabel ?? 'Mark done') : manual ? 'Undo' : undefined}
+                  actionLabel={open ? label(s) : manual ? 'Undo' : undefined}
                   onAction={() => (open ? act(s) : markStep(s, null))}
-                  secondaryLabel={open && !s.actionTarget ? 'N/A' : undefined}
+                  secondaryLabel={open ? 'Skip' : undefined}
                   onSecondary={() => markStep(s, 'na')}
+                  menu={open ? menuFor(s) : undefined}
                   busy={mark.isPending}
                 />
               )

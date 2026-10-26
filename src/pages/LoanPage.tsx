@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import { Card, EmptyState, FormGrid, Input } from '@/components/shared'
 import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
 import { FileHeader, FileNav, MetricStrip, MilestoneStepper, TeamRow, type FileNavItem, type TeamMember } from '@/components/loanfile'
+import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
 import { UrlaChecklistPanel } from '@/components/loanfile/UrlaChecklistPanel'
 import { WorkflowPanel } from '@/components/loanfile/WorkflowPanel'
 import { StageMenu } from '@/components/pipeline/StageMenu'
@@ -104,6 +105,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const [editing, setEditing] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(true)
   const [navCollapsed, setNavCollapsed] = useState(false)
+  const [completing, setCompleting] = useState(false)
   const [teamEdit, setTeamEdit] = useState<{ role: TeamRole; label: string; name: string; company: string; withCompany: boolean } | null>(null)
 
   const param = searchParams.get('tab') as Section | null
@@ -221,7 +223,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           {section === 'overview' && (
             <>
               {workflow ? (
-                <WorkflowPanel workflow={workflow} loanId={loan.id} organizationId={loan.organizationId} days={days} onOpenSection={goTo} />
+                <WorkflowPanel workflow={workflow} loanId={loan.id} organizationId={loan.organizationId} days={days} onOpenSection={goTo} onCompleteFields={() => setCompleting(true)} />
               ) : templates.isError || file.isError ? (
                 <p className="text-sm text-destructive">{(templates.error ?? file.error)?.message}</p>
               ) : (
@@ -233,7 +235,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           {section === 'prequal' && <PrequalTab loan={loan} />}
           {section === '1003' && (
             <>
-              {validation && <UrlaChecklistPanel validation={validation} borrowerCount={app.data?.borrowers.length ?? 1} />}
+              {validation && <UrlaChecklistPanel validation={validation} borrowerCount={app.data?.borrowers.length ?? 1} onCompleteFields={() => setCompleting(true)} />}
               <UrlaTab loan={loan} />
             </>
           )}
@@ -243,6 +245,19 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
         </div>
       </div>
 
+      {validation && completing && (
+        <MissingFieldsDialog
+          validation={validation}
+          open
+          onOpenChange={setCompleting}
+          loanId={loan.id}
+          onOpenSection={(anchor) => {
+            goTo('1003')
+            // Wait for the 1003 to render, then scroll to the section.
+            setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 400)
+          }}
+        />
+      )}
       {editing && <EditLeadDialog loan={loan} ariveLoanNumber={loan.details.ariveLoanNumber} open={editing} onOpenChange={setEditing} />}
       {teamEdit && (
         <EditDialog

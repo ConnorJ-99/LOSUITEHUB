@@ -141,3 +141,25 @@ describe('header metrics', () => {
     expect(heloc[2].value).toBe('—')
   })
 })
+
+describe('complete fields', () => {
+  it('gives editable issues a target and groups typed values by record', async () => {
+    const { groupFieldChanges, fixKey } = await import('./urla')
+    const v = validateApplication({ loan: { ...loan, details: { ...loan.details, noteRate: null } }, app: application, properties, organization, originator })
+    const dob = v.issues.find((i) => i.field === 'Date of birth')!
+    expect(dob.fix).toEqual({ kind: 'person', contactId: 'c-2', field: 'dateOfBirth' })
+    const rate = v.issues.find((i) => i.field === 'Interest rate')!
+    const score = v.issues.find((i) => i.section === 'credit')!
+    // Address and demographics have no inline fix: they're done on the 1003.
+    expect(v.issues.find((i) => i.section === 'demographics')?.fix).toBeUndefined()
+    const changes = groupFieldChanges(v.issues, {
+      [fixKey(rate.fix!)]: 6.75,
+      [fixKey(dob.fix!)]: '1990-05-01',
+      [fixKey(score.fix!)]: 690,
+      'person:c-2:citizenship': '',
+    })
+    expect(changes.loan).toEqual({ noteRate: 6.75 })
+    expect(changes.people).toEqual({ 'c-2': { dateOfBirth: '1990-05-01' } })
+    expect(changes.scores).toEqual({ 'c-2': 690 })
+  })
+})
