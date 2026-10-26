@@ -29,6 +29,7 @@ export const keys = {
   today: ['today'] as const,
   stepTemplates: ['stepTemplates'] as const,
   loanFile: (loanId: string) => ['loanFile', loanId] as const,
+  templates: ['templates'] as const,
 }
 
 /** The Supabase client, or a clear error in preview mode (no .env.local). */

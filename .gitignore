@@ -25,3 +25,6 @@ dist-ssr
 
 # Environment files (keys stay out of git)
 .env
+
+# Generated paste copy of Edge Functions (npm run function:paste)
+supabase/.paste/

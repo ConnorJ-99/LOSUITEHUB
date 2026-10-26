@@ -9,7 +9,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "function:paste": "node scripts/function-paste.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

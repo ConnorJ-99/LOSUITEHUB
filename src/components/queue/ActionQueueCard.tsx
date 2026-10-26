@@ -6,6 +6,7 @@ import type { LoanProfile } from '@/lib/api/types'
 import { relativeTime } from '@/lib/dates'
 import { fullName } from '@/lib/pipeline/helpers'
 import { ActionEntry } from './ActionEntry'
+import { DraftFollowUpButton } from './DraftFollowUpButton'
 
 const DECISION_LABEL = { approved: 'Approved', edited: 'Edited and approved', dismissed: 'Dismissed', pending: 'Waiting' } as const
 
@@ -26,6 +27,7 @@ export function ActionQueueCard({ loan }: { loan: LoanProfile }) {
     <Card
       title={`Action Queue${pending.length ? ` (${pending.length})` : ''}`}
       description="Drafts and suggestions from the assistant. Nothing is sent or saved until you approve it."
+      action={<DraftFollowUpButton loanId={loan.id} borrowerFirstName={loan.borrower?.firstName ?? null} />}
     >
       {queue.isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
