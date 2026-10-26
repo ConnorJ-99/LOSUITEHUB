@@ -2,6 +2,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, FormGrid, Input, PageHeader } from '@/components/shared'
 import { DocumentRulesCard } from '@/components/documents/DocumentRulesCard'
+import { FeeListCard } from '@/components/pricing/FeeListCard'
 import { MessageTemplatesCard } from '@/components/queue/MessageTemplatesCard'
 import { useDraft } from '@/components/urla/useDraft'
 import { useOrgMembers } from '@/lib/api/loans'
@@ -103,6 +104,7 @@ export function SettingsPage() {
         {org.data && <CompanyCard key={JSON.stringify(org.data)} org={org.data} canEdit={canEditCompany} />}
         <MessageTemplatesCard />
         <DocumentRulesCard canEdit={canEditCompany} />
+        <FeeListCard canEdit={canEditCompany} />
         <Card title="Team" description="People in your organization. Inviting new loan officers comes later.">
           <ul className="divide-y">
             {(members.data ?? []).map((m) => (

@@ -39,6 +39,9 @@ export const keys = {
   openWebForms: ['openWebForms'] as const,
   documentRules: ['documentRules'] as const,
   documentRequests: (loanId: string) => ['documentRequests', loanId] as const,
+  feeTemplates: ['feeTemplates'] as const,
+  pricingScenarios: (loanId: string) => ['pricingScenarios', loanId] as const,
+  scenarioFees: (scenarioId: string) => ['scenarioFees', scenarioId] as const,
 }
 
 /** The Supabase client, or a clear error in preview mode (no .env.local). */

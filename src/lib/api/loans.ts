@@ -82,6 +82,15 @@ const DETAIL_COLUMNS: Record<keyof LoanDetails, [string, boolean]> = {
   hasHoaAddendum: ['has_hoa_addendum', false],
   incomeDocType: ['income_doc_type', false],
   timeline: ['timeline', false],
+  estimatedFundingDate: ['estimated_funding_date', false],
+  firstPaymentDate: ['first_payment_date', false],
+  impoundWaiver: ['impound_waiver', false],
+  qualifyingRate: ['qualifying_rate', true],
+  buydown: ['buydown', false],
+  supplementalInsuranceMonthly: ['supplemental_insurance_monthly', true],
+  otherPaymentMonthly: ['other_payment_monthly', true],
+  otherPaymentLabel: ['other_payment_label', false],
+  pricingScenarioId: ['pricing_scenario_id', false],
 }
 
 interface LoanProfileRow extends LoanRow {

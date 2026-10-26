@@ -117,7 +117,21 @@ export interface LoanDetails {
   incomeDocType: IncomeDocType | null
   /** When they want to buy or refinance, in their words. */
   timeline: string | null
+  // Pricing (filled by "Use for this loan" on the Pricing tab, or typed)
+  estimatedFundingDate: string | null
+  firstPaymentDate: string | null
+  impoundWaiver: ImpoundWaiver
+  qualifyingRate: number | null
+  buydown: Buydown | null
+  supplementalInsuranceMonthly: number | null
+  otherPaymentMonthly: number | null
+  otherPaymentLabel: string | null
+  /** The pricing scenario last used for this loan. */
+  pricingScenarioId: string | null
 }
+
+export type ImpoundWaiver = 'none' | 'taxes' | 'insurance' | 'all'
+export type Buydown = '1-0' | '2-1' | '3-2-1'
 
 export type ContractParty = 'seller' | 'buyer'
 export type IncomeDocType = 'full_doc' | 'bank_statement' | 'form_1099' | 'asset_based' | 'dscr'
