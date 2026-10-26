@@ -4,7 +4,7 @@ import { db, keys, unwrap } from './client'
 import { saveLoanDetails } from './loans'
 
 /** A job's main figure goes to self-employed income or base pay. */
-const jobIncome = (j: QuickJob) => (j.selfEmployed ? { self_employed_income: j.monthly } : { base_income: j.monthly })
+const jobIncome = (j: QuickJob) => ({ ...(j.selfEmployed ? { self_employed_income: j.monthly } : { base_income: j.monthly }), start_date: j.startDate })
 
 async function run(label: string, query: PromiseLike<{ data: unknown; error: { message: string } | null }>) {
   const result = await query

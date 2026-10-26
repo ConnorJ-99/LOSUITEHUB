@@ -23,6 +23,7 @@ describe('reading assistant output', () => {
 
   it('links contract readings to their review screen', () => {
     expect(readReviewLink('field_update', { extractionId: 'x', section: 'contract' })).toEqual({ section: 'contract' })
+    expect(readReviewLink('field_update', { readingId: 'r', section: 'prequal' })).toEqual({ section: 'prequal' })
     expect(readReviewLink('field_update', { field: 'income' })).toBeNull()
     expect(readReviewLink('draft_message', { extractionId: 'x', section: 'contract' })).toBeNull()
   })

@@ -61,10 +61,12 @@ export function readTask(payload: unknown): TaskSuggestion | null {
   return { title, dueOn: isIsoDate(payload.dueOn) ? payload.dueOn : null }
 }
 
-/** A field-update item that points at a review screen (e.g. a contract reading); null otherwise. */
+/** A field-update item that points at a review screen (a contract or call notes reading); null otherwise. */
 export function readReviewLink(kind: ActionKind, payload: unknown): { section: string } | null {
   if (kind !== 'field_update' || !isObject(payload)) return null
-  return typeof payload.extractionId === 'string' && payload.section === 'contract' ? { section: 'contract' } : null
+  if (typeof payload.extractionId === 'string' && payload.section === 'contract') return { section: 'contract' }
+  if (typeof payload.readingId === 'string' && payload.section === 'prequal') return { section: 'prequal' }
+  return null
 }
 
 /** Reads a list of sources, keeping only well-formed entries. */

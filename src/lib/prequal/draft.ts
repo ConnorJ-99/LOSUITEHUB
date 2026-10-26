@@ -47,6 +47,8 @@ export interface QuickJob {
   monthly: number | null
   /** Overtime, bonus and other pay already on the 1003 (kept as is). */
   otherPay: number
+  /** When the job (or self-employment) started; null when not known. */
+  startDate: string | null
 }
 
 export interface QuickOtherIncome {
@@ -170,7 +172,7 @@ export function draftFrom(loan: LoanProfile, app: Application, properties: Prope
         .filter((e) => e.status === 'current')
         .map((e) => {
           const monthly = e.isSelfEmployed ? e.selfEmployedIncome : e.baseIncome
-          return { key: keyed('job', e.id), id: e.id, employerName: e.employerName, selfEmployed: e.isSelfEmployed, monthly, otherPay: round(employmentMonthlyIncome(e) - (monthly ?? 0)) }
+          return { key: keyed('job', e.id), id: e.id, employerName: e.employerName, selfEmployed: e.isSelfEmployed, monthly, otherPay: round(employmentMonthlyIncome(e) - (monthly ?? 0)), startDate: e.startDate }
         }),
       otherIncomes: b.otherIncomes.map((i) => ({ key: keyed('oi', i.id), id: i.id, incomeType: i.incomeType, monthly: i.monthlyAmount })),
     })),

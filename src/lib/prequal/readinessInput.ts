@@ -6,7 +6,7 @@ import type { MortgageTypeKind } from '@/lib/calc'
 import type { IncomeWorksheet } from '@/lib/api/income'
 import type { LoanProfile } from '@/lib/api/types'
 import type { Application, Employment } from '@/lib/api/urla'
-import type { PrequalSummary } from './draft'
+import type { PrequalSummary, QuickBorrower } from './draft'
 import type { ReadinessInput } from './readiness'
 
 const jobIncome = (e: Employment) =>
@@ -26,6 +26,8 @@ export interface ReadinessSources {
   creditPulled: boolean
   hasAssets: boolean
   today: string
+  /** The Prequal form's jobs, before they're saved (otherwise the saved jobs are used). */
+  draftBorrowers?: QuickBorrower[]
 }
 
 export function readinessInput(s: ReadinessSources): ReadinessInput {
@@ -46,7 +48,20 @@ export function readinessInput(s: ReadinessSources): ReadinessInput {
     cashNeeded: s.summary.cashNeeded,
     funds: s.summary.funds,
     saleProceeds: s.summary.saleProceeds,
-    jobs: s.app.borrowers.flatMap((b) =>
+    jobs: s.draftBorrowers
+      ? s.draftBorrowers.flatMap((b) =>
+          b.jobs
+            .filter((j) => j.employerName.trim())
+            .map((j) => ({
+              employerName: j.employerName,
+              borrowerName: b.firstName,
+              selfEmployed: j.selfEmployed,
+              startDate: j.startDate,
+              hasIncome: (j.monthly ?? 0) + j.otherPay > 0,
+              hasWorksheet: !!j.id && s.worksheets.some((w) => w.employmentId === j.id),
+            })),
+        )
+      : s.app.borrowers.flatMap((b) =>
       b.employments
         .filter((e) => e.status === 'current')
         .map((e) => ({

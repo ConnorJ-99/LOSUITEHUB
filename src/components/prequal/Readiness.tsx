@@ -17,7 +17,7 @@ import { useApplication } from '@/lib/api/urla'
 import { todayIso } from '@/lib/dates'
 import { addDays } from '@/lib/contract/followThrough'
 import { fullName } from '@/lib/pipeline/helpers'
-import { draftFrom, prequalSummary, type PrequalLoan, type PrequalSummary } from '@/lib/prequal/draft'
+import { draftFrom, prequalSummary, type PrequalDraft, type PrequalSummary } from '@/lib/prequal/draft'
 import { LEVEL_LABEL, NURTURE_LABEL, readiness, type NurtureReason, type Readiness, type ReadinessLevel } from '@/lib/prequal/readiness'
 import { readinessInput } from '@/lib/prequal/readinessInput'
 import type { Application } from '@/lib/api/urla'
@@ -64,10 +64,11 @@ export function useSavedReadiness(loan: LoanProfile): Readiness | null {
 }
 
 /** Readiness from the Prequal tab's live draft. */
-export function useLiveReadiness(loan: LoanProfile, app: Application, summary: PrequalSummary, draftLoan: PrequalLoan, hasAssets: boolean): Readiness | null {
+export function useLiveReadiness(loan: LoanProfile, app: Application, summary: PrequalSummary, draft: PrequalDraft): Readiness | null {
   const sources = useReadinessSources(loan, app)
   if (!sources.ready) return null
-  return readiness(readinessInput({ loan, app, summary, maxDtiPct: draftLoan.maxDtiPct, mortgageType: draftLoan.mortgageType, ...sources, hasAssets, today: todayIso() }))
+  const hasAssets = draft.assets.some((a) => (a.amount ?? 0) > 0)
+  return readiness(readinessInput({ loan, app, summary, maxDtiPct: draft.loan.maxDtiPct, mortgageType: draft.loan.mortgageType, ...sources, hasAssets, draftBorrowers: draft.borrowers, today: todayIso() }))
 }
 
 function NurtureDialog({ loan, result, onClose }: { loan: LoanProfile; result: Readiness; onClose: () => void }) {

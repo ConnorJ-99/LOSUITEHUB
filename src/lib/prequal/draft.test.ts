@@ -93,8 +93,8 @@ describe('saving', () => {
               creditScore: 720,
               jobs: [
                 { ...b.jobs[0], monthly: 7000 },
-                { key: 'new-1', id: null, employerName: 'Weekend Gig', selfEmployed: true, monthly: 800, otherPay: 0 },
-                { key: 'new-2', id: null, employerName: '  ', selfEmployed: false, monthly: null, otherPay: 0 },
+                { key: 'new-1', id: null, employerName: 'Weekend Gig', selfEmployed: true, monthly: 800, otherPay: 0, startDate: null },
+                { key: 'new-2', id: null, employerName: '  ', selfEmployed: false, monthly: null, otherPay: 0, startDate: null },
               ],
             }
           : b,

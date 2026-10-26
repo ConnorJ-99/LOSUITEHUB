@@ -1,5 +1,5 @@
 // LOSuite assistant: a Supabase Edge Function (Deno) that drafts follow-ups
-// and reads purchase contracts. The only place the app
+// reads purchase contracts and call notes. The only place the app
 // talks to Claude. The Anthropic API key lives in Edge Function secrets and
 // never reaches the browser.
 //
@@ -26,6 +26,7 @@ import {
   type Signer,
   type TemplateFact,
 } from './followUp.ts'
+import { NOTES_SCHEMA, NOTES_SYSTEM_PROMPT, normalizeNotes } from './callNotes.ts'
 import { CONTRACT_FIELDS, CONTRACT_SCHEMA, CONTRACT_SYSTEM_PROMPT, CONTRACT_USER_PROMPT, MAX_READ_BYTES, normalizeReading } from './contract.ts'
 
 /** Drafts use Sonnet (approved by Connor): fast and inexpensive for short messages. */
@@ -202,7 +203,9 @@ Deno.serve(async (request) => {
 
   const body = await request.json().catch(() => null)
   try {
-    if ((body as { task?: unknown } | null)?.task === 'contract_read') return await handleContractRead(db, body, userId, apiKey)
+    const task = (body as { task?: unknown } | null)?.task
+    if (task === 'contract_read') return await handleContractRead(db, body, userId, apiKey)
+    if (task === 'call_notes_read') return await handleNotesRead(db, body, userId, apiKey)
     return await handleFollowUp(db, body, userId, apiKey)
   } catch (e) {
     return reply(500, { error: (e as Error).message })
@@ -391,6 +394,99 @@ async function handleContractRead(db: SupabaseClient, body: unknown, userId: str
     if (item.error) throw new Error(`Could not add the review to the queue: ${item.error.message}`)
     await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
     return reply(200, { extractionId, actionId: item.data.id, runId })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Read call notes
+// ---------------------------------------------------------------------------
+
+/** Call notes are read with Opus (approved by Connor): misreading income or a debt changes the prequal. */
+const NOTES_MODEL = 'claude-opus-5-5'
+
+async function handleNotesRead(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const { loanId, noteId } = (body ?? {}) as { loanId?: unknown; noteId?: unknown }
+  if (typeof loanId !== 'string' || !UUID.test(loanId) || typeof noteId !== 'string' || !UUID.test(noteId)) return reply(400, { error: 'Missing or invalid loan or note.' })
+
+  const loan = await db.from('loans').select('id, organization_id, purpose, borrowers:loan_borrowers ( role, contact_id, contact:contacts!loan_borrowers_contact_id_fkey ( first_name ) )').eq('id', loanId).maybeSingle()
+  if (loan.error || !loan.data) return reply(400, { error: "Loan not found, or you don't have access." })
+  const organizationId = loan.data.organization_id as string
+  const people = (loan.data.borrowers ?? []) as unknown as { role: string; contact_id: string; contact: { first_name: string } | null }[]
+  const note = await db.from('notes').select('id, contact_id, body').eq('id', noteId).maybeSingle()
+  if (note.error || !note.data) return reply(400, { error: "Note not found, or you don't have access." })
+  const noteRow = note.data as { id: string; contact_id: string; body: string }
+  if (!people.some((p) => p.contact_id === noteRow.contact_id)) return reply(400, { error: 'That note belongs to someone who is not on this loan.' })
+  const noteText = noteRow.body
+
+  const runId = await startRun(db, organizationId, loanId, 'call_notes_read', { loanId, noteId }, NOTES_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: NOTES_MODEL }
+  try {
+    const names = people.map((p) => `${p.contact?.first_name ?? 'Unknown'} (${p.role === 'primary' ? 'main borrower' : 'co-borrower'})`).join(', ')
+    const params = {
+      model: NOTES_MODEL,
+      max_tokens: 16000,
+      system: NOTES_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: `People on this file: ${names}. Loan purpose: ${String(loan.data.purpose).replace(/_/g, ' ')}.
+
+<call_notes>
+${noteText}
+</call_notes>` }],
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: NOTES_SCHEMA } },
+      // If Opus declines on a safety check, the API retries on a suitable model itself.
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    }
+    const res = await new Anthropic({ apiKey }).beta.messages.create(params as never)
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read this note.')
+    if (res.stop_reason === 'max_tokens') throw new UserError('The reading came back cut off. Try again.')
+    const text = res.content.flatMap((b: { type: string; text?: string }) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
+    let raw: unknown
+    try {
+      raw = JSON.parse(text)
+    } catch {
+      throw new UserError('The assistant returned something unreadable. Try again.')
+    }
+    const reading = normalizeNotes(raw, noteText)
+    if ('error' in reading) throw new UserError(reading.error)
+
+    // A new reading replaces any earlier one still waiting for review.
+    const now = new Date().toISOString()
+    const older = await db.from('call_note_readings').update({ status: 'discarded', decided_at: now, decided_by: userId }).eq('loan_id', loanId).eq('status', 'pending_review').select('id')
+    for (const o of (older.data ?? []) as { id: string }[]) {
+      await db.from('action_items').update({ status: 'dismissed', decided_at: now, decided_by: userId }).eq('loan_id', loanId).eq('status', 'pending').eq('payload->>readingId', o.id)
+    }
+
+    const saved = await db
+      .from('call_note_readings')
+      .insert({ organization_id: organizationId, loan_id: loanId, note_id: noteId, ai_run_id: runId, items: reading.items.map((i) => ({ ...i, decision: null })), notes: reading.notes })
+      .select('id')
+      .single()
+    if (saved.error) throw new Error(`Could not save the reading: ${saved.error.message}`)
+    const readingId = saved.data.id as string
+
+    const lowest = reading.items.some((i) => i.confidence === 'low') ? 'low' : reading.items.some((i) => i.confidence === 'medium') ? 'medium' : 'high'
+    const item = await db
+      .from('action_items')
+      .insert({
+        organization_id: organizationId,
+        loan_id: loanId,
+        kind: 'field_update',
+        title: `Review the call notes reading (${reading.items.length} items)`,
+        payload: { readingId, section: 'prequal' },
+        sources: reading.items.filter((i) => i.quote && i.quoteFound).slice(0, 3).map((i) => ({ label: 'Call notes', quote: i.quote })),
+        confidence: lowest,
+        ai_run_id: runId,
+      })
+      .select('id')
+      .single()
+    if (item.error) throw new Error(`Could not add the review to the queue: ${item.error.message}`)
+    await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+    return reply(200, { readingId, actionId: item.data.id, runId })
   } catch (e) {
     return failRun(db, runId, usage, e)
   }

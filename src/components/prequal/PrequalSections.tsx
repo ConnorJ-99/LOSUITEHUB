@@ -151,7 +151,7 @@ export function BorrowerSection({ borrower, onChange }: { borrower: QuickBorrowe
   const setOther = (key: string, changes: Partial<QuickBorrower['otherIncomes'][number]>) =>
     onChange({ ...borrower, otherIncomes: borrower.otherIncomes.map((i) => (i.key === key ? { ...i, ...changes } : i)) })
   const addJob = (selfEmployed: boolean) =>
-    onChange({ ...borrower, jobs: [...borrower.jobs, { key: newKey(), id: null, employerName: '', selfEmployed, monthly: null, otherPay: 0 }] })
+    onChange({ ...borrower, jobs: [...borrower.jobs, { key: newKey(), id: null, employerName: '', selfEmployed, monthly: null, otherPay: 0, startDate: null }] })
   return (
     <Card title={`${borrower.firstName || 'Borrower'}${borrower.role === 'co_borrower' ? ' (co-borrower)' : ''}`} description="Monthly gross income. Hourly, overtime or tax-return income: use the Income tab worksheets.">
       <div className="space-y-4">

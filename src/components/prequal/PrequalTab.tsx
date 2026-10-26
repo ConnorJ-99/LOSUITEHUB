@@ -12,6 +12,7 @@ import { useApplication, type Application } from '@/lib/api/urla'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { draftFrom, hasChanges, prequalChanges, prequalSummary, type PrequalDraft, type QuickBorrower } from '@/lib/prequal/draft'
 import { BorrowerSection, DebtsSection, HomesSection, LoanSection, SavingsSection } from './PrequalSections'
+import { CallNotes } from './CallNotes'
 import { CreditHistorySection } from './CreditHistorySection'
 import { PrequalResults } from './PrequalResults'
 import { ReadinessCard, useLiveReadiness } from './Readiness'
@@ -41,7 +42,7 @@ function PrequalForm({ loan, app, subject, properties, saved }: { loan: LoanProf
   const summary = prequalSummary(loan, draft, properties)
   const changes = prequalChanges(isPurchase, saved, draft)
   const dirty = hasChanges(changes)
-  const live = useLiveReadiness(loan, app, summary, draft.loan, draft.assets.some((a) => (a.amount ?? 0) > 0))
+  const live = useLiveReadiness(loan, app, summary, draft)
   const setBorrower = (next: QuickBorrower) => setDraft((d) => ({ ...d, borrowers: d.borrowers.map((b) => (b.contactId === next.contactId ? next : b)) }))
 
   const onSave = () =>
@@ -59,6 +60,7 @@ function PrequalForm({ loan, app, subject, properties, saved }: { loan: LoanProf
     <>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-4">
+          <CallNotes loan={loan} app={app} draft={draft} onApply={setDraft} />
           <LoanSection isPurchase={isPurchase} loan={draft.loan} onChange={(l) => setDraft((d) => ({ ...d, loan: l }))} summary={summary} subject={subject} />
           {draft.borrowers.map((b) => (
             <BorrowerSection key={b.contactId} borrower={b} onChange={setBorrower} />
