@@ -17,6 +17,7 @@ import { formatPhone } from '@/lib/pipeline/helpers'
 import { purposeLabel } from '@/lib/pipeline/stages'
 import { noteKindLabel, OCCUPANCY_OPTIONS, TERM_OPTIONS } from './options'
 import { TasksCard } from './TasksCard'
+import { ReadinessCard, useSavedReadiness } from '@/components/prequal/Readiness'
 import { TexasFlags } from './TexasFlags'
 import { ActionQueueCard } from '@/components/queue/ActionQueueCard'
 import { loanScenarioInput } from '@/lib/urla/summary'
@@ -121,6 +122,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
   const properties = useProperties(loan.id)
   const notes = useNotes(loan.borrower?.id)
   const updateDetails = useUpdateLoanDetails(loan.id)
+  const readinessResult = useSavedReadiness(loan)
   const saved = editable(loan.details)
   const [form, setForm] = useState<EditableDetails>(saved)
   const set = <K extends keyof EditableDetails>(key: K) => (value: EditableDetails[K]) => setForm((f) => ({ ...f, [key]: value }))
@@ -297,6 +299,8 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
         </div>
 
         <div className="order-first space-y-4 lg:order-none">
+          {/* Readiness matters until the file is pre-approved. */}
+          {['lead', 'contacted', 'pre_qualified', 'nurture'].includes(loan.stage) && <ReadinessCard loan={loan} result={readinessResult} compact />}
           <TasksCard loanId={loan.id} organizationId={loan.organizationId} />
           <Card title="At a glance">
             <dl className="space-y-3">

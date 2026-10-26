@@ -33,6 +33,7 @@ export const keys = {
   documents: (loanId: string) => ['documents', loanId] as const,
   readings: (loanId: string) => ['readings', loanId] as const,
   pastTeam: ['pastTeam'] as const,
+  creditEvents: (loanId: string) => ['creditEvents', loanId] as const,
 }
 
 /** The Supabase client, or a clear error in preview mode (no .env.local). */

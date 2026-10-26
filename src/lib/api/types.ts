@@ -112,9 +112,15 @@ export interface LoanDetails {
   possession: PossessionTerms | null
   /** Null = not known yet. */
   hasHoaAddendum: boolean | null
+  // Readiness (call notes to pre-qual)
+  /** How income will be documented; null = not decided (treated as full documentation). */
+  incomeDocType: IncomeDocType | null
+  /** When they want to buy or refinance, in their words. */
+  timeline: string | null
 }
 
 export type ContractParty = 'seller' | 'buyer'
+export type IncomeDocType = 'full_doc' | 'bank_statement' | 'form_1099' | 'asset_based' | 'dscr'
 export type PossessionTerms = 'closing_and_funding' | 'temporary_lease'
 
 /** The full borrower profile for one loan. */

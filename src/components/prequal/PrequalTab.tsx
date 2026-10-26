@@ -12,7 +12,9 @@ import { useApplication, type Application } from '@/lib/api/urla'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { draftFrom, hasChanges, prequalChanges, prequalSummary, type PrequalDraft, type QuickBorrower } from '@/lib/prequal/draft'
 import { BorrowerSection, DebtsSection, HomesSection, LoanSection, SavingsSection } from './PrequalSections'
+import { CreditHistorySection } from './CreditHistorySection'
 import { PrequalResults } from './PrequalResults'
+import { ReadinessCard, useLiveReadiness } from './Readiness'
 
 /** The phone prequal: a short 1003 with live qualification, saved into the same records. */
 export function PrequalTab({ loan }: { loan: LoanProfile }) {
@@ -39,6 +41,7 @@ function PrequalForm({ loan, app, subject, properties, saved }: { loan: LoanProf
   const summary = prequalSummary(loan, draft, properties)
   const changes = prequalChanges(isPurchase, saved, draft)
   const dirty = hasChanges(changes)
+  const live = useLiveReadiness(loan, app, summary, draft.loan, draft.assets.some((a) => (a.amount ?? 0) > 0))
   const setBorrower = (next: QuickBorrower) => setDraft((d) => ({ ...d, borrowers: d.borrowers.map((b) => (b.contactId === next.contactId ? next : b)) }))
 
   const onSave = () =>
@@ -70,8 +73,10 @@ function PrequalForm({ loan, app, subject, properties, saved }: { loan: LoanProf
           <DebtsSection debts={draft.debts} borrowers={draft.borrowers} onChange={(debts) => setDraft((d) => ({ ...d, debts }))} />
           <HomesSection homes={draft.properties} onChange={(properties) => setDraft((d) => ({ ...d, properties }))} />
           <SavingsSection assets={draft.assets} borrowers={draft.borrowers} onChange={(assets) => setDraft((d) => ({ ...d, assets }))} />
+          <CreditHistorySection loan={loan} app={app} />
         </div>
-        <div className="lg:sticky lg:top-6 lg:self-start">
+        <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
+          <ReadinessCard loan={loan} result={live} />
           <PrequalResults
             isPurchase={isPurchase}
             loan={draft.loan}

@@ -80,6 +80,8 @@ const DETAIL_COLUMNS: Record<keyof LoanDetails, [string, boolean]> = {
   titlePolicyPaidBy: ['title_policy_paid_by', false],
   possession: ['possession', false],
   hasHoaAddendum: ['has_hoa_addendum', false],
+  incomeDocType: ['income_doc_type', false],
+  timeline: ['timeline', false],
 }
 
 interface LoanProfileRow extends LoanRow {
