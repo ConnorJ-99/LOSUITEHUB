@@ -26,7 +26,11 @@ export interface SelectProps<T extends string = string> {
   error?: string
   span?: FieldSpan
   id?: string
+  /** Adds a "Not set" choice that empties the field. */
+  onClear?: () => void
 }
+
+const NOT_SET = '__not_set__'
 
 /** Labelled dropdown built from an options list. */
 export function Select<T extends string = string>({
@@ -41,12 +45,18 @@ export function Select<T extends string = string>({
   error,
   span,
   id,
+  onClear,
 }: SelectProps<T>) {
   const autoId = useId()
   const triggerId = id ?? autoId
   return (
     <Field label={label} htmlFor={triggerId} required={required} hint={hint} error={error} span={span}>
-      <BaseSelect value={value ?? undefined} onValueChange={(v) => onChange?.(v as T)} disabled={readOnly}>
+      <BaseSelect
+        // A clearable field stays controlled with '' so clearing shows the placeholder again.
+        value={value ?? (onClear ? '' : undefined)}
+        onValueChange={(v) => (v === NOT_SET ? onClear?.() : onChange?.(v as T))}
+        disabled={readOnly}
+      >
         <SelectTrigger
           id={triggerId}
           aria-invalid={error ? true : undefined}
@@ -55,6 +65,11 @@ export function Select<T extends string = string>({
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent position="popper">
+          {onClear && value !== null && (
+            <SelectItem value={NOT_SET} className="text-muted-foreground">
+              Not set
+            </SelectItem>
+          )}
           {options.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}

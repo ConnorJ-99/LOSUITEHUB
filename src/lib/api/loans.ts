@@ -73,6 +73,13 @@ const DETAIL_COLUMNS: Record<keyof LoanDetails, [string, boolean]> = {
   miRatePct: ['mi_rate_pct', true],
   upfrontFeePct: ['upfront_fee_pct', true],
   ariveLoanNumber: ['arive_loan_number', false],
+  optionFee: ['option_fee', true],
+  contractFinancingAmount: ['contract_financing_amount', true],
+  financingDeadline: ['financing_deadline', false],
+  surveyDeadline: ['survey_deadline', false],
+  titlePolicyPaidBy: ['title_policy_paid_by', false],
+  possession: ['possession', false],
+  hasHoaAddendum: ['has_hoa_addendum', false],
 }
 
 interface LoanProfileRow extends LoanRow {

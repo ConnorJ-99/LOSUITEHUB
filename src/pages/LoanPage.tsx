@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router'
 import {
   BadgeDollarSignIcon,
   ChevronDownIcon,
+  FileSignatureIcon,
   FileTextIcon,
   FolderIcon,
   HomeIcon,
@@ -19,6 +20,7 @@ import {
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, FormGrid, Input } from '@/components/shared'
+import { ContractTab } from '@/components/contract/ContractTab'
 import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
 import { FileHeader, FileNav, MetricStrip, MilestoneStepper, TeamRow, type FileNavItem, type TeamMember } from '@/components/loanfile'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
@@ -47,9 +49,9 @@ import { fullName } from '@/lib/pipeline/helpers'
 import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 import { applicationSummary } from '@/lib/urla/summary'
 
-const SECTIONS = ['overview', 'prequal', '1003', 'income', 'fees', 'documents', 'notes', 'loan', 'properties', 'letters'] as const
+const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'loan', 'properties', 'letters'] as const
 type Section = (typeof SECTIONS)[number]
-const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'notes', 'properties']
+const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'notes', 'properties']
 
 /** Team roles shown in the header, in order. The loan officer is the file's Assigned LO. */
 const TEAM: { role: TeamRole | 'loan_officer'; label: string; group: string; purchaseOnly?: boolean; company?: boolean }[] = [
@@ -108,11 +110,11 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const [completing, setCompleting] = useState(false)
   const [teamEdit, setTeamEdit] = useState<{ role: TeamRole; label: string; name: string; company: string; withCompany: boolean } | null>(null)
 
+  const isPurchase = loan.purpose === 'purchase'
   const param = searchParams.get('tab') as Section | null
-  const section: Section = param && READY.includes(param) ? param : 'overview'
+  const section: Section = param && READY.includes(param) && (param !== 'contract' || isPurchase) ? param : 'overview'
   const goTo = (next: string) => setSearchParams(next === 'overview' ? {} : { tab: next }, { replace: true })
 
-  const isPurchase = loan.purpose === 'purchase'
   const name = fullName(loan.borrower)
   const today = todayIso()
   const ready = app.data && properties.data
@@ -163,6 +165,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     { id: 'prequal', label: 'Prequal', icon: UserCheckIcon },
     { id: '1003', label: '1003', icon: FileTextIcon, marker: validation ? (validation.totalMissing ? { type: 'count', value: validation.totalMissing } : { type: 'complete' }) : undefined },
     { id: 'income', label: 'Income', icon: BadgeDollarSignIcon },
+    ...(isPurchase ? [{ id: 'contract', label: 'Contract', icon: FileSignatureIcon }] : []),
     { id: 'fees', label: 'Fees', icon: ReceiptIcon, disabledNote: 'Coming in Phase 8' },
     { id: 'documents', label: 'Documents', icon: FolderIcon, disabledNote: 'Coming in Phase 7' },
     { id: 'notes', label: 'Notes', icon: NotebookPenIcon },
@@ -240,6 +243,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
             </>
           )}
           {section === 'income' && <IncomeTab loan={loan} />}
+          {section === 'contract' && <ContractTab loan={loan} />}
           {section === 'notes' && <NotesTab loan={loan} />}
           {section === 'properties' && <PropertiesTab loan={loan} />}
         </div>

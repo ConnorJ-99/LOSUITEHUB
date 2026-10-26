@@ -102,7 +102,20 @@ export interface LoanDetails {
   upfrontFeePct: number | null
   /** The file's loan number in Arive. */
   ariveLoanNumber: string | null
+  // Purchase contract terms (sales price, effective, option and closing dates and seller credits are above; earnest money is a 1003 asset)
+  optionFee: number | null
+  /** The financing amount in the contract's Third Party Financing addendum. */
+  contractFinancingAmount: number | null
+  financingDeadline: string | null
+  surveyDeadline: string | null
+  titlePolicyPaidBy: ContractParty | null
+  possession: PossessionTerms | null
+  /** Null = not known yet. */
+  hasHoaAddendum: boolean | null
 }
+
+export type ContractParty = 'seller' | 'buyer'
+export type PossessionTerms = 'closing_and_funding' | 'temporary_lease'
 
 /** The full borrower profile for one loan. */
 export interface LoanProfile extends PipelineLoan {
