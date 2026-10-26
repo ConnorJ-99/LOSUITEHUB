@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth/context'
 import { ComponentLibraryPage } from '@/pages/ComponentLibraryPage'
 import { ContactsPage } from '@/pages/ContactsPage'
 import { TodayPage } from '@/pages/TodayPage'
+import { LoanFileGalleryPage } from '@/pages/LoanFileGalleryPage'
 import { LoanPage } from '@/pages/LoanPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { PipelinePage } from '@/pages/PipelinePage'
@@ -59,6 +60,7 @@ const router = createBrowserRouter([
       },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'dev/components', element: <ComponentLibraryPage /> },
+      { path: 'dev/loan-file', element: <LoanFileGalleryPage /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },
