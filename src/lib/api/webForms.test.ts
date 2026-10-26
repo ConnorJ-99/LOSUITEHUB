@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerLines, fieldLabel } from './webForms'
+import { answerLines, fieldLabel, personFromAnswers } from './webForms'
 
 describe('web form answers', () => {
   it('turns field names into labels', () => {
@@ -12,5 +12,13 @@ describe('web form answers', () => {
       { label: 'Purchase price', value: '500000' },
       { label: 'Extras', value: '{"a":1}' },
     ])
+  })
+})
+
+describe('personFromAnswers', () => {
+  it('reads a partner inquiry', () => {
+    expect(personFromAnswers({ first_name: 'Rita', last_name: 'Realtor', email: 'rita@example.com', phone: '2145550100', brokerage: 'Sample Realty' })).toEqual({ name: 'Rita Realtor', contactLine: 'rita@example.com · 2145550100 · Sample Realty' })
+    expect(personFromAnswers({ name: 'Bob Builder', company: 'Homes Inc' })).toEqual({ name: 'Bob Builder', contactLine: 'Homes Inc' })
+    expect(personFromAnswers({})).toEqual({ name: 'Someone', contactLine: null })
   })
 })

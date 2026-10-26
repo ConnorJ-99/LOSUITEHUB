@@ -12,6 +12,7 @@ import { useAuth } from '@/lib/auth/context'
 import { formatIsoDate, todayIso } from '@/lib/dates'
 import { isOnBoard } from '@/lib/pipeline/helpers'
 import { STAGES } from '@/lib/pipeline/stages'
+import { WebLeadsCard } from '@/components/queue/WebLeadsCard'
 import { buildToday, groupToday, type TodayEntry } from '@/lib/queue/today'
 
 function TaskRow({ entry }: { entry: Extract<TodayEntry, { type: 'task' }> }) {
@@ -133,6 +134,7 @@ export function TodayPage() {
       />
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="min-w-0 space-y-5">
+          <WebLeadsCard />
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : error ? (

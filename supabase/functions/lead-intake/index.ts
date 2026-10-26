@@ -10,9 +10,11 @@
 // Deploy with "Verify JWT" turned off: the website proves itself with the
 // shared secret (LEAD_INTAKE_SECRET in Edge Function secrets), not a user
 // login. The duplicate rules live in the database function intake_web_lead,
-// which only this function's service role can run.
+// which only this function's service role can run. A new lead also gets a
+// drafted first text and email in its Action Queue for Connor to approve.
 
-import { createClient } from 'npm:@supabase/supabase-js@2.118.0'
+import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0'
+import { firstTouchDrafts } from './firstTouch.ts'
 import { normalizeLead, secretMatches } from './normalize.ts'
 
 /** Form submissions are small; anything bigger isn't a form. */
@@ -66,5 +68,39 @@ Deno.serve(async (request) => {
     return reply(known ? 400 : 500, { ok: false, error: known ? error.message : 'Could not save the submission. It can be sent again safely.' })
   }
   const result = data as { outcome: string; submission_id: string; loan_id?: string }
+  if (result.loan_id && (result.outcome === 'new_lead' || result.outcome === 'new_loan_existing_person')) {
+    // A failed draft never loses the lead: it's already saved.
+    await queueFirstTouch(db, result.loan_id, lead).catch((e) => console.error('First-touch drafts failed:', (e as Error).message))
+  }
   return reply(200, { ok: true, outcome: result.outcome, submission_id: result.submission_id, lead_id: result.loan_id ?? null })
 })
+
+/** Drafts the first text and email into the new lead's Action Queue, signed by its loan officer. */
+async function queueFirstTouch(db: SupabaseClient, loanId: string, lead: Exclude<ReturnType<typeof normalizeLead>, { error: string }>) {
+  const loan = await db.from('loans').select('organization_id, assigned_lo_id').eq('id', loanId).single()
+  if (loan.error) throw loan.error
+  const row = loan.data as { organization_id: string; assigned_lo_id: string | null }
+  const [profile, org] = await Promise.all([
+    row.assigned_lo_id ? db.from('profiles').select('full_name, nmls, phone').eq('id', row.assigned_lo_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    db.from('organizations').select('name, nmls').eq('id', row.organization_id).single(),
+  ])
+  const p = profile.data as { full_name: string | null; nmls: string | null; phone: string | null } | null
+  const o = org.data as { name: string; nmls: string | null } | null
+  const drafts = firstTouchDrafts(
+    { firstName: lead.firstName, lastName: lead.lastName, email: lead.email, phone: lead.phone, formType: lead.formType, purpose: lead.purpose },
+    { loName: p?.full_name ?? null, loNmls: p?.nmls ?? null, loPhone: p?.phone ?? null, companyName: o?.name ?? 'MPS Mortgage LLC', companyNmls: o?.nmls ?? '2501110' },
+  )
+  if (drafts.length === 0) return
+  const insert = await db.from('action_items').insert(
+    drafts.map((d) => ({
+      organization_id: row.organization_id,
+      loan_id: loanId,
+      kind: 'draft_message',
+      title: `First ${d.channel} to ${lead.firstName} (new web lead)`,
+      payload: d,
+      sources: [],
+      confidence: null,
+    })),
+  )
+  if (insert.error) throw insert.error
+}
