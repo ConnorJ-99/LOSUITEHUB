@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { approvalNote, buildToday, decisionFor, groupToday, readDraft, readSources, readTask, type ActionItem, type FileRef } from './today'
+import { approvalNote, buildToday, decisionFor, groupToday, readDraft, readReviewLink, readSources, readTask, type ActionItem, type FileRef } from './today'
 
 const item = (over: Partial<ActionItem & FileRef> = {}): ActionItem & FileRef => ({
   id: 'a1', loanId: 'l1', borrowerName: 'Jane Smith', kind: 'draft_message', title: 'Follow-up text', payload: {}, sources: [],
@@ -19,6 +19,12 @@ describe('reading assistant output', () => {
     expect(readTask({ title: 'Order appraisal', dueOn: '2026-11-03' })).toEqual({ title: 'Order appraisal', dueOn: '2026-11-03' })
     expect(readTask({ title: 'Call Jane', dueOn: 'next week' })).toEqual({ title: 'Call Jane', dueOn: null })
     expect(readTask({ dueOn: '2026-11-03' })).toBeNull()
+  })
+
+  it('links contract readings to their review screen', () => {
+    expect(readReviewLink('field_update', { extractionId: 'x', section: 'contract' })).toEqual({ section: 'contract' })
+    expect(readReviewLink('field_update', { field: 'income' })).toBeNull()
+    expect(readReviewLink('draft_message', { extractionId: 'x', section: 'contract' })).toBeNull()
   })
 
   it('keeps only sources with a quote', () => {

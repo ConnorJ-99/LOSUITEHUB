@@ -1,11 +1,12 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { MailIcon, MessageSquareIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { DateInput, FormGrid, Input, QueueItem, TextArea } from '@/components/shared'
 import { EditDialog } from '@/components/urla/parts'
 import { useDecideAction, type FileInfo } from '@/lib/api/queue'
 import { formatIsoDate } from '@/lib/dates'
-import { approvalNote, decisionFor, readDraft, readTask, type ActionItem, type DraftMessage, type TaskSuggestion } from '@/lib/queue/today'
+import { approvalNote, decisionFor, readDraft, readReviewLink, readTask, type ActionItem, type DraftMessage, type TaskSuggestion } from '@/lib/queue/today'
 
 /** Copies text to the clipboard; false if the browser blocks it. */
 async function copy(text: string): Promise<boolean> {
@@ -26,6 +27,8 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
   const decide = useDecideAction()
   const draft = item.kind === 'draft_message' ? readDraft(item.payload) : null
   const task = item.kind === 'task_suggestion' ? readTask(item.payload) : null
+  const review = readReviewLink(item.kind, item.payload)
+  const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [editDraft, setEditDraft] = useState<DraftMessage | null>(draft)
   const [editTask, setEditTask] = useState<TaskSuggestion | null>(task)
@@ -109,6 +112,11 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
     )
   }
 
-  // Field updates arrive with call notes → pre-qual; until then they can only be dismissed.
+  if (review) {
+    // Decided on the review screen (apply or set aside), so there's no Dismiss here.
+    return <QueueItem {...common} onDismiss={undefined} approveLabel="Review" onApprove={() => navigate(`/loans/${file.loanId}?tab=${review.section}`)} />
+  }
+
+  // Other field updates arrive with call notes → pre-qual; until then they can only be dismissed.
   return <QueueItem {...common} approveDisabledReason={item.kind === 'field_update' ? 'Field updates arrive in a later phase' : "This item couldn't be read"} />
 }

@@ -58,25 +58,27 @@ export interface FollowUpAsk {
   instructions: string | null
 }
 
+/** Calls the "assistant" Edge Function. Its errors are plain English, so they're passed through as-is. */
+export async function invokeAssistant<T>(body: Record<string, unknown>, fallback: string): Promise<T> {
+  const { data, error } = await db().functions.invoke<T>('assistant', { body })
+  if (error) {
+    if (error instanceof FunctionsHttpError) {
+      const detail = await error.context.json().catch(() => null)
+      throw new Error(detail?.error ?? fallback)
+    }
+    throw new Error(error.message.includes('Failed to send') ? 'The assistant is not deployed yet, or the connection failed.' : error.message)
+  }
+  return data as T
+}
+
 /**
- * Asks the assistant (the "assistant" Edge Function) to draft a follow-up.
+ * Asks the assistant to draft a follow-up.
  * The draft lands in this file's Action Queue; nothing is sent.
  */
 export function useDraftFollowUp(loanId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (ask: FollowUpAsk) => {
-      const { data, error } = await db().functions.invoke<{ actionId: string }>('assistant', { body: { task: 'follow_up', loanId, ...ask } })
-      if (error) {
-        // The function explains what went wrong in plain English; show that.
-        if (error instanceof FunctionsHttpError) {
-          const detail = await error.context.json().catch(() => null)
-          throw new Error(detail?.error ?? 'The assistant could not draft this message.')
-        }
-        throw new Error(error.message.includes('Failed to send') ? 'The assistant is not deployed yet, or the connection failed.' : error.message)
-      }
-      return data
-    },
+    mutationFn: (ask: FollowUpAsk) => invokeAssistant<{ actionId: string }>({ task: 'follow_up', loanId, ...ask }, 'The assistant could not draft this message.'),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: keys.queue(loanId) })
       queryClient.invalidateQueries({ queryKey: keys.today })

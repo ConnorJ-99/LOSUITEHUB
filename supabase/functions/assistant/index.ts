@@ -1,10 +1,11 @@
-// LOSuite assistant: a Supabase Edge Function (Deno). The only place the app
+// LOSuite assistant: a Supabase Edge Function (Deno) that drafts follow-ups
+// and reads purchase contracts. The only place the app
 // talks to Claude. The Anthropic API key lives in Edge Function secrets and
 // never reaches the browser.
 //
 // Every request runs as the signed-in user (their token is passed through),
 // so Row Level Security decides what the assistant can read and write.
-// Nothing is sent to the borrower: a draft lands in the file's Action Queue
+// Nothing is sent or saved on the file: drafts and contract readings land in the file's Action Queue
 // for Connor to approve, edit or dismiss, and every run is logged in ai_runs.
 
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0'
@@ -25,6 +26,7 @@ import {
   type Signer,
   type TemplateFact,
 } from './followUp.ts'
+import { CONTRACT_FIELDS, CONTRACT_SCHEMA, CONTRACT_SYSTEM_PROMPT, CONTRACT_USER_PROMPT, MAX_READ_BYTES, normalizeReading } from './contract.ts'
 
 /** Drafts use Sonnet (approved by Connor): fast and inexpensive for short messages. */
 const MODEL = 'claude-sonnet-5-5'
@@ -198,7 +200,35 @@ Deno.serve(async (request) => {
   if (userError || !userData.user) return reply(401, { error: 'Your session expired. Sign in again.' })
   const userId = userData.user.id
 
-  const req = parseRequest(await request.json().catch(() => null))
+  const body = await request.json().catch(() => null)
+  try {
+    if ((body as { task?: unknown } | null)?.task === 'contract_read') return await handleContractRead(db, body, userId, apiKey)
+    return await handleFollowUp(db, body, userId, apiKey)
+  } catch (e) {
+    return reply(500, { error: (e as Error).message })
+  }
+})
+
+/** Starts a run in the log; every assistant run is logged, whatever happens next. */
+async function startRun(db: SupabaseClient, organizationId: string, loanId: string, taskType: string, inputRef: unknown, model: string, userId: string): Promise<string> {
+  const run = await db.from('ai_runs').insert({ organization_id: organizationId, loan_id: loanId, task_type: taskType, input_ref: inputRef, model, created_by: userId }).select('id').single()
+  if (run.error) throw new Error(`Could not log the run: ${run.error.message}`)
+  return run.data.id as string
+}
+
+/** Records a failed run and turns the error into a reply Connor can read. */
+async function failRun(db: SupabaseClient, runId: string, usage: Usage, e: unknown) {
+  const message = e instanceof UserError ? e.message : e instanceof Anthropic.APIError ? `Claude API error (${e.status ?? 'network'}): ${e.message}` : (e as Error).message
+  await db.from('ai_runs').update({ status: 'failed', error: message, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+  return reply(e instanceof UserError ? 422 : 502, { error: message, runId })
+}
+
+// ---------------------------------------------------------------------------
+// Draft a follow-up
+// ---------------------------------------------------------------------------
+
+async function handleFollowUp(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const req = parseRequest(body)
   if ('error' in req) return reply(400, req)
 
   let file: Awaited<ReturnType<typeof loadFile>>
@@ -208,14 +238,7 @@ Deno.serve(async (request) => {
     return reply(e instanceof UserError ? 400 : 500, { error: (e as Error).message })
   }
 
-  const run = await db
-    .from('ai_runs')
-    .insert({ organization_id: file.organizationId, loan_id: req.loanId, task_type: 'follow_up_draft', input_ref: file.inputRef, model: MODEL, created_by: userId })
-    .select('id')
-    .single()
-  if (run.error) return reply(500, { error: `Could not log the run: ${run.error.message}` })
-  const runId = run.data.id as string
-
+  const runId = await startRun(db, file.organizationId, req.loanId, 'follow_up_draft', file.inputRef, MODEL, userId)
   const usage: Usage = { input: 0, output: 0, model: MODEL }
   try {
     const draft = await draftWithClaude(new Anthropic({ apiKey }), req, file, usage)
@@ -244,8 +267,131 @@ Deno.serve(async (request) => {
     await db.from('ai_runs').update({ status: 'succeeded', output: { draft, payload }, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
     return reply(200, { actionId: item.data.id, runId })
   } catch (e) {
-    const message = e instanceof UserError ? e.message : e instanceof Anthropic.APIError ? `Claude API error (${e.status ?? 'network'}): ${e.message}` : (e as Error).message
-    await db.from('ai_runs').update({ status: 'failed', error: message, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
-    return reply(e instanceof UserError ? 422 : 502, { error: message, runId })
+    return failRun(db, runId, usage, e)
   }
-})
+}
+
+// ---------------------------------------------------------------------------
+// Read the contract
+// ---------------------------------------------------------------------------
+
+/** Contracts are read with Opus (approved by Connor): misreading a date or amount costs more than the price difference. */
+const READ_MODEL = 'claude-opus-5-5'
+const READABLE: Record<string, 'document' | 'image'> = { 'application/pdf': 'document', 'image/jpeg': 'image', 'image/png': 'image' }
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+interface DocRow {
+  id: string
+  kind: string
+  file_name: string
+  storage_path: string
+  content_type: string | null
+  size_bytes: number | null
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(binary)
+}
+
+async function handleContractRead(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const loanId = (body as { loanId?: unknown } | null)?.loanId
+  if (typeof loanId !== 'string' || !UUID.test(loanId)) return reply(400, { error: 'Missing or invalid loan.' })
+
+  const loan = await db.from('loans').select('id, organization_id').eq('id', loanId).maybeSingle()
+  if (loan.error || !loan.data) return reply(400, { error: "Loan not found, or you don't have access." })
+  const organizationId = loan.data.organization_id as string
+  const docs = await db.from('loan_documents').select('id, kind, file_name, storage_path, content_type, size_bytes').eq('loan_id', loanId).in('kind', ['purchase_contract', 'contract_addendum']).order('created_at')
+  if (docs.error) return reply(500, { error: docs.error.message })
+  // The contract first, then addenda in the order they were uploaded.
+  const files = ((docs.data ?? []) as DocRow[]).sort((a, b) => Number(b.kind === 'purchase_contract') - Number(a.kind === 'purchase_contract'))
+  if (files.length === 0) return reply(400, { error: 'Upload the executed contract first.' })
+  const unsupported = files.filter((f) => !f.content_type || !READABLE[f.content_type])
+  if (unsupported.length) return reply(400, { error: `The assistant reads PDFs, JPGs and PNGs. Re-upload ${unsupported.map((f) => f.file_name).join(', ')} in one of those formats.` })
+  const total = files.reduce((s, f) => s + (f.size_bytes ?? 0), 0)
+  if (total > MAX_READ_BYTES) return reply(400, { error: `The contract documents add up to ${Math.round(total / 1024 / 1024)} MB; the assistant can read 20 MB at a time. Remove pages that aren't part of the contract.` })
+
+  const runId = await startRun(db, organizationId, loanId, 'contract_read', { loanId, documentIds: files.map((f) => f.id) }, READ_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: READ_MODEL }
+  try {
+    const content: unknown[] = []
+    for (const f of files) {
+      const blob = await db.storage.from('loan-files').download(f.storage_path)
+      if (blob.error || !blob.data) throw new Error(`Could not open ${f.file_name}: ${blob.error?.message ?? 'missing file'}`)
+      const data = base64(new Uint8Array(await blob.data.arrayBuffer()))
+      content.push(
+        READABLE[f.content_type!] === 'document'
+          ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data }, title: f.file_name }
+          : { type: 'image', source: { type: 'base64', media_type: f.content_type, data } },
+      )
+    }
+    content.push({ type: 'text', text: `${CONTRACT_USER_PROMPT}\n\nDocuments, in order: ${files.map((f, i) => `${i + 1}. ${f.file_name}`).join('; ')}. Count pages from the first page of the first document.` })
+
+    const params = {
+      model: READ_MODEL,
+      max_tokens: 16000,
+      system: CONTRACT_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content }],
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: CONTRACT_SCHEMA } },
+      // If Opus declines on a safety check, the API retries on a suitable model itself.
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    }
+    const res = await new Anthropic({ apiKey }).beta.messages.create(params as never)
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read these documents.')
+    if (res.stop_reason === 'max_tokens') throw new UserError('The reading came back cut off. Try again.')
+    const text = res.content.flatMap((b: { type: string; text?: string }) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
+    let raw: unknown
+    try {
+      raw = JSON.parse(text)
+    } catch {
+      throw new UserError('The assistant returned something unreadable. Try again.')
+    }
+    const reading = normalizeReading(raw)
+    if ('error' in reading) throw new UserError(reading.error)
+
+    const labels = new Map<string, string>(CONTRACT_FIELDS.map((f) => [f.key, f.label]))
+    const unreadableNote = reading.unreadable.length ? `Couldn't read cleanly: ${reading.unreadable.map((u) => `${labels.get(u.key)} ("${u.text}")`).join('; ')}.` : null
+    const notes = [reading.notes, unreadableNote].filter(Boolean).join('\n') || null
+
+    // A new reading replaces any earlier one still waiting for review.
+    const now = new Date().toISOString()
+    const older = await db.from('contract_extractions').update({ status: 'discarded', decided_at: now, decided_by: userId }).eq('loan_id', loanId).eq('status', 'pending_review').select('id')
+    for (const o of (older.data ?? []) as { id: string }[]) {
+      await db.from('action_items').update({ status: 'dismissed', decided_at: now, decided_by: userId }).eq('loan_id', loanId).eq('status', 'pending').eq('payload->>extractionId', o.id)
+    }
+
+    const extraction = await db
+      .from('contract_extractions')
+      .insert({ organization_id: organizationId, loan_id: loanId, document_ids: files.map((f) => f.id), ai_run_id: runId, fields: reading.fields.map((f) => ({ ...f, decision: null, final: null })), contacts: reading.contacts, notes })
+      .select('id')
+      .single()
+    if (extraction.error) throw new Error(`Could not save the reading: ${extraction.error.message}`)
+    const extractionId = extraction.data.id as string
+
+    const lowest = reading.fields.some((f) => f.confidence === 'low') ? 'low' : reading.fields.some((f) => f.confidence === 'medium') ? 'medium' : 'high'
+    const item = await db
+      .from('action_items')
+      .insert({
+        organization_id: organizationId,
+        loan_id: loanId,
+        kind: 'field_update',
+        title: `Review the contract reading (${reading.fields.length} terms, ${reading.contacts.length} people)`,
+        payload: { extractionId, section: 'contract' },
+        sources: reading.fields.filter((f) => f.quote).slice(0, 3).map((f) => ({ label: labels.get(f.key), quote: f.quote, page: f.page })),
+        confidence: lowest,
+        ai_run_id: runId,
+      })
+      .select('id')
+      .single()
+    if (item.error) throw new Error(`Could not add the review to the queue: ${item.error.message}`)
+    await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+    return reply(200, { extractionId, actionId: item.data.id, runId })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
+  }
+}

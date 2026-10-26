@@ -1,10 +1,12 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2Icon, FileTextIcon, TriangleAlertIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, CurrencyInput, DateInput, EmptyState, FormGrid, Select } from '@/components/shared'
 import { SectionCard, YesNo } from '@/components/urla/parts'
+import { ContractReadingCard } from './ContractReadingCard'
 import { useDraft } from '@/components/urla/useDraft'
 import {
   ACCEPTED_TYPES,
@@ -17,10 +19,12 @@ import {
   type DocumentKind,
   type LoanDocument,
 } from '@/lib/api/documents'
+import { keys } from '@/lib/api/client'
+import { saveEarnestMoney } from '@/lib/api/contract'
 import { useUpdateLoanDetails } from '@/lib/api/loans'
 import { useProperties } from '@/lib/api/properties'
 import type { ContractParty, LoanDetails, LoanProfile, PossessionTerms } from '@/lib/api/types'
-import { useApplication, useDeleteRow, useSaveRow } from '@/lib/api/urla'
+import { useApplication } from '@/lib/api/urla'
 import { contractFlags, type ContractFlag } from '@/lib/contract/flags'
 import { formatIsoDate } from '@/lib/dates'
 import { applicationSummary } from '@/lib/urla/summary'
@@ -200,13 +204,13 @@ function ContractTerms({ loan, saved }: { loan: LoanProfile; saved: TermsForm })
   const app = useApplication(loan.id)
   const properties = useProperties(loan.id)
   const update = useUpdateLoanDetails(loan.id)
-  const saveAsset = useSaveRow(loan.id, loan.organizationId, 'assets')
-  const deleteAsset = useDeleteRow(loan.id, 'assets')
+  const queryClient = useQueryClient()
+  const [savingEarnest, setSavingEarnest] = useState(false)
   const { form, set, changes, dirty, reset } = useDraft<TermsForm>(saved)
 
   const application = app.data!
-  const earnest = application.assets.filter((a) => a.assetType === 'earnest_money')
   const summary = applicationSummary(loan, application, properties.data)
+  const docs = useLoanDocuments(loan.id, CONTRACT_KINDS)
   const flags = contractFlags({
     mortgageType: loan.details.mortgageType,
     occupancy: loan.details.occupancy,
@@ -228,17 +232,12 @@ function ContractTerms({ loan, saved }: { loan: LoanProfile; saved: TermsForm })
     try {
       if (Object.keys(loanChanges).length) await update.mutateAsync(loanChanges)
       if ('earnestMoney' in changes) {
-        // One earnest money entry on the 1003: update it, add it, or remove it.
-        const [first, ...extra] = earnest
-        if (earnestMoney === null || earnestMoney === undefined) {
-          for (const a of earnest) await deleteAsset.mutateAsync(a.id)
-        } else if (first) {
-          await saveAsset.mutateAsync({ ...first, amount: earnestMoney })
-          for (const a of extra) await deleteAsset.mutateAsync(a.id)
-        } else {
-          const primary = application.borrowers.find((b) => b.role === 'primary') ?? application.borrowers[0]
-          if (!primary) throw new Error('Add a borrower before entering earnest money.')
-          await saveAsset.mutateAsync({ contactId: primary.contactId, isJoint: false, assetType: 'earnest_money', amount: earnestMoney, institutionName: null, accountLast4: null, giftSource: null, giftDeposited: null, description: 'From the purchase contract', useAs: 'down_payment' })
+        setSavingEarnest(true)
+        try {
+          await saveEarnestMoney(loan.id, application, earnestMoney ?? null)
+        } finally {
+          setSavingEarnest(false)
+          queryClient.invalidateQueries({ queryKey: keys.application(loan.id) })
         }
       }
       toast.success('Contract terms saved')
@@ -246,12 +245,18 @@ function ContractTerms({ loan, saved }: { loan: LoanProfile; saved: TermsForm })
       toast.error(`Could not save: ${(e as Error).message}`)
     }
   }
-  const saving = update.isPending || saveAsset.isPending || deleteAsset.isPending
+  const saving = update.isPending || savingEarnest
   const anyTerms = TERM_KEYS.some((k) => form[k] !== null) || form.earnestMoney !== null
 
   return (
     <div className="space-y-4">
       <ContractDocuments loan={loan} />
+      <ContractReadingCard
+        loan={loan}
+        app={application}
+        hasDocuments={(docs.data ?? []).length > 0}
+        now={{ details: loan.details, earnestMoney: saved.earnestMoney, propertyAddress: summary.subject ? [summary.subject.addressLine, summary.subject.city, summary.subject.state, summary.subject.zip].filter(Boolean).join(', ') : null }}
+      />
       <FlagList flags={flags} ready={anyTerms} />
       <SectionCard
         id="contract-terms"
