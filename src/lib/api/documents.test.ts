@@ -20,3 +20,16 @@ describe('storagePathFor', () => {
     expect(storagePathFor('o', 'l', '###', 'abc')).toBe('o/l/abc-file')
   })
 })
+
+describe('document kinds', () => {
+  it('match the database exactly', async () => {
+    const { DOCUMENT_KIND_GROUPS, DOCUMENT_KIND_LABEL } = await import('./documents')
+    const scripts = import.meta.glob<string>('/supabase/migrations/*.sql', { query: '?raw', import: 'default', eager: true })
+    const sql = Object.values(scripts).join('\n')
+    const created = /create type public\.document_kind as enum \(([^)]*)\)/.exec(sql)![1].match(/'([a-z_0-9]+)'/g)!.map((s) => s.slice(1, -1))
+    const added = [...sql.matchAll(/alter type public\.document_kind add value if not exists '([a-z_0-9]+)'/g)].map((m) => m[1])
+    const app = DOCUMENT_KIND_GROUPS.flatMap((g) => g.kinds.map(([k]) => k as string))
+    expect([...app].sort()).toEqual([...created, ...added].sort())
+    expect(new Set(Object.values(DOCUMENT_KIND_LABEL)).size).toBe(app.length)
+  })
+})

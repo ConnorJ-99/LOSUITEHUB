@@ -6,17 +6,24 @@ export const LOAN_FILES_BUCKET = 'loan-files'
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 export const ACCEPTED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/heic']
 
-export type DocumentKind = 'purchase_contract' | 'contract_addendum' | 'other'
+/** What a document is. Grouped for pickers; the order is the order shown. */
+export const DOCUMENT_KIND_GROUPS = [
+  { label: 'Income', kinds: [['paystub', 'Pay stub'], ['w2', 'W-2'], ['form_1099', '1099'], ['tax_return', 'Tax return'], ['business_return', 'Business tax return'], ['profit_loss', 'Profit and loss'], ['award_letter', 'Award letter'], ['divorce_decree', 'Divorce decree or support order']] },
+  { label: 'Money', kinds: [['bank_statement', 'Bank statement'], ['investment_statement', 'Investment or retirement statement'], ['gift_letter', 'Gift letter']] },
+  { label: 'Credit and ID', kinds: [['photo_id', 'Photo ID'], ['bankruptcy_papers', 'Bankruptcy papers'], ['explanation_letter', 'Letter of explanation']] },
+  { label: 'Property', kinds: [['purchase_contract', 'Purchase contract'], ['contract_addendum', 'Addendum'], ['mortgage_statement', 'Mortgage statement'], ['insurance_declarations', 'Insurance declarations'], ['lease', 'Lease'], ['appraisal', 'Appraisal'], ['title_commitment', 'Title commitment']] },
+  { label: 'Other', kinds: [['other', 'Other']] },
+] as const
 
-export const DOCUMENT_KIND_LABEL: Record<DocumentKind, string> = {
-  purchase_contract: 'Purchase contract',
-  contract_addendum: 'Addendum',
-  other: 'Other',
-}
+export type DocumentKind = (typeof DOCUMENT_KIND_GROUPS)[number]['kinds'][number][0]
+
+export const DOCUMENT_KIND_LABEL = Object.fromEntries(DOCUMENT_KIND_GROUPS.flatMap((g) => g.kinds.map(([k, l]) => [k, l]))) as Record<DocumentKind, string>
 
 export interface LoanDocument {
   id: string
   kind: DocumentKind
+  /** Whose document it is (a borrower), if set. */
+  contactId: string | null
   fileName: string
   storagePath: string
   contentType: string | null
@@ -27,6 +34,7 @@ export interface LoanDocument {
 interface DocumentRow {
   id: string
   kind: DocumentKind
+  contact_id: string | null
   file_name: string
   storage_path: string
   content_type: string | null
@@ -39,8 +47,8 @@ export function useLoanDocuments(loanId: string, kinds?: DocumentKind[]) {
   return useQuery({
     queryKey: keys.documents(loanId),
     queryFn: async () =>
-      unwrap<DocumentRow[]>(await db().from('loan_documents').select('id, kind, file_name, storage_path, content_type, size_bytes, created_at').eq('loan_id', loanId).order('created_at', { ascending: false })).map(
-        (r): LoanDocument => ({ id: r.id, kind: r.kind, fileName: r.file_name, storagePath: r.storage_path, contentType: r.content_type, sizeBytes: r.size_bytes, createdAt: r.created_at }),
+      unwrap<DocumentRow[]>(await db().from('loan_documents').select('id, kind, contact_id, file_name, storage_path, content_type, size_bytes, created_at').eq('loan_id', loanId).order('created_at', { ascending: false })).map(
+        (r): LoanDocument => ({ id: r.id, kind: r.kind, contactId: r.contact_id, fileName: r.file_name, storagePath: r.storage_path, contentType: r.content_type, sizeBytes: r.size_bytes, createdAt: r.created_at }),
       ),
     select: kinds ? (docs: LoanDocument[]) => docs.filter((d) => kinds.includes(d.kind)) : undefined,
   })
@@ -64,7 +72,7 @@ export function storagePathFor(organizationId: string, loanId: string, fileName:
 export function useUploadDocument(loanId: string, organizationId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ file, kind }: { file: File; kind: DocumentKind }) => {
+    mutationFn: async ({ file, kind, contactId = null }: { file: File; kind: DocumentKind; contactId?: string | null }) => {
       const problem = uploadProblem(file)
       if (problem) throw new Error(problem)
       const path = storagePathFor(organizationId, loanId, file.name)
@@ -72,7 +80,7 @@ export function useUploadDocument(loanId: string, organizationId: string) {
       if (upload.error) throw new Error(`Upload failed: ${upload.error.message}`)
       const row = await db()
         .from('loan_documents')
-        .insert({ organization_id: organizationId, loan_id: loanId, kind, file_name: file.name, storage_path: path, content_type: file.type, size_bytes: file.size })
+        .insert({ organization_id: organizationId, loan_id: loanId, kind, contact_id: contactId, file_name: file.name, storage_path: path, content_type: file.type, size_bytes: file.size })
         .select('id')
       if (row.error) {
         // Don't leave a file behind that the loan doesn't list.
@@ -84,11 +92,13 @@ export function useUploadDocument(loanId: string, organizationId: string) {
   })
 }
 
-export function useUpdateDocumentKind(loanId: string) {
+/** Changes what a document is, or whose it is. */
+export function useUpdateDocument(loanId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, kind }: { id: string; kind: DocumentKind }) => {
-      unwrap(await db().from('loan_documents').update({ kind }).eq('id', id).select('id'))
+    mutationFn: async ({ id, kind, contactId }: { id: string; kind?: DocumentKind; contactId?: string | null }) => {
+      const changes = { ...(kind ? { kind } : {}), ...(contactId !== undefined ? { contact_id: contactId } : {}) }
+      unwrap(await db().from('loan_documents').update(changes).eq('id', id).select('id'))
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.documents(loanId) }),
   })

@@ -15,7 +15,7 @@ import {
   openDocument,
   useDeleteDocument,
   useLoanDocuments,
-  useUpdateDocumentKind,
+  useUpdateDocument,
   useUploadDocument,
   type DocumentKind,
   type LoanDocument,
@@ -31,7 +31,7 @@ import { formatIsoDate } from '@/lib/dates'
 import { applicationSummary } from '@/lib/urla/summary'
 
 const CONTRACT_KINDS: DocumentKind[] = ['purchase_contract', 'contract_addendum']
-const KIND_OPTIONS = (Object.keys(DOCUMENT_KIND_LABEL) as DocumentKind[]).map((k) => ({ value: k, label: DOCUMENT_KIND_LABEL[k] }))
+const KIND_OPTIONS = (['purchase_contract', 'contract_addendum', 'other'] as const).map((k) => ({ value: k as DocumentKind, label: DOCUMENT_KIND_LABEL[k] }))
 const PAID_BY_OPTIONS: { value: ContractParty; label: string }[] = [
   { value: 'seller', label: 'Seller' },
   { value: 'buyer', label: 'Buyer' },
@@ -47,7 +47,7 @@ const sizeLabel = (bytes: number | null) => (bytes === null ? '' : bytes < 1024 
 function ContractDocuments({ loan }: { loan: LoanProfile }) {
   const docs = useLoanDocuments(loan.id, CONTRACT_KINDS)
   const upload = useUploadDocument(loan.id, loan.organizationId)
-  const relabel = useUpdateDocumentKind(loan.id)
+  const relabel = useUpdateDocument(loan.id)
   const remove = useDeleteDocument(loan.id)
   const input = useRef<HTMLInputElement>(null)
   const list = docs.data ?? []

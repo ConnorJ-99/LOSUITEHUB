@@ -21,6 +21,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, FormGrid, Input } from '@/components/shared'
 import { ContractTab } from '@/components/contract/ContractTab'
+import { DocumentsTab } from '@/components/documents/DocumentsTab'
 import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
 import { FileHeader, FileNav, MetricStrip, MilestoneStepper, TeamRow, type FileNavItem, type TeamMember } from '@/components/loanfile'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
@@ -51,7 +52,7 @@ import { applicationSummary } from '@/lib/urla/summary'
 
 const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'loan', 'properties', 'letters'] as const
 type Section = (typeof SECTIONS)[number]
-const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'notes', 'properties']
+const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'documents', 'notes', 'properties']
 
 /** Team roles shown in the header, in order. The loan officer is the file's Assigned LO. */
 const TEAM: { role: TeamRole | 'loan_officer'; label: string; group: string; purchaseOnly?: boolean; company?: boolean }[] = [
@@ -167,7 +168,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     { id: 'income', label: 'Income', icon: BadgeDollarSignIcon },
     ...(isPurchase ? [{ id: 'contract', label: 'Contract', icon: FileSignatureIcon }] : []),
     { id: 'fees', label: 'Fees', icon: ReceiptIcon, disabledNote: 'Coming in Phase 8' },
-    { id: 'documents', label: 'Documents', icon: FolderIcon, disabledNote: 'Coming in Phase 7' },
+    { id: 'documents', label: 'Documents', icon: FolderIcon },
     { id: 'notes', label: 'Notes', icon: NotebookPenIcon },
     { id: 'loan', label: 'Loan', icon: LandmarkIcon, disabledNote: 'Coming in Phase 9' },
     { id: 'properties', label: 'Properties', icon: HomeIcon },
@@ -244,6 +245,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           )}
           {section === 'income' && <IncomeTab loan={loan} />}
           {section === 'contract' && <ContractTab loan={loan} />}
+          {section === 'documents' && <DocumentsTab loan={loan} />}
           {section === 'notes' && <NotesTab loan={loan} />}
           {section === 'properties' && <PropertiesTab loan={loan} />}
         </div>
