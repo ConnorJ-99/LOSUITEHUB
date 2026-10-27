@@ -33,7 +33,7 @@ export const navSections: NavSection[] = [
   {
     label: 'Admin',
     items: [
-      { to: '/admin/lenders', label: 'Lenders & Programs', icon: BuildingIcon },
+      { to: '/admin/lenders', label: 'Lenders', icon: BuildingIcon },
       { to: '/settings', label: 'Settings', icon: SettingsIcon },
       { to: '/dev/components', label: 'Component Library', icon: ComponentIcon },
       { to: '/dev/loan-file', label: 'Loan File Preview', icon: PanelsTopLeftIcon },

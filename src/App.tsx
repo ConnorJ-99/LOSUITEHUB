@@ -1,7 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { BuildingIcon } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -12,10 +11,10 @@ import { ComponentLibraryPage } from '@/pages/ComponentLibraryPage'
 import { ContactsPage } from '@/pages/ContactsPage'
 import { TodayPage } from '@/pages/TodayPage'
 import { LoanFileGalleryPage } from '@/pages/LoanFileGalleryPage'
+import { LendersPage } from '@/pages/LendersPage'
 import { LoanPage } from '@/pages/LoanPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { PipelinePage } from '@/pages/PipelinePage'
-import { PlaceholderPage } from '@/pages/PlaceholderPage'
 import { ProductSearchPage } from '@/pages/ProductSearchPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
@@ -38,17 +37,7 @@ const router = createBrowserRouter([
       { path: 'contacts', element: <ContactsPage /> },
       { path: 'loans/:loanId', element: <LoanPage /> },
       { path: 'product-search', element: <ProductSearchPage /> },
-      {
-        path: 'admin/lenders',
-        element: (
-          <PlaceholderPage
-            title="Lenders & Programs"
-            phase="Phase 5"
-            icon={BuildingIcon}
-            description="Add and edit lenders, programs and eligibility matrices without code."
-          />
-        ),
-      },
+      { path: 'admin/lenders', element: <LendersPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'dev/components', element: <ComponentLibraryPage /> },
       { path: 'dev/loan-file', element: <LoanFileGalleryPage /> },

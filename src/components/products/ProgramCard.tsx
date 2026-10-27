@@ -6,8 +6,11 @@ import type { Badge, ProgramResult } from '@/lib/products/types'
 
 const BADGE_LABEL: Record<Badge, string> = { best_fit: 'Best fit', highest_max_loan: 'Highest max loan', lowest_fico_floor: 'Lowest FICO floor' }
 
+/** "Northstar Wholesale" → "NW"; a short name such as "UWM" or "A&D" stays as it is. */
 export const initials = (name: string) =>
-  name
+  /^[A-Z0-9&]{2,4}$/.test(name.trim())
+    ? name.trim()
+    : name
     .replace(/\(.*?\)/g, '')
     .split(/\s+/)
     .filter(Boolean)
