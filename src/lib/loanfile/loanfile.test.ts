@@ -177,3 +177,13 @@ describe('Select lender & program', () => {
     expect(buildWorkflow(withStep, marks, { ...ready, hasProgram: true }).steps.find((s) => s.key === 'submit')?.status).not.toBe('blocked')
   })
 })
+
+describe('Pre-approval letter step', () => {
+  const withRule = templates.map((x) => (x.key === 'preapproval' ? { ...x, ruleKey: 'preapproval_letter', actionLabel: 'Open letters', actionTarget: 'letters' } : x))
+  const ready = { ...facts, urlaMissing: 0 }
+  it('is done once a letter is issued', () => {
+    const marks: StepMark[] = [{ stepKey: 'credit', status: 'done', doneOn: '2026-10-21' }]
+    expect(buildWorkflow(withRule, marks, { ...ready, hasPreapprovalLetter: true }).steps.find((s) => s.key === 'preapproval')).toMatchObject({ status: 'done', auto: true })
+    expect(buildWorkflow(withRule, marks, { ...ready, hasPreapprovalLetter: false }).steps.find((s) => s.key === 'preapproval')?.status).not.toBe('done')
+  })
+})

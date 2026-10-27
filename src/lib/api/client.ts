@@ -31,6 +31,7 @@ export const keys = {
   loanFile: (loanId: string) => ['loanFile', loanId] as const,
   templates: ['templates'] as const,
   documents: (loanId: string) => ['documents', loanId] as const,
+  preapprovalLetters: (loanId: string) => ['preapprovalLetters', loanId] as const,
   readings: (loanId: string) => ['readings', loanId] as const,
   pastTeam: ['pastTeam'] as const,
   creditEvents: (loanId: string) => ['creditEvents', loanId] as const,

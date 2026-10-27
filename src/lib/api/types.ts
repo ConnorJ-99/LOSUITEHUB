@@ -131,6 +131,10 @@ export interface LoanDetails {
   /** The lender program chosen on Loan · Pricing, and the quote it was chosen from. */
   programId: string | null
   chosenQuoteId: string | null
+  /** The approved maximum every pre-approval letter is checked against. */
+  preapprovalMaxPrice: number | null
+  preapprovalMaxLoanAmount: number | null
+  preapprovalExpiresOn: string | null
 }
 
 export type ImpoundWaiver = 'none' | 'taxes' | 'insurance' | 'all'

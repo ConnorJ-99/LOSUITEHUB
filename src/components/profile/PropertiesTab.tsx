@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CalculatorIcon, ExternalLinkIcon, FileTextIcon, HomeIcon, PencilIcon, PlusIcon, StarIcon, Trash2Icon } from 'lucide-react'
+import { CalculatorIcon, ExternalLinkIcon, FileTextIcon, HomeIcon, MailIcon, PencilIcon, PlusIcon, StarIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Badge } from '@/components/ui/badge'
@@ -70,6 +70,7 @@ function PropertyCard({
   documents,
   onPrice,
   pricing,
+  onLetter,
 }: {
   property: Property
   isSubject: boolean
@@ -87,6 +88,8 @@ function PropertyCard({
   /** Opens this home's pricing scenario in Fees, starting one if there isn't one. */
   onPrice: () => void
   pricing: boolean
+  /** Purchase files: a pre-approval letter for an offer on this home. */
+  onLetter?: () => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const place = [property.city, [property.state, property.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')
@@ -127,6 +130,12 @@ function PropertyCard({
               <CalculatorIcon />
               Price this home
             </Button>
+            {onLetter && (
+              <Button size="sm" variant="outline" onClick={onLetter}>
+                <MailIcon />
+                Pre-approval letter
+              </Button>
+            )}
             <Button size="sm" variant="ghost" onClick={onEdit}>
               <PencilIcon />
               Edit
@@ -283,6 +292,7 @@ export function PropertiesTab({ loan }: { loan: LoanProfile }) {
           documents={(documents.data ?? []).filter((d) => d.propertyId === property.id)}
           onPrice={() => price(property)}
           pricing={createScenario.isPending || scenarios.isLoading}
+          onLetter={loan.purpose === 'purchase' ? () => navigate(`/loans/${loan.id}?tab=letters&property=${property.id}`) : undefined}
         />
       ))}
 

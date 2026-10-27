@@ -107,8 +107,8 @@ export interface GeneratedPdf {
   templateVersion: string
 }
 
-/** Saves a PDF LOSuite made to the file's Documents, tagged with its property and scenario. */
-export async function saveGeneratedPdf(loanId: string, organizationId: string, pdf: GeneratedPdf) {
+/** Saves a PDF LOSuite made to the file's Documents, tagged with its property and scenario. Returns the document id. */
+export async function saveGeneratedPdf(loanId: string, organizationId: string, pdf: GeneratedPdf): Promise<string> {
   const path = storagePathFor(organizationId, loanId, pdf.fileName)
   const upload = await db().storage.from(LOAN_FILES_BUCKET).upload(path, pdf.file, { contentType: 'application/pdf', upsert: false })
   if (upload.error) throw new Error(`Saving the PDF failed: ${upload.error.message}`)
@@ -131,6 +131,7 @@ export async function saveGeneratedPdf(loanId: string, organizationId: string, p
     await db().storage.from(LOAN_FILES_BUCKET).remove([path])
     throw new Error(row.error.message.includes('template_version') || row.error.message.includes('enum') ? 'Run the generated documents script in Supabase first.' : row.error.message)
   }
+  return (row.data as { id: string }[])[0].id
 }
 
 /** Changes what a document is, or whose it is. */

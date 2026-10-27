@@ -27,31 +27,37 @@ export function useSavePdf(loan: LoanProfile) {
   const queryClient = useQueryClient()
   const [saving, setSaving] = useState(false)
 
-  const save = async ({ render, tooLong, ...doc }: PdfRequest): Promise<boolean> => {
+  /** Returns the saved document's id, or null when it wasn't saved (the reason is shown). */
+  const save = async ({ render, tooLong, ...doc }: PdfRequest): Promise<string | null> => {
     const brand = docBrand(org.data ?? null, lo.data ?? null)
     const missing = brandProblems(brand)
     if (missing.length) {
       toast.error(`Add ${missing.join(' and ')} first. Every borrower document shows them.`)
-      return false
+      return null
     }
     setSaving(true)
     try {
       const fit = await render(await import('./render'), brand)
       if (!fit.ok) {
         toast.error(`This won't fit on one page even at 82% (${fit.pages} pages). ${tooLong}`)
-        return false
+        return null
       }
-      await saveGeneratedPdf(loan.id, loan.organizationId, { ...doc, file: fit.file })
+      const id = await saveGeneratedPdf(loan.id, loan.organizationId, { ...doc, file: fit.file })
       await queryClient.invalidateQueries({ queryKey: keys.documents(loan.id) })
       const url = URL.createObjectURL(fit.file)
       toast.success(`Saved "${doc.fileName}" to Documents`, { action: { label: 'Open', onClick: () => window.open(url, '_blank') }, duration: 10000 })
-      return true
+      return id
     } catch (e) {
       toast.error((e as Error).message)
-      return false
+      return null
     } finally {
       setSaving(false)
     }
   }
-  return { save, saving, ready: org.isSuccess && (lo.isSuccess || !lo.isEnabled) }
+  /** Renders without saving, for a live preview: a link to the PDF, or why it can't be made. */
+  const preview = async (render: PdfRequest['render']): Promise<{ url: string } | { error: string }> => {
+    const fit = await render(await import('./render'), docBrand(org.data ?? null, lo.data ?? null))
+    return fit.ok ? { url: URL.createObjectURL(fit.file) } : { error: `Too long for one page even at 82% (${fit.pages} pages). Shorten the conditions or what was reviewed.` }
+  }
+  return { save, preview, saving, ready: org.isSuccess && (lo.isSuccess || !lo.isEnabled) }
 }

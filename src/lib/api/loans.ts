@@ -93,6 +93,9 @@ const DETAIL_COLUMNS: Record<keyof LoanDetails, [string, boolean]> = {
   pricingScenarioId: ['pricing_scenario_id', false],
   programId: ['program_id', false],
   chosenQuoteId: ['chosen_quote_id', false],
+  preapprovalMaxPrice: ['preapproval_max_price', true],
+  preapprovalMaxLoanAmount: ['preapproval_max_loan_amount', true],
+  preapprovalExpiresOn: ['preapproval_expires_on', false],
 }
 
 interface LoanProfileRow extends LoanRow {

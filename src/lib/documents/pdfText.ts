@@ -59,3 +59,15 @@ export async function pdfPageCount(data: ArrayBuffer): Promise<number> {
   const pdf = await getDocument({ data: new Uint8Array(data) }).promise
   return pdf.numPages
 }
+
+/** Draws a PDF's first page onto a canvas, sized to the given CSS width (for previews that work in every browser). */
+export async function drawFirstPage(url: string, canvas: HTMLCanvasElement, cssWidth: number): Promise<void> {
+  const pdf = await getDocument(url).promise
+  const page = await pdf.getPage(1)
+  const ratio = window.devicePixelRatio || 1
+  const viewport = page.getViewport({ scale: (cssWidth / page.getViewport({ scale: 1 }).width) * ratio })
+  canvas.width = viewport.width
+  canvas.height = viewport.height
+  canvas.style.width = `${cssWidth}px`
+  await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise
+}

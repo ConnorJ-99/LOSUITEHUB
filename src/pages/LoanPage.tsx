@@ -39,6 +39,8 @@ import { UrlaTab } from '@/components/urla/UrlaTab'
 import { useLoanFile, useSaveTeamMember, useSetLoanOfficer, useStepTemplates, type TeamRole } from '@/lib/api/loanfile'
 import { LoanPricingTab } from '@/components/pricing/LoanPricingTab'
 import { PricingTab } from '@/components/pricing/PricingTab'
+import { LettersTab } from '@/components/letters/LettersTab'
+import { usePreapprovalLetters } from '@/lib/api/preapproval'
 import { useLoan, useOrgMembers } from '@/lib/api/loans'
 import { useProperties } from '@/lib/api/properties'
 import { useOrganization, useProfile } from '@/lib/api/settings'
@@ -54,7 +56,7 @@ import { applicationSummary } from '@/lib/urla/summary'
 
 const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'loan', 'properties', 'letters'] as const
 type Section = (typeof SECTIONS)[number]
-const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'loan', 'properties']
+const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'loan', 'properties', 'letters']
 
 /** Team roles shown in the header, in order. The loan officer is the file's Assigned LO. */
 const TEAM: { role: TeamRole | 'loan_officer'; label: string; group: string; purchaseOnly?: boolean; company?: boolean }[] = [
@@ -99,6 +101,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const app = useApplication(loan.id)
   const properties = useProperties(loan.id)
+  const letters = usePreapprovalLetters(loan.id, loan.purpose === 'purchase')
   const organization = useOrganization()
   const originator = useProfile(loan.assignedLo?.id)
   const templates = useStepTemplates()
@@ -115,7 +118,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
 
   const isPurchase = loan.purpose === 'purchase'
   const param = searchParams.get('tab') as Section | null
-  const section: Section = param && READY.includes(param) && (param !== 'contract' || isPurchase) ? param : 'overview'
+  const section: Section = param && READY.includes(param) && ((param !== 'contract' && param !== 'letters') || isPurchase) ? param : 'overview'
   const goTo = (next: string) => setSearchParams(next === 'overview' ? {} : { tab: next }, { replace: true })
 
   const name = fullName(loan.borrower)
@@ -136,6 +139,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           hasLoanAmount: loan.details.loanAmount !== null,
           hasRate: loan.details.noteRate !== null,
           hasProgram: loan.details.programId !== null,
+          hasPreapprovalLetter: letters.data ? letters.data.length > 0 : undefined,
           stageSince,
         })
       : null
@@ -175,7 +179,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     { id: 'notes', label: 'Notes', icon: NotebookPenIcon },
     { id: 'loan', label: 'Loan · Pricing', icon: LandmarkIcon },
     { id: 'properties', label: 'Properties', icon: HomeIcon },
-    ...(isPurchase ? [{ id: 'letters', label: 'Letters', icon: MailIcon, disabledNote: 'Coming in Phase 8' }] : []),
+    ...(isPurchase ? [{ id: 'letters', label: 'Letters', icon: MailIcon }] : []),
   ]
 
   // Remount the Overview form after its saved values change, so it shows what was saved.
@@ -250,6 +254,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           {section === 'contract' && <ContractTab loan={loan} />}
           {section === 'fees' && <PricingTab loan={loan} />}
           {section === 'loan' && <LoanPricingTab loan={loan} />}
+          {section === 'letters' && isPurchase && <LettersTab loan={loan} />}
           {section === 'documents' && <DocumentsTab loan={loan} />}
           {section === 'notes' && <NotesTab loan={loan} />}
           {section === 'properties' && <PropertiesTab loan={loan} />}

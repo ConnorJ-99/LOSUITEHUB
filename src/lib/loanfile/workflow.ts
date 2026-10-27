@@ -80,6 +80,8 @@ export interface WorkflowFacts {
   hasRate: boolean
   /** A lender and program were chosen on Loan · Pricing (undefined = not known, e.g. older callers). */
   hasProgram?: boolean
+  /** A pre-approval letter was issued (undefined = not known). */
+  hasPreapprovalLetter?: boolean
   /** When the file entered its current stage (YYYY-MM-DD), for days at step. */
   stageSince: string
 }
@@ -106,6 +108,7 @@ const RULES: Record<string, (f: WorkflowFacts) => RuleResult> = {
   prequal: (f) => (f.prequalReady ? { done: true } : { note: 'Needs credit score, income and a payment' }),
   urla_complete: (f) => (f.urlaStarted && f.urlaMissing === 0 ? { done: true } : { note: f.urlaMissing ? `${plural(f.urlaMissing, 'required field')} missing` : 'Not started' }),
   contract: (f) => (f.hasContract ? { done: true } : {}),
+  preapproval_letter: (f) => (f.hasPreapprovalLetter ? { done: true } : { note: 'Set the approved maximum and issue a letter on Letters' }),
   program_chosen: (f) => (f.hasProgram ? { done: true } : { note: 'Compare quotes on Loan · Pricing and choose one' }),
   ready_to_submit: (f) => {
     if (f.hasProgram === false) return { blocked: "Can't submit: no lender/program selected." }
