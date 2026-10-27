@@ -8,13 +8,15 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 
 const name = process.argv[2] ?? 'assistant'
 const dir = `supabase/functions/${name}`
-const index = readFileSync(`${dir}/index.ts`, 'utf8')
+// Git may check files out with Windows line endings; the patterns below expect \n.
+const read = (path) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
+const index = read(`${dir}/index.ts`)
 const local = /import \{([^}]*)\} from '\.\/(\w+)\.ts'\n/g
 const imports = [...index.matchAll(local)].map((m) => ({ module: m[2], names: m[1].split(',').map((n) => n.replace(/^\s*type\s+/, '').trim()).filter(Boolean) }))
 if (imports.length === 0) throw new Error('Could not find the local imports in index.ts')
 
 const namespaces = imports.map(({ module }) => {
-  const code = readFileSync(`${dir}/${module}.ts`, 'utf8')
+  const code = read(`${dir}/${module}.ts`)
   if (/^import /m.test(code)) throw new Error(`${module}.ts must not import anything`)
   return `// ---- ${module}.ts ----\nnamespace ${module} {\n${code}\n}`
 })

@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, PageHeader, Select } from '@/components/shared'
+import { AskAssistant } from '@/components/products/AskAssistant'
 import { BrowsePrograms } from '@/components/products/BrowsePrograms'
 import { SearchForm, SHOWN_STATUSES } from '@/components/products/SearchForm'
 import { SearchResults } from '@/components/products/SearchResults'
@@ -26,7 +27,7 @@ import type { Catalog, Scenario, SearchResult } from '@/lib/products/types'
 
 const MODES = [
   { id: 'params', label: 'Search by parameters', note: null },
-  { id: 'assistant', label: 'Ask the assistant', note: 'Comes in step 9' },
+  { id: 'assistant', label: 'Ask the assistant', note: null },
   { id: 'browse', label: 'Browse all programs', note: null },
 ] as const
 
@@ -34,8 +35,9 @@ const MODES = [
 export function ProductSearchPage() {
   const [params, setParams] = useSearchParams()
   const loanId = params.get('loan')
-  const mode = params.get('mode') === 'browse' ? 'browse' : 'params'
-  const setMode = (m: string) => setParams(m === 'browse' ? { mode: 'browse' } : loanId ? { loan: loanId } : {}, { replace: true })
+  const mode = params.get('mode') === 'browse' ? 'browse' : params.get('mode') === 'assistant' ? 'assistant' : 'params'
+  // Browse is for every program; the assistant and the form keep the borrower.
+  const setMode = (m: string) => setParams(m === 'browse' ? { mode: 'browse' } : { ...(loanId ? { loan: loanId } : {}), ...(m === 'assistant' ? { mode: 'assistant' } : {}) }, { replace: true })
   const catalog = useCatalog()
   const pipeline = usePipeline()
   const recent = useRecentSearches()
@@ -97,7 +99,7 @@ export function ProductSearchPage() {
     <>
       <PageHeader
         title="Product Search"
-        description={mode === 'browse' ? `Browse every program from every lender, no scenario needed. ${programCount} programs · ${lenderCount} lenders.` : shown ? `Results${borrowerName ? ` for ${borrowerName}` : ''}` : `Find which of your lenders has a program for this borrower. ${programCount} programs · ${lenderCount} lenders.`}
+        description={mode === 'assistant' ? 'Describe the scenario in plain English. The assistant reads it; the same rule-based search runs.' : mode === 'browse' ? `Browse every program from every lender, no scenario needed. ${programCount} programs · ${lenderCount} lenders.` : shown ? `Results${borrowerName ? ` for ${borrowerName}` : ''}` : `Find which of your lenders has a program for this borrower. ${programCount} programs · ${lenderCount} lenders.`}
         action={
           <div className="flex rounded-lg bg-muted p-1">
             {MODES.map((m) => (
@@ -116,6 +118,23 @@ export function ProductSearchPage() {
         <p className="py-12 text-center text-sm text-destructive">{catalog.error.message.includes('lenders') ? 'Run the product search script in Supabase to use Product Search.' : catalog.error.message}</p>
       ) : mode === 'browse' ? (
         <BrowsePrograms catalog={catalog.data!} verifiedOn={catalog.data!.verifiedOn} />
+      ) : mode === 'assistant' ? (
+        <AskAssistant
+          key={loanId ?? 'none'}
+          catalog={limited!}
+          loanId={loanId}
+          organizationId={orgId}
+          borrowerName={borrowerName}
+          start={scenario}
+          onOpenInForm={(s, results) => {
+            setScenario(s)
+            setMode('params')
+            // Results were already logged when the assistant searched.
+            setShown(results && limited ? { scenario: s, result: search(s, limited) } : null)
+          }}
+          onAdd={loanId ? addToBorrower : undefined}
+          adding={adding}
+        />
       ) : shown ? (
         <SearchResults
           scenario={shown.scenario}

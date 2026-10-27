@@ -245,11 +245,11 @@ export function useLogSearch() {
   const { state } = useAuth()
   const orgId = state.status === 'signedIn' ? state.user.organizationId : null
   return useMutation({
-    mutationFn: async ({ scenario, result, loanId }: { scenario: Scenario; result: SearchResult; loanId: string | null }): Promise<string> => {
+    mutationFn: async ({ scenario, result, loanId, source = 'form' }: { scenario: Scenario; result: SearchResult; loanId: string | null; source?: 'form' | 'assistant' }): Promise<string> => {
       const rows = unwrap<{ id: string }[]>(
         await db()
           .from('product_searches')
-          .insert({ organization_id: orgId, loan_id: loanId, source: 'form', scenario, searched_count: result.searchedCount, not_searched_count: result.notSearched.count, results: searchLog(result) })
+          .insert({ organization_id: orgId, loan_id: loanId, source, scenario, searched_count: result.searchedCount, not_searched_count: result.notSearched.count, results: searchLog(result) })
           .select('id'),
       )
       return rows[0].id

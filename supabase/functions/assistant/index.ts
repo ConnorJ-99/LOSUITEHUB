@@ -1,5 +1,6 @@
 // LOSuite assistant: a Supabase Edge Function (Deno) that drafts follow-ups
-// reads purchase contracts and call notes. The only place the app
+// reads purchase contracts, call notes and lender matrices, reads Product
+// Search scenarios and answers guideline questions. The only place the app
 // talks to Claude. The Anthropic API key lives in Edge Function secrets and
 // never reaches the browser.
 //
@@ -29,6 +30,8 @@ import {
 import { NOTES_SCHEMA, NOTES_SYSTEM_PROMPT, normalizeNotes } from './callNotes.ts'
 import { CONTRACT_FIELDS, CONTRACT_SCHEMA, CONTRACT_SYSTEM_PROMPT, CONTRACT_USER_PROMPT, MAX_READ_BYTES, normalizeReading } from './contract.ts'
 import { MATRIX_SCHEMA, MATRIX_SYSTEM_PROMPT, MATRIX_USER_PROMPT, MAX_MATRIX_BYTES, normalizeMatrixReading } from './matrix.ts'
+import { SCENARIO_SCHEMA, SCENARIO_SYSTEM_PROMPT, normalizeScenarioRead } from './scenarioRead.ts'
+import { ANSWER_SCHEMA, ANSWER_SYSTEM_PROMPT, MAX_PASSAGES, answerPrompt, normalizeAnswer, type AnswerPassage } from './guidelineAnswer.ts'
 
 /** Drafts use Sonnet (approved by Connor): fast and inexpensive for short messages. */
 const MODEL = 'claude-sonnet-5-5'
@@ -208,6 +211,8 @@ Deno.serve(async (request) => {
     if (task === 'contract_read') return await handleContractRead(db, body, userId, apiKey)
     if (task === 'call_notes_read') return await handleNotesRead(db, body, userId, apiKey)
     if (task === 'matrix_read') return await handleMatrixRead(db, body, userId, apiKey)
+    if (task === 'scenario_read') return await handleScenarioRead(db, body, userId, apiKey)
+    if (task === 'guideline_answer') return await handleGuidelineAnswer(db, body, userId, apiKey)
     return await handleFollowUp(db, body, userId, apiKey)
   } catch (e) {
     return reply(500, { error: (e as Error).message })
@@ -556,6 +561,136 @@ async function handleMatrixRead(db: SupabaseClient, body: unknown, userId: strin
     if (saved.error) throw new Error(`Could not save the reading: ${saved.error.message}`)
     await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
     return reply(200, { importId: saved.data.id, runId })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ask the assistant (Product Search): read a scenario sentence
+// ---------------------------------------------------------------------------
+
+/** Reading a sentence is short and simple: Sonnet (approved by Connor, 2026-10-27). */
+const SCENARIO_MODEL = 'claude-sonnet-5-5'
+const MAX_SENTENCE = 1000
+
+/** The company the run is logged under: the loan's, or the user's first company. */
+async function organizationFor(db: SupabaseClient, loanId: string | null): Promise<string> {
+  if (loanId) {
+    const loan = await db.from('loans').select('organization_id').eq('id', loanId).maybeSingle()
+    if (loan.error || !loan.data) throw new UserError("Loan not found, or you don't have access.")
+    return loan.data.organization_id as string
+  }
+  const org = await db.from('organizations').select('id').order('created_at').limit(1).maybeSingle()
+  if (org.error || !org.data) throw new UserError('You are not part of a company yet.')
+  return org.data.id as string
+}
+
+/** The JSON text of a structured-output reply. */
+const replyText = (res: { content: { type: string; text?: string }[] }) => res.content.flatMap((b) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
+
+async function handleScenarioRead(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const { sentence, loanId } = (body ?? {}) as { sentence?: unknown; loanId?: unknown }
+  if (typeof sentence !== 'string' || !sentence.trim()) return reply(400, { error: 'Type the scenario first.' })
+  if (sentence.length > MAX_SENTENCE) return reply(400, { error: `Keep the scenario under ${MAX_SENTENCE} characters.` })
+  if (loanId != null && (typeof loanId !== 'string' || !UUID.test(loanId))) return reply(400, { error: 'Invalid loan.' })
+  const loan = (loanId as string | undefined) ?? null
+  const organizationId = await organizationFor(db, loan)
+
+  const runId = await startRun(db, organizationId, loan, 'scenario_read', { loanId: loan, characters: sentence.length }, SCENARIO_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: SCENARIO_MODEL }
+  try {
+    const params = {
+      model: SCENARIO_MODEL,
+      max_tokens: 4000,
+      system: SCENARIO_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: `<scenario>\n${sentence.trim()}\n</scenario>` }],
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: SCENARIO_SCHEMA } },
+    }
+    const res = await new Anthropic({ apiKey }).messages.create(params as never)
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read this.')
+    if (res.stop_reason === 'max_tokens') throw new UserError('The reading came back cut off. Try a shorter sentence.')
+    let raw: unknown
+    try {
+      raw = JSON.parse(replyText(res))
+    } catch {
+      throw new UserError('The assistant returned something unreadable. Try again.')
+    }
+    const reading = normalizeScenarioRead(raw, sentence)
+    if ('error' in reading) throw new UserError(reading.error)
+    await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+    return reply(200, { reading, runId })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ask the assistant (Product Search): answer from guideline passages
+// ---------------------------------------------------------------------------
+
+/** Quoting lender guidelines exactly matters most: Opus (approved by Connor, 2026-10-27). */
+const ANSWER_MODEL = 'claude-opus-5-5'
+
+interface PassageRow {
+  id: string
+  organization_id: string
+  page: number
+  section_number: string | null
+  heading: string | null
+  body: string
+  document: { title: string; lender: { name: string } | null } | null
+}
+
+async function handleGuidelineAnswer(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const { question, passageIds, loanId, scenario } = (body ?? {}) as { question?: unknown; passageIds?: unknown; loanId?: unknown; scenario?: unknown }
+  if (typeof question !== 'string' || !question.trim()) return reply(400, { error: 'Type a question first.' })
+  if (question.length > MAX_SENTENCE) return reply(400, { error: `Keep the question under ${MAX_SENTENCE} characters.` })
+  if (!Array.isArray(passageIds) || passageIds.length === 0 || passageIds.length > MAX_PASSAGES || !passageIds.every((id) => typeof id === 'string' && UUID.test(id)))
+    return reply(400, { error: 'Missing or invalid guideline passages.' })
+  if (loanId != null && (typeof loanId !== 'string' || !UUID.test(loanId))) return reply(400, { error: 'Invalid loan.' })
+  const loan = (loanId as string | undefined) ?? null
+  const summary = typeof scenario === 'string' ? scenario.slice(0, 500) : null
+
+  // Reload the passages here, as the user, so their text can't be faked.
+  const rows = await db.from('guideline_passages').select('id, organization_id, page, section_number, heading, body, document:guideline_documents(title, lender:lenders(name))').in('id', passageIds as string[])
+  if (rows.error) throw new Error(rows.error.message)
+  const found = (rows.data ?? []) as unknown as PassageRow[]
+  if (found.length === 0) return reply(400, { error: "Those guideline passages weren't found, or you don't have access." })
+  const passages: AnswerPassage[] = found.map((p) => ({ id: p.id, lender: p.document?.lender?.name ?? 'Unknown lender', document: p.document?.title ?? 'Guidelines', page: p.page, section: p.section_number, heading: p.heading, body: p.body }))
+
+  const runId = await startRun(db, found[0].organization_id, loan, 'guideline_answer', { loanId: loan, passageIds, characters: question.length }, ANSWER_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: ANSWER_MODEL }
+  try {
+    const params = {
+      model: ANSWER_MODEL,
+      max_tokens: 8000,
+      system: ANSWER_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: answerPrompt(question.trim(), passages, summary) }],
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: ANSWER_SCHEMA } },
+      // If Opus declines on a safety check, the API retries on a suitable model itself.
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    }
+    const res = await new Anthropic({ apiKey }).beta.messages.create(params as never)
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to answer this.')
+    if (res.stop_reason === 'max_tokens') throw new UserError('The answer came back cut off. Try a narrower question.')
+    let raw: unknown
+    try {
+      raw = JSON.parse(replyText(res))
+    } catch {
+      throw new UserError('The assistant returned something unreadable. Try again.')
+    }
+    const answer = normalizeAnswer(raw, passages)
+    if ('error' in answer) throw new UserError(answer.error)
+    await db.from('ai_runs').update({ status: 'succeeded', output: answer, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+    return reply(200, { answer, runId })
   } catch (e) {
     return failRun(db, runId, usage, e)
   }

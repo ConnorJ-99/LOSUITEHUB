@@ -47,6 +47,8 @@ export const keys = {
   recentSearches: ['recentSearches'] as const,
   lenderDetail: (lenderId: string) => ['lenderDetail', lenderId] as const,
   programGuidelines: (programId: string) => ['programGuidelines', programId] as const,
+  assistantChats: (loanId: string) => ['assistantChats', loanId] as const,
+  assistantUsage: ['assistantUsage'] as const,
   lenders: ['lenders'] as const,
   lenderPrograms: (lenderId: string) => ['lenderPrograms', lenderId] as const,
   lenderDocuments: (lenderId: string) => ['lenderDocuments', lenderId] as const,
