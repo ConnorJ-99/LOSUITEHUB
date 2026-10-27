@@ -5,7 +5,9 @@
 // '@/lib/calc'.
 
 import {
+  cashToBorrower,
   feeSheet,
+  purchaseCashToClose,
   firstMortgagePayment,
   mortgageInsurance,
   pct,
@@ -138,6 +140,11 @@ export function scenarioFrom(loan: PricingLoan, property: Property | null, name:
   }
 }
 
+/** The fields of a draft that differ from the saved scenario. */
+export function scenarioChanges(saved: PricingScenario, draft: ScenarioDraft): Partial<ScenarioDraft> {
+  return Object.fromEntries(Object.entries(draft).filter(([key, value]) => saved[key as keyof ScenarioDraft] !== value)) as Partial<ScenarioDraft>
+}
+
 /** A name for a new scenario: the home's street, else "Option n". */
 export const scenarioName = (property: Property | null, existing: number) => property?.addressLine ?? `Option ${existing + 1}`
 
@@ -215,6 +222,43 @@ export function priceScenario(s: ScenarioDraft, purpose: LoanPurpose, templates:
 }
 
 // ---------------------------------------------------------------------------
+// Existing mortgages and cash to close
+// ---------------------------------------------------------------------------
+
+const isSecondLien = (purpose: LoanPurpose) => purpose === 'heloc' || purpose === 'heloan'
+
+/** Which of the home's mortgages the new loan pays off: a refinance pays off the first lien and anything marked paid off; a HELOC/HELOAN only what's marked. */
+function paidOff(purpose: LoanPurpose, lien: Property['liens'][number]) {
+  if (isPurchase(purpose)) return false
+  return lien.toBePaidOff || (!isSecondLien(purpose) && lien.position === 'first')
+}
+
+/** Mortgage balances paid off at closing. */
+export function payoffsFor(purpose: LoanPurpose, property: Property | null): number {
+  return round((property?.liens ?? []).filter((l) => paidOff(purpose, l)).reduce((sum, l) => sum + (l.balance ?? 0), 0))
+}
+
+/** Monthly payments on mortgages that stay (e.g. the first lien behind a HELOC). */
+export function otherFinancingFor(purpose: LoanPurpose, property: Property | null): number {
+  if (isPurchase(purpose)) return 0
+  return round((property?.liens ?? []).filter((l) => !paidOff(purpose, l)).reduce((sum, l) => sum + (l.monthlyPayment ?? 0), 0))
+}
+
+export interface CashFigure {
+  /** "Cash to borrower" when money comes back, else "Cash to close". */
+  label: 'Cash to borrower' | 'Cash to close'
+  amount: number
+}
+
+/** Purchase: price − loan + closing costs − earnest money − seller credits. Refinance: loan − closing costs − payoffs. */
+export function cashFigure(input: { purpose: LoanPurpose; purchasePrice: number | null; totalLoanAmount: number; closingCosts: number; payoffs: number; earnestMoney: number; sellerCredits: number }): CashFigure {
+  const brings = isPurchase(input.purpose)
+    ? purchaseCashToClose({ purchasePrice: input.purchasePrice ?? 0, loanAmount: input.totalLoanAmount, closingCosts: input.closingCosts, earnestMoney: input.earnestMoney, sellerCredits: input.sellerCredits })
+    : -cashToBorrower({ loanAmount: input.totalLoanAmount, closingCosts: input.closingCosts, payoffs: input.payoffs })
+  return brings > 0 ? { label: 'Cash to close', amount: brings } : { label: 'Cash to borrower', amount: round(-brings) }
+}
+
+// ---------------------------------------------------------------------------
 // "Use for this loan"
 // ---------------------------------------------------------------------------
 
@@ -229,7 +273,7 @@ export function loanChangesFrom(s: PricingScenario, purpose: LoanPurpose, closin
   const value = s.propertyValue ?? s.purchasePrice
   const annualTaxes = s.taxesValue == null ? null : round(toMonthly(s.taxesValue, s.taxesFactor, value) * 12)
   const annualInsurance = s.insuranceValue == null ? null : round(toMonthly(s.insuranceValue, s.insuranceFactor, value) * 12)
-  const points = s.loanAmount ? pointsAmount(s.pointsPct, s.loanAmount) : 0
+  const points = pointsAmount(s.pointsPct, scenarioFigures(s).totalLoanAmount)
   const loan: Partial<LoanDetails> = {
     loanAmount: s.loanAmount,
     noteRate: s.noteRate,

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FeeTemplate } from '@/lib/calc'
 import { details as baseDetails } from '@/lib/mismo/testFixture'
 import type { LoanDetails, Property } from '@/lib/api/types'
-import { loanChangesFrom, priceScenario, scenarioFigures, scenarioFrom, type PricingScenario } from './scenario'
+import { cashFigure, loanChangesFrom, otherFinancingFor, payoffsFor, priceScenario, scenarioFigures, scenarioFrom, type PricingScenario } from './scenario'
 
 const t = (key: string, section: FeeTemplate['section'], amount: number): FeeTemplate => ({
   key, section, name: key, amountType: 'fixed', amount, purposes: null, mortgageTypes: null, paidBy: 'B', apr: false, paidTo: null, sortOrder: 10, active: true,
@@ -42,6 +42,31 @@ describe("Connor's test case as a scenario", () => {
     expect(c.loan).toMatchObject({ loanAmount: 465000, noteRate: 7.625, discountPointsAmount: 18600, estimatedClosingCosts: 24180, prepaidItemsAmount: 590.94, pricingScenarioId: 's1', subjectPropertyId: 'p1' })
     expect(c.loan).not.toHaveProperty('purchasePrice')
     expect(c.property).toEqual({ annualTaxes: 6300, annualInsurance: 1109.64, monthlyHoa: null, estimatedValue: 620000 })
+  })
+})
+
+describe('existing mortgages and cash', () => {
+  const lien = (over: Partial<Property['liens'][number]>): Property['liens'][number] => ({
+    id: 'x', propertyId: 'p1', position: 'first', lender: null, balance: 300000, noteRate: 3, monthlyPayment: 1800, isHeloc: false, originatedOn: null, isTexasCashOut: false, toBePaidOff: false, creditLimit: null, mortgageType: null, ...over,
+  })
+  const withLiens = home({ liens: [lien({}), lien({ id: 'y', position: 'second', balance: 40000, monthlyPayment: 400 })] })
+
+  it('a refinance pays off the first lien; a second stays unless marked', () => {
+    expect(payoffsFor('refinance_cash_out', withLiens)).toBe(300000)
+    expect(otherFinancingFor('refinance_cash_out', withLiens)).toBe(400)
+    const marked = home({ liens: [lien({}), lien({ id: 'y', position: 'second', balance: 40000, toBePaidOff: true })] })
+    expect(payoffsFor('refinance_rate_term', marked)).toBe(340000)
+  })
+  it('a HELOC keeps the first lien in the payment', () => {
+    expect(payoffsFor('heloc', withLiens)).toBe(0)
+    expect(otherFinancingFor('heloc', withLiens)).toBe(2200)
+  })
+  it("Connor's test case: $49,535.06 to the borrower", () => {
+    expect(cashFigure({ purpose: 'refinance_cash_out', purchasePrice: null, totalLoanAmount: 465000, closingCosts: 24770.94, payoffs: 390694, earnestMoney: 0, sellerCredits: 0 })).toEqual({ label: 'Cash to borrower', amount: 49535.06 })
+  })
+  it('a purchase brings cash to close', () => {
+    expect(cashFigure({ purpose: 'purchase', purchasePrice: 400000, totalLoanAmount: 380000, closingCosts: 9000, payoffs: 0, earnestMoney: 4000, sellerCredits: 3000 })).toEqual({ label: 'Cash to close', amount: 22000 })
+    expect(payoffsFor('purchase', withLiens)).toBe(0)
   })
 })
 

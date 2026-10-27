@@ -11,14 +11,16 @@ export interface InputProps extends Omit<React.ComponentProps<'input'>, 'onChang
   hint?: string
   error?: string
   span?: FieldSpan
+  /** Keep the label for screen readers only (e.g. inside a table). */
+  hideLabel?: boolean
 }
 
 /** Labelled text input. Pass `readOnly` for calculated values. */
-export function Input({ label, value, onChange, hint, error, span, required, readOnly, className, id, ...props }: InputProps) {
+export function Input({ label, value, onChange, hint, error, span, hideLabel, required, readOnly, className, id, ...props }: InputProps) {
   const autoId = useId()
   const inputId = id ?? autoId
   return (
-    <Field label={label} htmlFor={inputId} required={required} hint={hint} error={error} span={span}>
+    <Field label={label} htmlFor={inputId} required={required} hint={hint} error={error} span={span} hideLabel={hideLabel}>
       <BaseInput
         id={inputId}
         value={value}
