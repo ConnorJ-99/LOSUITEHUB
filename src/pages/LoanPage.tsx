@@ -37,6 +37,7 @@ import { PrequalTab } from '@/components/prequal/PrequalTab'
 import { EditDialog } from '@/components/urla/parts'
 import { UrlaTab } from '@/components/urla/UrlaTab'
 import { useLoanFile, useSaveTeamMember, useSetLoanOfficer, useStepTemplates, type TeamRole } from '@/lib/api/loanfile'
+import { LoanPricingTab } from '@/components/pricing/LoanPricingTab'
 import { PricingTab } from '@/components/pricing/PricingTab'
 import { useLoan, useOrgMembers } from '@/lib/api/loans'
 import { useProperties } from '@/lib/api/properties'
@@ -53,7 +54,7 @@ import { applicationSummary } from '@/lib/urla/summary'
 
 const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'loan', 'properties', 'letters'] as const
 type Section = (typeof SECTIONS)[number]
-const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'properties']
+const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'loan', 'properties']
 
 /** Team roles shown in the header, in order. The loan officer is the file's Assigned LO. */
 const TEAM: { role: TeamRole | 'loan_officer'; label: string; group: string; purchaseOnly?: boolean; company?: boolean }[] = [
@@ -134,6 +135,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           hasContract: loan.details.contractDate !== null,
           hasLoanAmount: loan.details.loanAmount !== null,
           hasRate: loan.details.noteRate !== null,
+          hasProgram: loan.details.programId !== null,
           stageSince,
         })
       : null
@@ -171,7 +173,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     { id: 'fees', label: 'Fees', icon: ReceiptIcon },
     { id: 'documents', label: 'Documents', icon: FolderIcon },
     { id: 'notes', label: 'Notes', icon: NotebookPenIcon },
-    { id: 'loan', label: 'Loan · Pricing', icon: LandmarkIcon, disabledNote: 'Coming with Product Search' },
+    { id: 'loan', label: 'Loan · Pricing', icon: LandmarkIcon },
     { id: 'properties', label: 'Properties', icon: HomeIcon },
     ...(isPurchase ? [{ id: 'letters', label: 'Letters', icon: MailIcon, disabledNote: 'Coming in Phase 8' }] : []),
   ]
@@ -247,6 +249,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           {section === 'income' && <IncomeTab loan={loan} />}
           {section === 'contract' && <ContractTab loan={loan} />}
           {section === 'fees' && <PricingTab loan={loan} />}
+          {section === 'loan' && <LoanPricingTab loan={loan} />}
           {section === 'documents' && <DocumentsTab loan={loan} />}
           {section === 'notes' && <NotesTab loan={loan} />}
           {section === 'properties' && <PropertiesTab loan={loan} />}

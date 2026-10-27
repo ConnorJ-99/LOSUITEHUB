@@ -91,6 +91,8 @@ const DETAIL_COLUMNS: Record<keyof LoanDetails, [string, boolean]> = {
   otherPaymentMonthly: ['other_payment_monthly', true],
   otherPaymentLabel: ['other_payment_label', false],
   pricingScenarioId: ['pricing_scenario_id', false],
+  programId: ['program_id', false],
+  chosenQuoteId: ['chosen_quote_id', false],
 }
 
 interface LoanProfileRow extends LoanRow {

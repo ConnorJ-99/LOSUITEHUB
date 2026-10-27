@@ -56,6 +56,7 @@ function PropertyCard({
   property,
   isSubject,
   showRent,
+  showLiens,
   onEdit,
   onMakeSubject,
   onDelete,
@@ -66,6 +67,8 @@ function PropertyCard({
   property: Property
   isSubject: boolean
   showRent: boolean
+  /** Existing mortgages: for a refinance or HELOC, and for homes the borrower owns (REO); not for homes being bought. */
+  showLiens: boolean
   onEdit: () => void
   onMakeSubject: () => void
   onDelete: () => void
@@ -138,26 +141,28 @@ function PropertyCard({
           {(showRent || property.monthlyRent !== null) && <Figure label="Rent / mo" value={formatCurrency(property.monthlyRent)} />}
         </dl>
 
-        <div className="border-t pt-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Existing liens</p>
-            {property.liens.length < 2 && (
-              <Button size="xs" variant="ghost" onClick={onAddLien}>
-                <PlusIcon />
-                Add lien
-              </Button>
+        {showLiens && (
+          <div className="border-t pt-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Existing liens</p>
+              {property.liens.length < 2 && (
+                <Button size="xs" variant="ghost" onClick={onAddLien}>
+                  <PlusIcon />
+                  Add lien
+                </Button>
+              )}
+            </div>
+            {property.liens.length === 0 ? (
+              <p className="py-1 text-sm text-muted-foreground">None (free and clear, or not entered yet).</p>
+            ) : (
+              <ul className="divide-y">
+                {property.liens.map((lien) => (
+                  <LienRow key={lien.id} lien={lien} onEdit={() => onEditLien(lien)} onDelete={() => onDeleteLien(lien)} />
+                ))}
+              </ul>
             )}
           </div>
-          {property.liens.length === 0 ? (
-            <p className="py-1 text-sm text-muted-foreground">None (free and clear, or not entered yet).</p>
-          ) : (
-            <ul className="divide-y">
-              {property.liens.map((lien) => (
-                <LienRow key={lien.id} lien={lien} onEdit={() => onEditLien(lien)} onDelete={() => onDeleteLien(lien)} />
-              ))}
-            </ul>
-          )}
-        </div>
+        )}
       </div>
     </Card>
   )
@@ -224,6 +229,7 @@ export function PropertiesTab({ loan }: { loan: LoanProfile }) {
           property={property}
           isSubject={property.id === subjectId}
           showRent={showRent}
+          showLiens={hasExistingMortgages(property, isPurchase)}
           onEdit={() => setDialog({ kind: 'property', property })}
           onMakeSubject={() => makeSubject(property.id)}
           onDelete={() => deleteProperty.mutate(property.id, { onSuccess: () => toast.success('Property deleted'), onError })}
@@ -258,4 +264,9 @@ export function PropertiesTab({ loan }: { loan: LoanProfile }) {
       )}
     </div>
   )
+}
+
+/** Existing mortgages matter on a refinance or HELOC file, and on homes the borrower already owns (the 1003's REO); a home being bought has none. Liens already entered always show. */
+export function hasExistingMortgages(property: Property, isPurchase: boolean): boolean {
+  return !isPurchase || property.status === 'current_home' || property.status === 'owned' || property.liens.length > 0
 }

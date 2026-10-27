@@ -128,6 +128,9 @@ export interface LoanDetails {
   otherPaymentLabel: string | null
   /** The pricing scenario last used for this loan. */
   pricingScenarioId: string | null
+  /** The lender program chosen on Loan · Pricing, and the quote it was chosen from. */
+  programId: string | null
+  chosenQuoteId: string | null
 }
 
 export type ImpoundWaiver = 'none' | 'taxes' | 'insurance' | 'all'

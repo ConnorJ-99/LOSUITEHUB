@@ -24,10 +24,13 @@ interface Props {
   onEdit: () => void
   /** Search again with every product family (same lien and doc type). */
   onWiden: (() => void) | null
+  /** Adds the selected programs to the borrower's file for pricing (when started from a borrower). */
+  onAdd?: (programIds: string[]) => void
+  adding?: boolean
 }
 
 /** Results (mockup 03): eligible cards, the same-type programs that don't fit (closest first, with how to fit), what wasn't searched, and the selection bar. */
-export function SearchResults({ scenario, result, verifiedOn, borrowerName, onEdit, onWiden }: Props) {
+export function SearchResults({ scenario, result, verifiedOn, borrowerName, onEdit, onWiden, onAdd, adding }: Props) {
   const [sort, setSort] = useState<Sort>('best')
   const [show, setShow] = useState<LenderStatus[]>(SHOWN_STATUSES)
   const [hideIneligible, setHideIneligible] = useState(false)
@@ -149,10 +152,16 @@ export function SearchResults({ scenario, result, verifiedOn, borrowerName, onEd
           <p className="mr-auto text-sm">
             <span className="font-semibold">{chosen.length} selected:</span> {chosen.map((r) => r.lender.name).join(', ')}
           </p>
-          <span className="text-xs opacity-80">{borrowerName ? `Adding to ${borrowerName} for pricing comes with Loan · Pricing (step 8).` : 'Start from a borrower to add these for pricing (step 8).'}</span>
-          <Button size="sm" variant="secondary" onClick={() => setSelected([])}>
+          <Button size="sm" variant="ghost" className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground" onClick={() => setSelected([])}>
             Clear
           </Button>
+          {onAdd && borrowerName ? (
+            <Button size="sm" variant="secondary" disabled={adding} onClick={() => onAdd(chosen.map((r) => r.program.id))}>
+              {adding ? 'Adding…' : `Add to ${borrowerName} for pricing →`}
+            </Button>
+          ) : (
+            <span className="text-xs opacity-80">Start from a borrower to add these for pricing.</span>
+          )}
         </div>
       )}
     </div>

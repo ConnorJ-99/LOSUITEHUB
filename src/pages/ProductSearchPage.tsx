@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -7,7 +8,10 @@ import { Card, PageHeader, Select } from '@/components/shared'
 import { BrowsePrograms } from '@/components/products/BrowsePrograms'
 import { SearchForm, SHOWN_STATUSES } from '@/components/products/SearchForm'
 import { SearchResults } from '@/components/products/SearchResults'
+import { keys } from '@/lib/api/client'
 import { useCreditEvents } from '@/lib/api/creditEvents'
+import { addProgramOptions } from '@/lib/api/loanPricing'
+import { useAuth } from '@/lib/auth/context'
 import { useLoan, usePipeline } from '@/lib/api/loans'
 import { useCatalog, useLogSearch, useRecentSearches } from '@/lib/api/products'
 import { useProperties } from '@/lib/api/properties'
@@ -39,6 +43,12 @@ export function ProductSearchPage() {
   const [scenario, setScenario] = useState<Scenario>(blankScenario)
   const [statuses, setStatuses] = useState<LenderStatus[]>(SHOWN_STATUSES)
   const [shown, setShown] = useState<{ scenario: Scenario; result: SearchResult } | null>(null)
+  const [searchId, setSearchId] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { state } = useAuth()
+  const orgId = state.status === 'signedIn' ? state.user.organizationId : null
 
   const borrower = pipeline.data?.find((l) => l.id === loanId) ?? null
   const borrowerName = borrower ? fullName(borrower.borrower) : null
@@ -57,7 +67,22 @@ export function ProductSearchPage() {
     const result = search(s, limited)
     setShown({ scenario: s, result })
     window.scrollTo({ top: 0 })
-    logSearch.mutate({ scenario: s, result, loanId }, { onError: (e) => toast.error(`Search ran, but couldn't be saved to Recent searches: ${e.message}`) })
+    setSearchId(null)
+    logSearch.mutate({ scenario: s, result, loanId }, { onSuccess: setSearchId, onError: (e) => toast.error(`Search ran, but couldn't be saved to Recent searches: ${e.message}`) })
+  }
+  const addToBorrower = async (programIds: string[]) => {
+    if (!loanId || !orgId) return
+    setAdding(true)
+    try {
+      const added = await addProgramOptions(loanId, orgId, programIds, searchId)
+      await queryClient.invalidateQueries({ queryKey: keys.programOptions(loanId) })
+      toast.success(added ? `Added ${added} program${added === 1 ? '' : 's'} to ${borrowerName} for pricing` : 'Those programs are already on the file')
+      navigate(`/loans/${loanId}?tab=loan`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setAdding(false)
+    }
   }
   const startFrom = (id: string | null) => {
     setShown(null)
@@ -99,6 +124,8 @@ export function ProductSearchPage() {
           borrowerName={borrowerName}
           onEdit={() => setShown(null)}
           onWiden={shown.scenario.family === 'any' ? null : () => run({ ...shown.scenario, family: 'any' })}
+          onAdd={loanId ? addToBorrower : undefined}
+          adding={adding}
         />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
