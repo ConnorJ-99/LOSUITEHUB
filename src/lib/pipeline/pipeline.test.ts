@@ -15,9 +15,9 @@ import { STAGES, purposeLabel, stageLabel } from './stages'
 const now = new Date('2026-10-25T15:00:00Z')
 
 describe('stages', () => {
-  it('lists the 8 main stages in order, then Nurture and Lost', () => {
+  it('lists the 9 main stages in order, then Nurture and Lost', () => {
     expect(STAGES.filter((s) => s.kind === 'main').map((s) => s.value)).toEqual([
-      'lead', 'contacted', 'pre_qualified', 'pre_approved', 'under_contract', 'processing', 'clear_to_close', 'closed',
+      'lead', 'contacted', 'pre_qualified', 'pre_approved', 'home_search', 'under_contract', 'processing', 'clear_to_close', 'closed',
     ])
     expect(STAGES.filter((s) => s.kind === 'side').map((s) => s.value)).toEqual(['nurture', 'lost'])
   })

@@ -1,11 +1,13 @@
 // Pipeline stages and loan purposes. Values match the Postgres enums in
-// supabase/migrations/20261025000000_contacts_pipeline.sql.
+// supabase/migrations/20261025000000_contacts_pipeline.sql (Home Search added in
+// 20261120000000_pipeline_v2.sql).
 
 export type PipelineStage =
   | 'lead'
   | 'contacted'
   | 'pre_qualified'
   | 'pre_approved'
+  | 'home_search'
   | 'under_contract'
   | 'processing'
   | 'clear_to_close'
@@ -33,6 +35,7 @@ export const STAGES: readonly StageInfo[] = [
   { value: 'contacted', label: 'Contacted', kind: 'main' },
   { value: 'pre_qualified', label: 'Pre-Qualified', kind: 'main' },
   { value: 'pre_approved', label: 'Pre-Approved', kind: 'main' },
+  { value: 'home_search', label: 'Home Search', kind: 'main' },
   { value: 'under_contract', label: 'Under Contract', kind: 'main' },
   { value: 'processing', label: 'Submitted / Processing', kind: 'main' },
   { value: 'clear_to_close', label: 'Approved / CTC', kind: 'main' },
