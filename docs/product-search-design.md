@@ -1,3 +1,5 @@
+> **Superseded (2026-10-26)** by `docs/plans/product-search-v2.md`. Kept for the Marcus test cases, which carry over as golden tests.
+
 # Product Search: approved design (Phase 9)
 
 Approved by Connor on 2026-10-25. Build this in Phase 9 (Loan Info + Product Search + lender admin).

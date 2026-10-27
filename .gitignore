@@ -28,3 +28,6 @@ dist-ssr
 
 # Generated paste copy of Edge Functions (npm run function:paste)
 supabase/.paste/
+
+# Real lender matrices and guidelines (broker-use-only documents; this repo is public)
+docs/lender-samples/

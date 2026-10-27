@@ -15,7 +15,7 @@ import { keys } from '@/lib/api/client'
 import { scenarioFrom, scenarioName } from '@/lib/pricing/scenario'
 import { ScenarioEditor } from './ScenarioEditor'
 
-/** Pricing: saved scenarios for this file, each with its payment, fees A–H and cash to close. */
+/** Fees: saved scenarios for this file, each with its payment, fees A–H and cash to close. */
 export function PricingTab({ loan }: { loan: LoanProfile }) {
   const scenarios = usePricingScenarios(loan.id)
   const properties = useProperties(loan.id)
@@ -102,7 +102,7 @@ export function PricingTab({ loan }: { loan: LoanProfile }) {
   if (!selected) {
     return (
       <Card>
-        <EmptyState title="No pricing yet" description="Start a scenario from this loan's numbers, or from one of its properties. You can save as many as you like and compare them." action={newMenu} />
+        <EmptyState title="No fee worksheet yet" description="Start a scenario from this loan's numbers, or from one of its properties. Each one has its own payment, fees A–H and cash to close, and you can save as many as you like." action={newMenu} />
       </Card>
     )
   }
