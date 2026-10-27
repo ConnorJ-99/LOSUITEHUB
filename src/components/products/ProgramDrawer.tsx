@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { openGuidelinePdf, searchPassages, useLenderDetail, useProgramGuidelines, type GuidelineDocument, type Passage } from '@/lib/api/products'
 import { formatPercent } from '@/lib/format'
-import { defaultFilters, fitLine, gridOptions, matrixGrid, type GridFilters } from '@/lib/products/matrixGrid'
+import { defaultFilters, firstFilters, fitLine, gridOptions, matrixGrid, type GridFilters } from '@/lib/products/matrixGrid'
 import { DOC_TYPES, LENDER_STATUSES, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES } from '@/lib/products/taxonomy'
 import type { CheckItem, ProgramResult, Scenario } from '@/lib/products/types'
 import { LenderMark } from './ProgramCard'
@@ -17,7 +17,8 @@ const DOC_TYPE_LABEL: Record<GuidelineDocument['docType'], string> = { matrix: '
 
 interface Props {
   result: ProgramResult
-  scenario: Scenario
+  /** Null when browsing: nothing is judged, the matrix and rules are shown as printed. */
+  scenario: Scenario | null
   onClose: () => void
 }
 
@@ -46,10 +47,12 @@ export function ProgramDrawer({ result: r, scenario, onClose }: Props) {
               <DialogPrimitive.Title className="text-lg font-semibold">{r.program.name}</DialogPrimitive.Title>
               <DialogPrimitive.Description className="sr-only">Matrix, requirements and guidelines for this program</DialogPrimitive.Description>
             </div>
-            <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium', r.eligible ? 'bg-emerald-50 text-emerald-700' : 'bg-destructive/10 text-destructive')}>
-              {r.eligible && <CheckIcon className="size-3" />}
-              {r.eligible ? 'Fits matrix' : "Doesn't fit"}
-            </span>
+            {scenario && (
+              <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium', r.eligible ? 'bg-emerald-50 text-emerald-700' : 'bg-destructive/10 text-destructive')}>
+                {r.eligible && <CheckIcon className="size-3" />}
+                {r.eligible ? 'Fits matrix' : "Doesn't fit"}
+              </span>
+            )}
             <Button size="sm" variant="outline" onClick={() => open(matrixDoc, r.cell?.sourcePage ?? null)}>
               Matrix PDF
             </Button>
@@ -86,9 +89,9 @@ export function ProgramDrawer({ result: r, scenario, onClose }: Props) {
   )
 }
 
-function MatrixTab({ result: r, scenario, passages, docs, onOpen, onSearch }: { result: ProgramResult; scenario: Scenario; passages: Passage[]; docs: GuidelineDocument[]; onOpen: (d: GuidelineDocument | undefined, page: number | null) => void; onSearch: () => void }) {
+function MatrixTab({ result: r, scenario, passages, docs, onOpen, onSearch }: { result: ProgramResult; scenario: Scenario | null; passages: Passage[]; docs: GuidelineDocument[]; onOpen: (d: GuidelineDocument | undefined, page: number | null) => void; onSearch: () => void }) {
   const options = useMemo(() => gridOptions(r.program), [r.program])
-  const [f, setF] = useState<GridFilters>(() => defaultFilters(r.program, scenario))
+  const [f, setF] = useState<GridFilters>(() => (scenario ? defaultFilters(r.program, scenario) : firstFilters(r.program)))
   const g = matrixGrid(r.program, f, scenario)
   const tier = options.tiers[f.tier]
   // Passages on the pages the program's rules cite.
@@ -133,7 +136,7 @@ function MatrixTab({ result: r, scenario, passages, docs, onOpen, onSearch }: { 
                   <tr key={row.label} className={g.highlight?.row === ri ? 'bg-accent/40' : undefined}>
                     <th className={cn('px-3 py-2 text-left font-semibold tabular-nums', g.highlight?.row === ri && 'text-primary')}>
                       {row.label}
-                      {g.highlight?.row === ri && scenario.fico != null && <span className="ml-1 font-normal">← {scenario.fico}</span>}
+                      {g.highlight?.row === ri && scenario?.fico != null && <span className="ml-1 font-normal">← {scenario.fico}</span>}
                     </th>
                     {g.squares[ri].map((sq, ci) => {
                       const mine = g.highlight?.row === ri && g.highlight?.col === ci
@@ -163,14 +166,14 @@ function MatrixTab({ result: r, scenario, passages, docs, onOpen, onSearch }: { 
             * {n}
           </p>
         ))}
-        {scenario.state === 'TX' && scenario.homestead && scenario.purpose === 'cash_out' && <p className="mt-2 text-xs text-muted-foreground">Texas §50(a)(6): homestead cash-out is capped at 80% CLTV, whatever the matrix says.</p>}
+        {scenario?.state === 'TX' && scenario.homestead && scenario.purpose === 'cash_out' && <p className="mt-2 text-xs text-muted-foreground">Texas §50(a)(6): homestead cash-out is capped at 80% CLTV, whatever the matrix says.</p>}
       </div>
 
-      <FitBox result={r} scenario={scenario} />
+      {scenario && <FitBox result={r} scenario={scenario} />}
 
       <div>
         <h3 className="mb-2 font-semibold">Requirements</h3>
-        <Checklist items={r.checklist} />
+        <Checklist items={r.checklist} judged={!!scenario} />
       </div>
 
       <div>
@@ -204,7 +207,8 @@ function FitBox({ result: r, scenario }: { result: ProgramResult; scenario: Scen
   return <p className={cn('rounded-lg px-4 py-3 text-sm', r.eligible ? 'bg-emerald-50 text-emerald-800' : 'bg-destructive/10 text-destructive')}>{fitLine(r, scenario)}</p>
 }
 
-function Checklist({ items }: { items: CheckItem[] }) {
+/** The rules with how the scenario measures up; when browsing (not judged), just the rules and their pages. */
+function Checklist({ items, judged = true }: { items: CheckItem[]; judged?: boolean }) {
   if (items.length === 0) return <p className="text-sm text-muted-foreground">No program-wide rules recorded beyond the matrix.</p>
   return (
     <ul className="divide-y rounded-lg border">
@@ -215,15 +219,27 @@ function Checklist({ items }: { items: CheckItem[] }) {
             {c.overlay && <span className="ml-2 rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">Company overlay</span>}
             {c.trace.page != null && <span className="ml-2 text-xs text-muted-foreground">p.{c.trace.page}</span>}
           </span>
-          <span className="w-24 text-muted-foreground tabular-nums">{c.value ?? '—'}</span>
-          <span className={cn('w-14 text-right text-xs font-semibold', c.status === 'pass' ? 'text-emerald-700' : c.status === 'fail' ? 'text-destructive' : c.status === 'na' ? 'font-normal text-muted-foreground' : 'text-amber-700')}>{c.status === 'pass' ? '✓' : c.status === 'fail' ? '✗' : c.status === 'na' ? 'N/A' : 'Verify'}</span>
+          {judged && (
+            <>
+              <span className="w-24 text-muted-foreground tabular-nums">{c.value ?? '—'}</span>
+              <span className={cn('w-14 text-right text-xs font-semibold', c.status === 'pass' ? 'text-emerald-700' : c.status === 'fail' ? 'text-destructive' : c.status === 'na' ? 'font-normal text-muted-foreground' : 'text-amber-700')}>{c.status === 'pass' ? '✓' : c.status === 'fail' ? '✗' : c.status === 'na' ? 'N/A' : 'Verify'}</span>
+            </>
+          )}
         </li>
       ))}
     </ul>
   )
 }
 
-function RequirementsTab({ result: r, scenario }: { result: ProgramResult; scenario: Scenario }) {
+function RequirementsTab({ result: r, scenario }: { result: ProgramResult; scenario: Scenario | null }) {
+  if (!scenario)
+    return (
+      <div>
+        <h3 className="mb-2 font-semibold">Program rules</h3>
+        <Checklist items={r.checklist} judged={false} />
+        <p className="mt-2 text-xs text-muted-foreground">Run a search to see how a borrower measures up to each rule.</p>
+      </div>
+    )
   return (
     <div className="space-y-5">
       <FitBox result={r} scenario={scenario} />

@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, PageHeader, Select } from '@/components/shared'
+import { BrowsePrograms } from '@/components/products/BrowsePrograms'
 import { SearchForm, SHOWN_STATUSES } from '@/components/products/SearchForm'
 import { SearchResults } from '@/components/products/SearchResults'
 import { useCreditEvents } from '@/lib/api/creditEvents'
@@ -22,13 +23,15 @@ import type { Catalog, Scenario, SearchResult } from '@/lib/products/types'
 const MODES = [
   { id: 'params', label: 'Search by parameters', note: null },
   { id: 'assistant', label: 'Ask the assistant', note: 'Comes in step 9' },
-  { id: 'browse', label: 'Browse all programs', note: 'Comes in step 7' },
+  { id: 'browse', label: 'Browse all programs', note: null },
 ] as const
 
 /** Product Search: which of Connor's lenders has a program for this borrower. Rule-based, no AI. */
 export function ProductSearchPage() {
   const [params, setParams] = useSearchParams()
   const loanId = params.get('loan')
+  const mode = params.get('mode') === 'browse' ? 'browse' : 'params'
+  const setMode = (m: string) => setParams(m === 'browse' ? { mode: 'browse' } : loanId ? { loan: loanId } : {}, { replace: true })
   const catalog = useCatalog()
   const pipeline = usePipeline()
   const recent = useRecentSearches()
@@ -69,11 +72,11 @@ export function ProductSearchPage() {
     <>
       <PageHeader
         title="Product Search"
-        description={shown ? `Results${borrowerName ? ` for ${borrowerName}` : ''}` : `Find which of your lenders has a program for this borrower. ${programCount} programs · ${lenderCount} lenders.`}
+        description={mode === 'browse' ? `Browse every program from every lender, no scenario needed. ${programCount} programs · ${lenderCount} lenders.` : shown ? `Results${borrowerName ? ` for ${borrowerName}` : ''}` : `Find which of your lenders has a program for this borrower. ${programCount} programs · ${lenderCount} lenders.`}
         action={
           <div className="flex rounded-lg bg-muted p-1">
             {MODES.map((m) => (
-              <button key={m.id} type="button" disabled={!!m.note} title={m.note ?? undefined} className={cn('rounded-md px-3 py-1.5 text-sm', m.id === 'params' ? 'bg-card font-medium text-primary shadow-sm' : 'text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60')}>
+              <button key={m.id} type="button" disabled={!!m.note} title={m.note ?? undefined} onClick={() => setMode(m.id)} className={cn('rounded-md px-3 py-1.5 text-sm', m.id === mode ? 'bg-card font-medium text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60')}>
                 {m.label}
               </button>
             ))}
@@ -86,6 +89,8 @@ export function ProductSearchPage() {
         <p className="py-12 text-center text-sm text-muted-foreground">Loading your lenders…</p>
       ) : catalog.error ? (
         <p className="py-12 text-center text-sm text-destructive">{catalog.error.message.includes('lenders') ? 'Run the product search script in Supabase to use Product Search.' : catalog.error.message}</p>
+      ) : mode === 'browse' ? (
+        <BrowsePrograms catalog={catalog.data!} verifiedOn={catalog.data!.verifiedOn} />
       ) : shown ? (
         <SearchResults
           scenario={shown.scenario}

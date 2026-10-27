@@ -156,3 +156,9 @@ export function fitLine(r: ProgramResult, s: Scenario): string {
   }
   return `Doesn't fit: ${r.reasons.map((x) => x.message).join('; ')}`
 }
+
+/** Filters for browsing a program without a scenario: the first grid it has. */
+export function firstFilters(p: CatalogProgram): GridFilters {
+  const o = gridOptions(p)
+  return { purpose: o.purposes[0] ?? 'purchase', propertyType: o.propertyTypes[0] ?? 'sfr_pud', docType: o.docTypes[0] ?? 'full_doc', tier: 0 }
+}

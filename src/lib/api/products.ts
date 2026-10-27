@@ -350,3 +350,14 @@ export async function openGuidelinePdf(storagePath: string, page: number | null)
   if (error || !data) throw new Error(error?.message ?? 'Could not open the PDF.')
   window.open(`${data.signedUrl}${page ? `#page=${page}` : ''}`, '_blank', 'noopener')
 }
+
+/** Programs whose guideline text matches (full-text search over every lender's current documents; no AI). */
+export async function programsMatchingGuidelines(query: string): Promise<Set<string>> {
+  const tsquery = guidelineQuery(query)
+  if (!tsquery) return new Set()
+  const hits = unwrap<{ document_id: string }[]>(await db().from('guideline_passages').select('document_id, document:guideline_documents!inner(current)').eq('document.current', true).textSearch('search', tsquery, { config: 'english' }).limit(500))
+  const docIds = [...new Set(hits.map((h) => h.document_id))]
+  if (docIds.length === 0) return new Set()
+  const links = unwrap<{ program_id: string }[]>(await db().from('guideline_document_programs').select('program_id').in('document_id', docIds))
+  return new Set(links.map((l) => l.program_id))
+}
