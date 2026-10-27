@@ -62,6 +62,7 @@ describe('mockups 03 and 04: conventional purchase, $400K, 5% down, 720, first-t
     expect(n.checklist.map((c) => [c.message, c.status, c.value])).toEqual([
       ['Max DTI 50% (DU Approve/Eligible)', 'pass', '38%'],
       ['Reserves per DU findings', 'pass', '3'],
+      ['Above 95% LTV, at least one borrower must be a first-time buyer', 'na', 'Yes'],
     ])
   })
   it('badges: best fit, highest max loan and lowest FICO floor go to different cards on a tie', () => {

@@ -36,10 +36,11 @@ interface Props {
   selected: boolean
   onSelect: (on: boolean) => void
   verifiedOn: string | null
+  onView: () => void
 }
 
 /** An eligible program (mockup 03): lender, fit badge, stat tiles for this scenario, and room left. */
-export function ProgramCard({ result: r, selected, onSelect, verifiedOn }: Props) {
+export function ProgramCard({ result: r, selected, onSelect, verifiedOn, onView }: Props) {
   const ratio = r.limit?.ratio === 'cltv' ? 'CLTV' : 'LTV'
   const room = r.limit?.roomPts ?? 0
   const atLimit = room < 0.005
@@ -96,10 +97,15 @@ export function ProgramCard({ result: r, selected, onSelect, verifiedOn }: Props
 
       {notSignedUp && <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">You're not signed up with this lender. Check with them before quoting.</p>}
       {r.checklist.some((c) => c.status === 'verify') && <p className="mt-2 text-xs text-muted-foreground">Verify: {r.checklist.filter((c) => c.status === 'verify').map((c) => c.message).join('; ')}</p>}
-      <p className="mt-auto pt-3 text-[11px] text-muted-foreground">
-        Matrix p.{r.cell?.sourcePage ?? '—'}
-        {verifiedOn && ` · verified ${new Date(`${verifiedOn}T12:00:00`).toLocaleDateString('en-US')}`}
-      </p>
+      <div className="mt-auto flex items-baseline justify-between gap-2 pt-3">
+        <p className="text-[11px] text-muted-foreground">
+          Matrix p.{r.cell?.sourcePage ?? '—'}
+          {verifiedOn && ` · verified ${new Date(`${verifiedOn}T12:00:00`).toLocaleDateString('en-US')}`}
+        </p>
+        <button type="button" onClick={onView} className="text-sm font-medium text-primary hover:underline">
+          View ›
+        </button>
+      </div>
     </div>
   )
 }

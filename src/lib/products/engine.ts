@@ -332,7 +332,10 @@ export function evaluateProgram(p: CatalogProgram, lender: CatalogLender, s: Sce
   }
 
   for (const r of [...p.rules, ...overlays]) {
-    if (!applies(r, s, p)) continue
+    if (!applies(r, s, p)) {
+      checklist.push({ message: r.message, status: 'na', value: formatValue(r.field, ruleValue(r, s, p) === 'unknown' ? null : ruleValue(r, s, p)), trace: { ruleId: r.id, page: r.sourcePage }, overlay: !!r.overlay })
+      continue
+    }
     const { status, value } = check(r, s, p)
     const shown = formatValue(r.field, value)
     const item: CheckItem = { message: r.message, status, value: shown, trace: { ruleId: r.id, page: r.sourcePage }, overlay: !!r.overlay }

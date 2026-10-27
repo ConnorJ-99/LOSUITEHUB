@@ -44,6 +44,8 @@ export const keys = {
   scenarioFees: (scenarioId: string) => ['scenarioFees', scenarioId] as const,
   catalog: ['catalog'] as const,
   recentSearches: ['recentSearches'] as const,
+  lenderDetail: (lenderId: string) => ['lenderDetail', lenderId] as const,
+  programGuidelines: (programId: string) => ['programGuidelines', programId] as const,
 }
 
 /** The Supabase client, or a clear error in preview mode (no .env.local). */

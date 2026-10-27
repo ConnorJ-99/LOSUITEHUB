@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
+import { guidelineQuery } from '@/lib/products/guidelineSearch'
 import type { Catalog, CatalogLender, CatalogProgram, MatrixCell, ProgramRule, Scenario, SearchResult } from '@/lib/products/types'
 import { db, keys, num, unwrap } from './client'
 
@@ -254,4 +255,98 @@ export function useLogSearch() {
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.recentSearches }),
   })
+}
+
+// ---------------------------------------------------------------------------
+// Program drawer: lender contact, guideline documents and passages
+// ---------------------------------------------------------------------------
+
+export interface LenderDetail {
+  id: string
+  name: string
+  status: CatalogLender['status']
+  aeName: string | null
+  aePhone: string | null
+  aeEmail: string | null
+  portalUrl: string | null
+}
+
+export function useLenderDetail(lenderId: string) {
+  return useQuery({
+    queryKey: keys.lenderDetail(lenderId),
+    queryFn: async (): Promise<LenderDetail> => {
+      const r = unwrap<{ id: string; name: string; status: CatalogLender['status']; ae_name: string | null; ae_phone: string | null; ae_email: string | null; portal_url: string | null }>(
+        await db().from('lenders').select('id, name, status, ae_name, ae_phone, ae_email, portal_url').eq('id', lenderId).single(),
+      )
+      return { id: r.id, name: r.name, status: r.status, aeName: r.ae_name, aePhone: r.ae_phone, aeEmail: r.ae_email, portalUrl: r.portal_url }
+    },
+  })
+}
+
+export interface GuidelineDocument {
+  id: string
+  title: string
+  docType: 'matrix' | 'guidelines' | 'overlay_bulletin' | 'rate_sheet'
+  versionLabel: string | null
+  effectiveDate: string | null
+  pageCount: number | null
+  storagePath: string | null
+  current: boolean
+}
+
+export interface Passage {
+  id: string
+  documentId: string
+  page: number
+  sectionNumber: string | null
+  heading: string | null
+  body: string
+}
+
+interface PassageRow {
+  id: string
+  document_id: string
+  page: number
+  section_number: string | null
+  heading: string | null
+  body: string
+}
+const toPassage = (p: PassageRow): Passage => ({ id: p.id, documentId: p.document_id, page: p.page, sectionNumber: p.section_number, heading: p.heading, body: p.body })
+
+/** The program's guideline documents (current ones first) and their text, in order. */
+export function useProgramGuidelines(programId: string) {
+  return useQuery({
+    queryKey: keys.programGuidelines(programId),
+    queryFn: async () => {
+      const links = unwrap<{ document: { id: string; title: string; doc_type: GuidelineDocument['docType']; version_label: string | null; effective_date: string | null; page_count: number | null; storage_path: string | null; current: boolean } | null }[]>(
+        await db().from('guideline_document_programs').select('document:guideline_documents(id, title, doc_type, version_label, effective_date, page_count, storage_path, current)').eq('program_id', programId),
+      )
+      const documents: GuidelineDocument[] = links
+        .map((l) => l.document)
+        .filter((d): d is NonNullable<typeof d> => !!d)
+        .map((d) => ({ id: d.id, title: d.title, docType: d.doc_type, versionLabel: d.version_label, effectiveDate: d.effective_date, pageCount: d.page_count, storagePath: d.storage_path, current: d.current }))
+        .sort((a, b) => Number(b.current) - Number(a.current) || a.title.localeCompare(b.title))
+      const ids = documents.map((d) => d.id)
+      const passages = ids.length
+        ? unwrap<PassageRow[]>(await db().from('guideline_passages').select('id, document_id, page, section_number, heading, body').in('document_id', ids).order('position').limit(500)).map(toPassage)
+        : []
+      return { documents, passages }
+    },
+  })
+}
+
+/** Full-text search over these documents' passages (Postgres text search; abbreviations also match their long form; no AI). */
+export async function searchPassages(documentIds: string[], query: string): Promise<Passage[]> {
+  const tsquery = guidelineQuery(query)
+  if (!documentIds.length || !tsquery) return []
+  return unwrap<PassageRow[]>(
+    await db().from('guideline_passages').select('id, document_id, page, section_number, heading, body').in('document_id', documentIds).textSearch('search', tsquery, { config: 'english' }).order('position').limit(30),
+  ).map(toPassage)
+}
+
+/** Opens a stored guideline PDF at a page (private bucket, short-lived link). */
+export async function openGuidelinePdf(storagePath: string, page: number | null) {
+  const { data, error } = await db().storage.from('guideline-files').createSignedUrl(storagePath, 600)
+  if (error || !data) throw new Error(error?.message ?? 'Could not open the PDF.')
+  window.open(`${data.signedUrl}${page ? `#page=${page}` : ''}`, '_blank', 'noopener')
 }

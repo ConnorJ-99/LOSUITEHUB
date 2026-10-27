@@ -164,7 +164,8 @@ export interface Reason {
 
 export interface CheckItem {
   message: string
-  status: 'pass' | 'fail' | 'verify'
+  /** 'na' = the rule doesn't apply to this scenario (e.g. only above 95% LTV). */
+  status: 'pass' | 'fail' | 'verify' | 'na'
   /** The scenario's value, formatted, e.g. "38%". */
   value: string | null
   trace: Trace

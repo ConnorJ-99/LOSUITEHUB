@@ -6,6 +6,7 @@ import { DOC_TYPES, LENDER_STATUSES, LIENS, PRODUCT_FAMILIES, type LenderStatus 
 import { scenarioChips, typeChips } from '@/lib/products/scenarioForm'
 import type { ProgramResult, Scenario, SearchResult } from '@/lib/products/types'
 import { LenderMark, ProgramCard } from './ProgramCard'
+import { ProgramDrawer } from './ProgramDrawer'
 import { SHOWN_STATUSES } from './SearchForm'
 
 type Sort = 'best' | 'max_ltv' | 'lender'
@@ -31,6 +32,7 @@ export function SearchResults({ scenario, result, verifiedOn, borrowerName, onEd
   const [show, setShow] = useState<LenderStatus[]>(SHOWN_STATUSES)
   const [hideIneligible, setHideIneligible] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
+  const [viewing, setViewing] = useState<ProgramResult | null>(null)
 
   const visible = (r: ProgramResult) => show.includes(r.lender.status)
   const eligible = result.eligible.filter(visible)
@@ -99,7 +101,7 @@ export function SearchResults({ scenario, result, verifiedOn, borrowerName, onEd
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {sorted.map((r) => (
-            <ProgramCard key={r.program.id} result={r} verifiedOn={verifiedOn.get(r.program.id) ?? null} selected={selected.includes(r.program.id)} onSelect={(on) => setSelected(on ? [...selected, r.program.id] : selected.filter((x) => x !== r.program.id))} />
+            <ProgramCard key={r.program.id} result={r} onView={() => setViewing(r)} verifiedOn={verifiedOn.get(r.program.id) ?? null} selected={selected.includes(r.program.id)} onSelect={(on) => setSelected(on ? [...selected, r.program.id] : selected.filter((x) => x !== r.program.id))} />
           ))}
         </div>
       )}
@@ -120,7 +122,7 @@ export function SearchResults({ scenario, result, verifiedOn, borrowerName, onEd
           {!hideIneligible && (
             <div className="grid gap-3 p-4 lg:grid-cols-2">
               {ineligible.map((r, i) => (
-                <IneligibleRow key={r.program.id} result={r} closest={i === 0} />
+                <IneligibleRow key={r.program.id} result={r} closest={i === 0} onView={() => setViewing(r)} />
               ))}
             </div>
           )}
@@ -140,6 +142,8 @@ export function SearchResults({ scenario, result, verifiedOn, borrowerName, onEd
         </div>
       )}
 
+      {viewing && <ProgramDrawer result={viewing} scenario={scenario} onClose={() => setViewing(null)} />}
+
       {chosen.length > 0 && (
         <div className="fixed inset-x-4 bottom-4 z-20 mx-auto flex max-w-5xl flex-wrap items-center gap-3 rounded-xl bg-primary px-5 py-3 text-primary-foreground shadow-lg md:left-72">
           <p className="mr-auto text-sm">
@@ -156,7 +160,7 @@ export function SearchResults({ scenario, result, verifiedOn, borrowerName, onEd
 }
 
 /** One program that doesn't fit: why, and what would make it fit. */
-function IneligibleRow({ result: r, closest }: { result: ProgramResult; closest: boolean }) {
+function IneligibleRow({ result: r, closest, onView }: { result: ProgramResult; closest: boolean; onView: () => void }) {
   const fixes = r.reasons.filter((x) => x.fix)
   const unfixable = r.reasons.some((x) => x.unfixable)
   return (
@@ -192,6 +196,9 @@ function IneligibleRow({ result: r, closest }: { result: ProgramResult; closest:
           </span>
         ))}
         {unfixable && fixes.length === 0 && <span className="text-xs text-muted-foreground">No change in this scenario fixes it.</span>}
+        <button type="button" onClick={onView} className="ml-auto text-sm font-medium text-primary hover:underline">
+          View ›
+        </button>
       </div>
     </div>
   )
