@@ -58,3 +58,6 @@ export function joinMonths(years: string, months: string): number | null {
   if (years.trim() === '' && months.trim() === '') return null
   return Math.max(0, Math.floor(Number(years) || 0)) * 12 + Math.max(0, Math.floor(Number(months) || 0))
 }
+
+/** The current moment as an ISO timestamp. */
+export const nowIso = () => new Date().toISOString()

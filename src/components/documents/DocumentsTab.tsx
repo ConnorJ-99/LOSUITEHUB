@@ -15,6 +15,7 @@ import {
   type DocumentKind,
   type LoanDocument,
 } from '@/lib/api/documents'
+import { useProperties } from '@/lib/api/properties'
 import type { LoanProfile } from '@/lib/api/types'
 import { useApplication } from '@/lib/api/urla'
 import { formatIsoDate } from '@/lib/dates'
@@ -26,7 +27,7 @@ const NOBODY = '__nobody__'
 
 type Person = { contactId: string; name: string }
 
-function DocRow({ doc, people, loanId }: { doc: LoanDocument; people: Person[]; loanId: string }) {
+function DocRow({ doc, people, loanId, home }: { doc: LoanDocument; people: Person[]; loanId: string; home: string | null }) {
   const update = useUpdateDocument(loanId)
   const remove = useDeleteDocument(loanId)
   const fail = (e: Error) => toast.error(e.message)
@@ -39,6 +40,7 @@ function DocRow({ doc, people, loanId }: { doc: LoanDocument; people: Person[]; 
         </button>
         <p className="pl-6 text-xs text-muted-foreground">
           {sizeLabel(doc.sizeBytes)} · {formatIsoDate(doc.createdAt.slice(0, 10))}
+          {home && ` · ${home}`}
         </p>
       </div>
       <Select label="What it is" value={doc.kind} options={KIND_OPTIONS} onChange={(kind) => update.mutate({ id: doc.id, kind }, { onError: fail })} />
@@ -73,6 +75,8 @@ function DocRow({ doc, people, loanId }: { doc: LoanDocument; people: Person[]; 
 export function DocumentsTab({ loan }: { loan: LoanProfile }) {
   const docs = useLoanDocuments(loan.id)
   const app = useApplication(loan.id)
+  const properties = useProperties(loan.id)
+  const homeOf = (id: string | null) => (properties.data ?? []).find((p) => p.id === id)?.addressLine ?? null
   const upload = useUploadDocument(loan.id, loan.organizationId)
   const input = useRef<HTMLInputElement>(null)
   const [kind, setKind] = useState<DocumentKind>('other')
@@ -161,7 +165,7 @@ export function DocumentsTab({ loan }: { loan: LoanProfile }) {
                 </h3>
                 <ul className="divide-y">
                   {g.docs.map((d) => (
-                    <DocRow key={d.id} doc={d} people={people} loanId={loan.id} />
+                    <DocRow key={d.id} doc={d} people={people} loanId={loan.id} home={homeOf(d.propertyId)} />
                   ))}
                 </ul>
               </section>

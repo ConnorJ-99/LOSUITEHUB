@@ -1,14 +1,18 @@
 import { useState } from 'react'
-import { ExternalLinkIcon, HomeIcon, PencilIcon, PlusIcon, StarIcon, Trash2Icon } from 'lucide-react'
+import { useNavigate } from 'react-router'
+import { CalculatorIcon, ExternalLinkIcon, FileTextIcon, HomeIcon, PencilIcon, PlusIcon, StarIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState } from '@/components/shared'
+import { DOCUMENT_KIND_LABEL, openDocument, useLoanDocuments, type LoanDocument } from '@/lib/api/documents'
 import { useUpdateLoanDetails } from '@/lib/api/loans'
+import { useCreateScenario, usePricingScenarios } from '@/lib/api/pricing'
 import { useDeleteLien, useDeleteProperty, useProperties } from '@/lib/api/properties'
 import type { Lien, LoanProfile, Property, PropertyStatus } from '@/lib/api/types'
-import { formatIsoDate } from '@/lib/dates'
+import { formatIsoDate, relativeTime } from '@/lib/dates'
+import { scenarioFrom, scenarioName } from '@/lib/pricing/scenario'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { LienDialog } from './LienDialog'
 import { PropertyDialog } from './PropertyDialog'
@@ -63,6 +67,9 @@ function PropertyCard({
   onAddLien,
   onEditLien,
   onDeleteLien,
+  documents,
+  onPrice,
+  pricing,
 }: {
   property: Property
   isSubject: boolean
@@ -75,6 +82,11 @@ function PropertyCard({
   onAddLien: () => void
   onEditLien: (lien: Lien) => void
   onDeleteLien: (lien: Lien) => void
+  /** PDFs saved for this home (Fee Worksheets, comparisons, pre-approval letters). */
+  documents: LoanDocument[]
+  /** Opens this home's pricing scenario in Fees, starting one if there isn't one. */
+  onPrice: () => void
+  pricing: boolean
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const place = [property.city, [property.state, property.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')
@@ -111,6 +123,10 @@ function PropertyCard({
                 </a>
               </Button>
             )}
+            <Button size="sm" variant="outline" onClick={onPrice} disabled={pricing}>
+              <CalculatorIcon />
+              Price this home
+            </Button>
             <Button size="sm" variant="ghost" onClick={onEdit}>
               <PencilIcon />
               Edit
@@ -140,6 +156,23 @@ function PropertyCard({
           <Figure label="HOA / mo" value={formatCurrency(property.monthlyHoa)} />
           {(showRent || property.monthlyRent !== null) && <Figure label="Rent / mo" value={formatCurrency(property.monthlyRent)} />}
         </dl>
+
+        {documents.length > 0 && (
+          <div className="border-t pt-3">
+            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Saved for this home</p>
+            <ul className="mt-1 space-y-1">
+              {documents.map((d) => (
+                <li key={d.id}>
+                  <button type="button" className="flex items-center gap-1.5 text-left text-sm hover:underline" onClick={() => openDocument(d).catch((e: Error) => toast.error(e.message))}>
+                    <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                    {DOCUMENT_KIND_LABEL[d.kind]}
+                    <span className="text-xs text-muted-foreground">· {relativeTime(d.createdAt)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {showLiens && (
           <div className="border-t pt-3">
@@ -179,6 +212,10 @@ export function PropertiesTab({ loan }: { loan: LoanProfile }) {
   const updateDetails = useUpdateLoanDetails(loan.id)
   const deleteProperty = useDeleteProperty(loan.id)
   const deleteLien = useDeleteLien(loan.id)
+  const scenarios = usePricingScenarios(loan.id)
+  const createScenario = useCreateScenario(loan.id, loan.organizationId)
+  const documents = useLoanDocuments(loan.id)
+  const navigate = useNavigate()
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' })
 
   const subjectId = loan.details.subjectPropertyId
@@ -196,6 +233,13 @@ export function PropertiesTab({ loan }: { loan: LoanProfile }) {
   }
 
   const list = properties.data ?? []
+  const openFees = (id: string) => navigate(`/loans/${loan.id}?tab=fees&scenario=${id}`)
+  // Push to pricer: this home's newest scenario, or a new one from its numbers.
+  const price = (property: Property) => {
+    const existing = (scenarios.data ?? []).filter((x) => x.propertyId === property.id).at(-1)
+    if (existing) return openFees(existing.id)
+    createScenario.mutate(scenarioFrom(loan, property, scenarioName(property, scenarios.data?.length ?? 0)), { onSuccess: (x) => openFees(x.id), onError })
+  }
   const sorted = [...list].sort((a, b) => Number(b.id === subjectId) - Number(a.id === subjectId))
 
   return (
@@ -236,6 +280,9 @@ export function PropertiesTab({ loan }: { loan: LoanProfile }) {
           onAddLien={() => setDialog({ kind: 'lien', property, lien: null })}
           onEditLien={(lien) => setDialog({ kind: 'lien', property, lien })}
           onDeleteLien={(lien) => deleteLien.mutate(lien.id, { onSuccess: () => toast.success('Lien deleted'), onError })}
+          documents={(documents.data ?? []).filter((d) => d.propertyId === property.id)}
+          onPrice={() => price(property)}
+          pricing={createScenario.isPending || scenarios.isLoading}
         />
       ))}
 

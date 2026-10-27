@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { PlusIcon, XIcon } from 'lucide-react'
+import { FileTextIcon, PlusIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -16,11 +16,14 @@ import type { LoanProfile, MortgageType, Property } from '@/lib/api/types'
 import { useApplication } from '@/lib/api/urla'
 import { useQueryClient } from '@tanstack/react-query'
 import { keys } from '@/lib/api/client'
-import { todayIso } from '@/lib/dates'
+import { nowIso, todayIso } from '@/lib/dates'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { compareQuotes, quoteClosingCosts, type CompareContext, type SavedQuote } from '@/lib/pricing/compare'
 import { loanChangesFrom, payoffsFor, priceScenario, scenarioFigures, scenarioFrom, type PricingScenario } from '@/lib/pricing/scenario'
 import { LENDER_STATUSES, PRODUCT_FAMILIES, type ProductFamily } from '@/lib/products/taxonomy'
+import { joinNames, missingForBorrowerPdf, productLabel, worksheetFileName } from '@/lib/documents/feeWorksheet'
+import { LOAN_COMPARISON_TEMPLATE, loanComparison, MAX_COMPARISON_OPTIONS } from '@/lib/documents/loanComparison'
+import { useSavePdf } from '@/components/pdf/useSavePdf'
 
 const SORTS: [QuoteSort, string, string][] = [
   ['rate', 'Best rate', 'Best rate'],
@@ -137,6 +140,7 @@ export function LoanPricingTab({ loan }: { loan: LoanProfile }) {
           property={(properties.data ?? []).find((p) => p.id === scenario.propertyId) ?? null}
           templates={templates.data ?? []}
           earnestMoney={(app.data?.assets ?? []).filter((a) => a.assetType === 'earnest_money').reduce((sum, a) => sum + a.amount, 0)}
+          borrowerNames={(app.data?.borrowers ?? []).map((b) => `${b.person.firstName} ${b.person.lastName}`)}
         />
       )}
       {adding && <AddLenderDialog loan={loan} existing={opts.map((o) => o.programId)} onClose={() => setAdding(false)} />}
@@ -172,9 +176,10 @@ interface ComparisonProps {
   property: Property | null
   templates: ReturnType<typeof useFeeTemplates>['data'] & object
   earnestMoney: number
+  borrowerNames: string[]
 }
 
-function Comparison({ loan, scenario, options, property, templates, earnestMoney }: ComparisonProps) {
+function Comparison({ loan, scenario, options, property, templates, earnestMoney, borrowerNames }: ComparisonProps) {
   const overrides = useScenarioFees(scenario.id)
   const [sort, setSort] = useState<QuoteSort>('rate')
   const [editing, setEditing] = useState<string | null>(null)
@@ -192,15 +197,58 @@ function Comparison({ loan, scenario, options, property, templates, earnestMoney
   const ranked = sortQuotes(figures, sort).map((f) => quoted.find((x) => x.quote.id === f.id)!)
   const unquoted = options.filter((o) => !quoted.some((x) => x.option.id === o.id))
   const sortLabel = SORTS.find(([k]) => k === sort)![2]
+  const pdf = useSavePdf(loan)
+  const savePdf = () => {
+    const missing = missingForBorrowerPdf(scenario, loan.purpose, false)
+    if (missing.length) return toast.error(`Fill in the scenario's ${joinNames(missing)} first (Edit scenario), so the options don't show a blank or $0 payment.`)
+    const preparedAt = nowIso()
+    const comparison = loanComparison({
+      scenarioId: scenario.id,
+      purpose: loan.purpose,
+      scenarioName: scenario.name,
+      hasProperty: !!scenario.propertyId,
+      purchasePrice: scenario.purchasePrice,
+      propertyValue: scenario.propertyValue ?? scenario.purchasePrice,
+      loanAmount: scenarioFigures(scenario).totalLoanAmount,
+      product: productLabel(scenario),
+      options: quoted.map(({ option, quote }) => ({ programName: option.programName, quote, figures: byId.get(quote.id)!, closingCosts: quoteClosingCosts(quote, ctx) })),
+      borrowerNames,
+      preparedAt,
+    })
+    return pdf.save({
+      render: (lib, brand) => lib.loanComparisonPdf(comparison, brand),
+      tooLong: 'Remove an option.',
+      fileName: worksheetFileName('Loan Options', joinNames(borrowerNames), preparedAt),
+      kind: 'loan_comparison',
+      propertyId: scenario.propertyId,
+      pricingScenarioId: scenario.id,
+      templateVersion: LOAN_COMPARISON_TEMPLATE,
+    })
+  }
 
   return (
     <div className="space-y-4">
-      {quoted.length > 1 && (
+      {quoted.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Sort by</span>
-          {SORTS.map(([k, label]) => (
-            <ToggleChip key={k} label={label} pressed={sort === k} onChange={() => setSort(k)} />
-          ))}
+          {quoted.length > 1 && (
+            <>
+              <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Sort by</span>
+              {SORTS.map(([k, label]) => (
+                <ToggleChip key={k} label={label} pressed={sort === k} onChange={() => setSort(k)} />
+              ))}
+            </>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            onClick={savePdf}
+            disabled={pdf.saving || !pdf.ready || overrides.isLoading}
+            title={quoted.length > MAX_COMPARISON_OPTIONS ? `The PDF shows the ${MAX_COMPARISON_OPTIONS} lowest rates` : 'Every quoted option side by side, saved to Documents'}
+          >
+            <FileTextIcon />
+            {pdf.saving ? 'Making PDF…' : 'Save comparison PDF for the borrower'}
+          </Button>
         </div>
       )}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

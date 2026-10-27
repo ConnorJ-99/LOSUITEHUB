@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FeeTemplate } from '@/lib/calc'
 import { details as baseDetails } from '@/lib/mismo/testFixture'
 import type { LoanDetails, Property } from '@/lib/api/types'
-import { cashFigure, loanChangesFrom, otherFinancingFor, payoffsFor, priceScenario, scenarioFigures, scenarioFrom, type PricingScenario } from './scenario'
+import { cashFigure, followHome, homeDifferences, loanChangesFrom, otherFinancingFor, payoffsFor, priceScenario, remainingLiensFor, scenarioFigures, scenarioFrom, type PricingScenario } from './scenario'
 
 const t = (key: string, section: FeeTemplate['section'], amount: number): FeeTemplate => ({
   key, section, name: key, amountType: 'fixed', amount, purposes: null, mortgageTypes: null, paidBy: 'B', apr: false, paidTo: null, sortOrder: 10, active: true,
@@ -60,6 +60,8 @@ describe('existing mortgages and cash', () => {
   it('a HELOC keeps the first lien in the payment', () => {
     expect(payoffsFor('heloc', withLiens)).toBe(0)
     expect(otherFinancingFor('heloc', withLiens)).toBe(2200)
+    expect(remainingLiensFor('heloc', withLiens)).toBe(340000)
+    expect(remainingLiensFor('refinance_cash_out', withLiens)).toBe(40000)
   })
   it("Connor's test case: $49,535.06 to the borrower", () => {
     expect(cashFigure({ purpose: 'refinance_cash_out', purchasePrice: null, totalLoanAmount: 465000, closingCosts: 24770.94, payoffs: 390694, earnestMoney: 0, sellerCredits: 0 })).toEqual({ label: 'Cash to borrower', amount: 49535.06 })
@@ -92,5 +94,27 @@ describe('Push to pricer', () => {
     expect(f.totalLoanAmount).toBe(294566.25)
     expect(f.payment.mi).toBe(132.69)
     expect(scenarioFigures({ ...s, monthlyMi: 100 }).payment.mi).toBe(100)
+  })
+})
+
+describe('scenarios follow their home', () => {
+  const before = { annualTaxes: 8800, annualInsurance: 1800, monthlyHoa: 50 }
+  const s = { taxesValue: 8800, taxesFactor: 'annual' as const, insuranceValue: 1800, insuranceFactor: 'annual' as const, monthlyHoa: 50 }
+
+  it('a new insurance figure on the home flows into the scenario', () => {
+    expect(followHome(s, before, { ...before, annualInsurance: 2400 })).toEqual({ insuranceValue: 2400 })
+    expect(followHome({ ...s, insuranceValue: null }, before, { ...before, annualInsurance: 2400 })).toEqual({ insuranceValue: 2400 })
+  })
+  it('a figure changed on purpose in the scenario stays', () => {
+    expect(followHome({ ...s, insuranceValue: 3000 }, before, { ...before, annualInsurance: 2400 })).toEqual({})
+    expect(followHome({ ...s, taxesValue: 2.2, taxesFactor: 'pct_of_value' }, before, { ...before, annualTaxes: 9000 })).toEqual({})
+  })
+  it('taxes and HOA follow too; nothing changes when the home did not', () => {
+    expect(followHome(s, before, { annualTaxes: 9000, annualInsurance: 1800, monthlyHoa: 75 })).toEqual({ taxesValue: 9000, monthlyHoa: 75 })
+    expect(followHome(s, before, before)).toEqual({})
+  })
+  it('lists where a scenario no longer matches its home', () => {
+    expect(homeDifferences({ ...s, insuranceValue: 1500 }, { ...before, annualInsurance: 2400 })).toEqual([{ label: 'Insurance / yr', field: 'insuranceValue', scenario: 1500, home: 2400 }])
+    expect(homeDifferences(s, before)).toEqual([])
   })
 })

@@ -141,6 +141,7 @@ export function PricingTab({ loan }: { loan: LoanProfile }) {
         properties={homes}
         templates={templates.data ?? []}
         earnestMoney={(app.data?.assets ?? []).filter((a) => a.assetType === 'earnest_money').reduce((sum, a) => sum + a.amount, 0)}
+        borrowerNames={(app.data?.borrowers ?? []).map((b) => `${b.person.firstName} ${b.person.lastName}`)}
       />
     </div>
   )

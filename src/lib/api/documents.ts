@@ -12,6 +12,7 @@ export const DOCUMENT_KIND_GROUPS = [
   { label: 'Money', kinds: [['bank_statement', 'Bank statement'], ['investment_statement', 'Investment or retirement statement'], ['gift_letter', 'Gift letter']] },
   { label: 'Credit and ID', kinds: [['photo_id', 'Photo ID'], ['bankruptcy_papers', 'Bankruptcy papers'], ['explanation_letter', 'Letter of explanation']] },
   { label: 'Property', kinds: [['purchase_contract', 'Purchase contract'], ['contract_addendum', 'Addendum'], ['mortgage_statement', 'Mortgage statement'], ['insurance_declarations', 'Insurance declarations'], ['lease', 'Lease'], ['appraisal', 'Appraisal'], ['title_commitment', 'Title commitment']] },
+  { label: 'Made in LOSuite', kinds: [['fee_worksheet', 'Fee Worksheet'], ['loan_comparison', 'Loan comparison'], ['preapproval_letter', 'Pre-approval letter']] },
   { label: 'Other', kinds: [['other', 'Other']] },
 ] as const
 
@@ -24,6 +25,8 @@ export interface LoanDocument {
   kind: DocumentKind
   /** Whose document it is (a borrower), if set. */
   contactId: string | null
+  /** The home it's for, if set. */
+  propertyId: string | null
   fileName: string
   storagePath: string
   contentType: string | null
@@ -35,6 +38,7 @@ interface DocumentRow {
   id: string
   kind: DocumentKind
   contact_id: string | null
+  property_id: string | null
   file_name: string
   storage_path: string
   content_type: string | null
@@ -47,8 +51,8 @@ export function useLoanDocuments(loanId: string, kinds?: DocumentKind[]) {
   return useQuery({
     queryKey: keys.documents(loanId),
     queryFn: async () =>
-      unwrap<DocumentRow[]>(await db().from('loan_documents').select('id, kind, contact_id, file_name, storage_path, content_type, size_bytes, created_at').eq('loan_id', loanId).order('created_at', { ascending: false })).map(
-        (r): LoanDocument => ({ id: r.id, kind: r.kind, contactId: r.contact_id, fileName: r.file_name, storagePath: r.storage_path, contentType: r.content_type, sizeBytes: r.size_bytes, createdAt: r.created_at }),
+      unwrap<DocumentRow[]>(await db().from('loan_documents').select('id, kind, contact_id, property_id, file_name, storage_path, content_type, size_bytes, created_at').eq('loan_id', loanId).order('created_at', { ascending: false })).map(
+        (r): LoanDocument => ({ id: r.id, kind: r.kind, contactId: r.contact_id, propertyId: r.property_id, fileName: r.file_name, storagePath: r.storage_path, contentType: r.content_type, sizeBytes: r.size_bytes, createdAt: r.created_at }),
       ),
     select: kinds ? (docs: LoanDocument[]) => docs.filter((d) => kinds.includes(d.kind)) : undefined,
   })
@@ -90,6 +94,43 @@ export function useUploadDocument(loanId: string, organizationId: string) {
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.documents(loanId) }),
   })
+}
+
+export interface GeneratedPdf {
+  file: Blob
+  fileName: string
+  kind: DocumentKind
+  /** The home it's for (shows on that property), if any. */
+  propertyId: string | null
+  pricingScenarioId?: string | null
+  /** Which template made it, e.g. "fee-worksheet v1". */
+  templateVersion: string
+}
+
+/** Saves a PDF LOSuite made to the file's Documents, tagged with its property and scenario. */
+export async function saveGeneratedPdf(loanId: string, organizationId: string, pdf: GeneratedPdf) {
+  const path = storagePathFor(organizationId, loanId, pdf.fileName)
+  const upload = await db().storage.from(LOAN_FILES_BUCKET).upload(path, pdf.file, { contentType: 'application/pdf', upsert: false })
+  if (upload.error) throw new Error(`Saving the PDF failed: ${upload.error.message}`)
+  const row = await db()
+    .from('loan_documents')
+    .insert({
+      organization_id: organizationId,
+      loan_id: loanId,
+      kind: pdf.kind,
+      file_name: pdf.fileName,
+      storage_path: path,
+      content_type: 'application/pdf',
+      size_bytes: pdf.file.size,
+      property_id: pdf.propertyId,
+      pricing_scenario_id: pdf.pricingScenarioId ?? null,
+      template_version: pdf.templateVersion,
+    })
+    .select('id')
+  if (row.error) {
+    await db().storage.from(LOAN_FILES_BUCKET).remove([path])
+    throw new Error(row.error.message.includes('template_version') || row.error.message.includes('enum') ? 'Run the generated documents script in Supabase first.' : row.error.message)
+  }
 }
 
 /** Changes what a document is, or whose it is. */

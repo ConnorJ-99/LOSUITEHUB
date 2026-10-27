@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
 import type { AmountType, FeeOverride, FeeSection, FeeTemplate, PaidBy } from '@/lib/calc'
-import type { PricingScenario, ScenarioDraft } from '@/lib/pricing/scenario'
+import { followHome, type HomeFigures, type PricingScenario, type ScenarioDraft } from '@/lib/pricing/scenario'
 import { db, keys, num, unwrap } from './client'
 
 // ---------------------------------------------------------------------------
@@ -168,6 +168,15 @@ function toScenario(row: Record<string, unknown>): PricingScenario {
 /** Scenario fields as database columns (only the ones given). */
 export function scenarioRow(changes: Partial<ScenarioDraft>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(changes).map(([key, value]) => [SCENARIO_COLUMNS[key as keyof ScenarioDraft][0], value]))
+}
+
+/** After a home's taxes, insurance or HOA change, updates its scenarios that were following the home (see followHome). */
+export async function scenariosFollowHome(propertyId: string, before: HomeFigures, after: HomeFigures) {
+  const list = unwrap<Record<string, unknown>[]>(await db().from('pricing_scenarios').select(SCENARIO_SELECT).eq('property_id', propertyId)).map(toScenario)
+  for (const s of list) {
+    const changes = followHome(s, before, after)
+    if (Object.keys(changes).length) unwrap(await db().from('pricing_scenarios').update(scenarioRow(changes)).eq('id', s.id).select('id'))
+  }
 }
 
 export function usePricingScenarios(loanId: string) {

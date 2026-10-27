@@ -4,7 +4,7 @@ import type { LoanDocument } from '@/lib/api/documents'
 import { matchingDocument, requestProgress, untrackedItems } from './requests'
 
 const req = (over: Partial<DocumentRequest>): DocumentRequest => ({ id: 'r1', contactId: 'dana', ruleKey: 'paystubs', label: 'Pay stubs', kind: 'paystub', status: 'requested', requestedAt: '2026-10-20T00:00:00Z', receivedAt: null, reviewedAt: null, documentId: null, ...over })
-const doc = (over: Partial<LoanDocument>): LoanDocument => ({ id: 'd1', kind: 'paystub', contactId: 'dana', fileName: 'stub.pdf', storagePath: 'x', contentType: 'application/pdf', sizeBytes: 1, createdAt: '2026-10-21T00:00:00Z', ...over })
+const doc = (over: Partial<LoanDocument>): LoanDocument => ({ id: 'd1', kind: 'paystub', contactId: 'dana', propertyId: null, fileName: 'stub.pdf', storagePath: 'x', contentType: 'application/pdf', sizeBytes: 1, createdAt: '2026-10-21T00:00:00Z', ...over })
 
 describe('matchingDocument', () => {
   it('finds the newest upload of the same type for the same person', () => {

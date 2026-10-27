@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { FileTextIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Badge } from '@/components/ui/badge'
@@ -10,9 +11,11 @@ import { useUpdateLoanDetails } from '@/lib/api/loans'
 import { useScenarioFees, useUpdateScenario } from '@/lib/api/pricing'
 import { useSaveProperty, type PropertyInput } from '@/lib/api/properties'
 import type { Buydown, ImpoundWaiver, LoanProfile, Property } from '@/lib/api/types'
-import { formatIsoDate } from '@/lib/dates'
+import { formatIsoDate, nowIso } from '@/lib/dates'
 import { formatCurrency, formatPercent } from '@/lib/format'
-import { cashFigure, loanChangesFrom, otherFinancingFor, payoffsFor, priceScenario, scenarioChanges, type PricingScenario, type ScenarioDraft } from '@/lib/pricing/scenario'
+import { cashFigure, homeDifferences, loanChangesFrom, otherFinancingFor, payoffsFor, priceScenario, remainingLiensFor, scenarioChanges, type PricingScenario, type ScenarioDraft } from '@/lib/pricing/scenario'
+import { FEE_WORKSHEET_TEMPLATE, feeWorksheet, joinNames, missingForBorrowerPdf, worksheetFileName } from '@/lib/documents/feeWorksheet'
+import { useSavePdf } from '@/components/pdf/useSavePdf'
 import { ReviewFees } from './ReviewFees'
 
 const AMORTIZATION_OPTIONS = [
@@ -44,10 +47,11 @@ interface Props {
   properties: Property[]
   templates: FeeTemplate[]
   earnestMoney: number
+  borrowerNames: string[]
 }
 
 /** One scenario: dates, loan inputs, the monthly payment, summary, fees A–H and cash to close. */
-export function ScenarioEditor({ loan, scenario, properties, templates, earnestMoney }: Props) {
+export function ScenarioEditor({ loan, scenario, properties, templates, earnestMoney, borrowerNames }: Props) {
   const [draft, setDraft] = useState<ScenarioDraft>(() => {
     const { id: _id, ...rest } = scenario
     return rest
@@ -57,6 +61,7 @@ export function ScenarioEditor({ loan, scenario, properties, templates, earnestM
   const updateLoan = useUpdateLoanDetails(loan.id)
   const saveProperty = useSaveProperty(loan.id, loan.organizationId)
   const [using, setUsing] = useState(false)
+  const pdf = useSavePdf(loan)
   const set = <K extends keyof ScenarioDraft>(key: K) => (value: ScenarioDraft[K]) => setDraft((d) => ({ ...d, [key]: value }))
 
   const isPurchase = loan.purpose === 'purchase'
@@ -94,11 +99,59 @@ export function ScenarioEditor({ loan, scenario, properties, templates, earnestM
     }
   }
 
+  const savePdf = async () => {
+    if (!draft.name.trim()) return toast.error('The scenario needs a name.')
+    const missing = missingForBorrowerPdf(draft, loan.purpose)
+    if (missing.length) return toast.error(`Fill in the ${joinNames(missing)} first, so the worksheet doesn't show a blank or $0 payment.`)
+    if (dirty) await update.mutateAsync({ id: scenario.id, changes })
+    const preparedAt = nowIso()
+    const worksheet = feeWorksheet({
+      scenarioId: scenario.id,
+      purpose: loan.purpose,
+      occupancy: loan.details.occupancy,
+      scenario: draft,
+      lines: priced.lines,
+      totals: priced.totals,
+      figures,
+      cash,
+      payoffs,
+      remainingLiens: remainingLiensFor(loan.purpose, property),
+      earnestMoney,
+      sellerCredits: loan.details.sellerCredits ?? 0,
+      property,
+      borrowerNames,
+      preparedAt,
+    })
+    await pdf.save({
+      render: (lib, brand) => lib.feeWorksheetPdf(worksheet, brand),
+      tooLong: 'Combine or remove some fee lines.',
+      fileName: worksheetFileName('Fee Worksheet', joinNames(borrowerNames), preparedAt),
+      kind: 'fee_worksheet',
+      propertyId: draft.propertyId,
+      pricingScenarioId: scenario.id,
+      templateVersion: FEE_WORKSHEET_TEMPLATE,
+    })
+  }
+
+  const differences = property ? homeDifferences(draft, property) : []
+  const useHomeNumbers = () => setDraft((d) => ({ ...d, ...Object.fromEntries(differences.map((x) => [x.field, x.home])) }))
+
   const fundingDays = draft.estimatedFundingDate ? prepaidInterestDays(draft.estimatedFundingDate) : null
   const pointsDollars = pointsAmount(draft.pointsPct, figures.totalLoanAmount)
 
   return (
     <div className="space-y-4">
+      {differences.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="mr-auto">
+            {property!.addressLine} has changed since this scenario was saved:{' '}
+            {differences.map((x) => `${x.label} ${formatCurrency(x.home)} on the home, ${formatCurrency(x.scenario)} here`).join('; ')}.
+          </p>
+          <Button size="sm" variant="outline" onClick={useHomeNumbers}>
+            Use the home's numbers
+          </Button>
+        </div>
+      )}
       <Card contentClassName="py-3">
         <FormGrid>
           <DateInput label="Estimated funding" value={draft.estimatedFundingDate} onChange={set('estimatedFundingDate')} hint={fundingDays != null ? `${fundingDays} days of interest` : 'Sets prepaid interest'} />
@@ -266,6 +319,10 @@ export function ScenarioEditor({ loan, scenario, properties, templates, earnestM
                 {update.isPending ? 'Saving…' : 'Save scenario'}
               </Button>
             )}
+            <Button variant="outline" onClick={savePdf} disabled={pdf.saving || !pdf.ready || update.isPending} title={property ? `Saved to Documents and to ${property.addressLine}` : 'Saved to Documents'}>
+              <FileTextIcon />
+              {pdf.saving ? 'Making PDF…' : 'Save Fee Worksheet PDF'}
+            </Button>
             <Button onClick={useForLoan} disabled={using}>
               {using ? 'Copying…' : inUse ? 'Use again for this loan' : 'Use for this loan'}
             </Button>

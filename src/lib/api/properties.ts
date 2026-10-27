@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { db, keys, num, unwrap } from './client'
+import { scenariosFollowHome } from './pricing'
 import type { Lien, MortgageType, Occupancy, Property, PropertyStatus, PropertyType, RentalIncomeMethod, ReoDisposition } from './types'
 
 interface LienRow {
@@ -144,6 +145,7 @@ function useInvalidateLoanProperties(loanId: string) {
   return () => {
     queryClient.invalidateQueries({ queryKey: keys.properties(loanId) })
     queryClient.invalidateQueries({ queryKey: keys.loan(loanId) })
+    queryClient.invalidateQueries({ queryKey: keys.pricingScenarios(loanId) })
   }
 }
 
@@ -153,8 +155,11 @@ export function useSaveProperty(loanId: string, organizationId: string) {
   return useMutation({
     mutationFn: async ({ id, ...input }: PropertyInput & { id?: string }) => {
       if (id) {
+        const old = unwrap<{ annual_taxes: unknown; annual_insurance: unknown; monthly_hoa: unknown } | null>(await db().from('properties').select('annual_taxes, annual_insurance, monthly_hoa').eq('id', id).maybeSingle())
         const rows = unwrap<{ id: string }[]>(await db().from('properties').update(propertyRow(input)).eq('id', id).select('id'))
         if (rows.length === 0) throw new Error('You do not have permission to edit this property.')
+        // Pricing scenarios for this home pick up its new taxes, insurance and HOA.
+        if (old) await scenariosFollowHome(id, { annualTaxes: num(old.annual_taxes), annualInsurance: num(old.annual_insurance), monthlyHoa: num(old.monthly_hoa) }, { annualTaxes: input.annualTaxes, annualInsurance: input.annualInsurance, monthlyHoa: input.monthlyHoa })
         return id
       }
       const row = unwrap<{ id: string }>(

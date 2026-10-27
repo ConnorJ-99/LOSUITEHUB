@@ -140,6 +140,32 @@ export function scenarioFrom(loan: PricingLoan, property: Property | null, name:
   }
 }
 
+export type HomeFigures = Pick<Property, 'annualTaxes' | 'annualInsurance' | 'monthlyHoa'>
+
+/**
+ * When a home's taxes, insurance or HOA change, its scenarios follow: a figure
+ * the scenario still had from the home (or left blank) takes the new value. A
+ * figure changed on purpose in the scenario (a different amount, or monthly or
+ * % of value) stays.
+ */
+export function followHome(s: Pick<ScenarioDraft, 'taxesValue' | 'taxesFactor' | 'insuranceValue' | 'insuranceFactor' | 'monthlyHoa'>, before: HomeFigures, after: HomeFigures): Partial<ScenarioDraft> {
+  const follows = (value: number | null, factor: Factor, old: number | null) => factor === 'annual' && (value == null || value === old)
+  return {
+    ...(after.annualTaxes !== before.annualTaxes && follows(s.taxesValue, s.taxesFactor, before.annualTaxes) && { taxesValue: after.annualTaxes }),
+    ...(after.annualInsurance !== before.annualInsurance && follows(s.insuranceValue, s.insuranceFactor, before.annualInsurance) && { insuranceValue: after.annualInsurance }),
+    ...(after.monthlyHoa !== before.monthlyHoa && (s.monthlyHoa == null || s.monthlyHoa === before.monthlyHoa) && { monthlyHoa: after.monthlyHoa }),
+  }
+}
+
+/** Where a scenario's yearly taxes, insurance or HOA differ from its home's (for "Use the home's numbers"). */
+export function homeDifferences(s: Pick<ScenarioDraft, 'taxesValue' | 'taxesFactor' | 'insuranceValue' | 'insuranceFactor' | 'monthlyHoa'>, home: HomeFigures): { label: string; field: 'taxesValue' | 'insuranceValue' | 'monthlyHoa'; scenario: number | null; home: number }[] {
+  const out: ReturnType<typeof homeDifferences> = []
+  if (home.annualTaxes != null && s.taxesFactor === 'annual' && s.taxesValue !== home.annualTaxes) out.push({ label: 'Taxes / yr', field: 'taxesValue', scenario: s.taxesValue, home: home.annualTaxes })
+  if (home.annualInsurance != null && s.insuranceFactor === 'annual' && s.insuranceValue !== home.annualInsurance) out.push({ label: 'Insurance / yr', field: 'insuranceValue', scenario: s.insuranceValue, home: home.annualInsurance })
+  if (home.monthlyHoa != null && s.monthlyHoa !== home.monthlyHoa) out.push({ label: 'HOA / mo', field: 'monthlyHoa', scenario: s.monthlyHoa, home: home.monthlyHoa })
+  return out
+}
+
 /** The fields of a draft that differ from the saved scenario. */
 export function scenarioChanges(saved: PricingScenario, draft: ScenarioDraft): Partial<ScenarioDraft> {
   return Object.fromEntries(Object.entries(draft).filter(([key, value]) => saved[key as keyof ScenarioDraft] !== value)) as Partial<ScenarioDraft>
@@ -242,6 +268,12 @@ export function payoffsFor(purpose: LoanPurpose, property: Property | null): num
 export function otherFinancingFor(purpose: LoanPurpose, property: Property | null): number {
   if (isPurchase(purpose)) return 0
   return round((property?.liens ?? []).filter((l) => !paidOff(purpose, l)).reduce((sum, l) => sum + (l.monthlyPayment ?? 0), 0))
+}
+
+/** Balances of mortgages that stay on the home, for CLTV. */
+export function remainingLiensFor(purpose: LoanPurpose, property: Property | null): number {
+  if (isPurchase(purpose)) return 0
+  return round((property?.liens ?? []).filter((l) => !paidOff(purpose, l)).reduce((sum, l) => sum + (l.balance ?? 0), 0))
 }
 
 export interface CashFigure {
