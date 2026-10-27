@@ -1,7 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router'
 import { RouterProvider } from 'react-router/dom'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { BuildingIcon, SearchIcon } from 'lucide-react'
+import { BuildingIcon } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -16,6 +16,7 @@ import { LoanPage } from '@/pages/LoanPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { PipelinePage } from '@/pages/PipelinePage'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
+import { ProductSearchPage } from '@/pages/ProductSearchPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
 /** Shows the sign-in page until there's a session, then the app shell. */
@@ -36,17 +37,7 @@ const router = createBrowserRouter([
       { path: 'pipeline', element: <PipelinePage /> },
       { path: 'contacts', element: <ContactsPage /> },
       { path: 'loans/:loanId', element: <LoanPage /> },
-      {
-        path: 'product-search',
-        element: (
-          <PlaceholderPage
-            title="Product Search"
-            phase="Phase 5"
-            icon={SearchIcon}
-            description="Rule-based eligibility search across your lenders' programs, with the exact reason any program is excluded."
-          />
-        ),
-      },
+      { path: 'product-search', element: <ProductSearchPage /> },
       {
         path: 'admin/lenders',
         element: (

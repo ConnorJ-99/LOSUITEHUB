@@ -45,8 +45,14 @@ export function gate(s: Scenario, programs: CatalogProgram[], lenders: Map<strin
 // Ratios
 // ---------------------------------------------------------------------------
 
+/** The price, on a 1st-lien purchase only (a price left over from editing never counts on a refinance or a 2nd). */
+export const purchasePriceOf = (s: Scenario) => (s.purpose === 'purchase' && s.lien === 'first' ? s.purchasePrice : null)
+
 /** The value LTV is figured on: the lower of price and value for a purchase. */
-export const ratioBasis = (s: Scenario) => (s.purchasePrice ? Math.min(s.purchasePrice, s.value) : s.value)
+export const ratioBasis = (s: Scenario) => {
+  const price = purchasePriceOf(s)
+  return price ? Math.min(price, s.value || price) : s.value
+}
 
 /** LTV of this lien and CLTV of all liens, as percents (unrounded). */
 export function ratios(s: Scenario) {
@@ -189,6 +195,7 @@ function formatValue(field: ProgramRule['field'], v: number | string | boolean |
 /** pass / fail / verify for one rule. Seasoning rules pass when there's no event; anything else unknown is Verify. */
 function check(r: ProgramRule, s: Scenario, p: CatalogProgram): { status: CheckItem['status']; value: ReturnType<typeof ruleValue> } {
   const v = ruleValue(r, s, p)
+  if (v === 'unknown') return { status: 'verify', value: null }
   if (v == null) return { status: r.field.endsWith('_seasoning_months') ? 'pass' : 'verify', value: v }
   let ok: boolean
   switch (r.op) {
@@ -209,9 +216,9 @@ function check(r: ProgramRule, s: Scenario, p: CatalogProgram): { status: CheckI
 function ruleFailure(r: ProgramRule, s: Scenario, p: CatalogProgram, v: ReturnType<typeof ruleValue>): Pick<Reason, 'fix' | 'gap' | 'unfixable'> {
   const limit = typeof r.value === 'number' ? r.value : null
   const gap = typeof v === 'number' && limit ? Math.abs(v - limit) / limit : 1
-  if ((r.field === 'ltv' || r.field === 'cltv') && limit != null) return loanFix(p, s, loanAtRatio(p, s, limit), gap)
-  if (r.field === 'first_time_buyer' && r.appliesWhen?.ltv_above != null) return loanFix(p, s, loanAtRatio(p, s, r.appliesWhen.ltv_above), (ratioOf(p, s) - r.appliesWhen.ltv_above) / r.appliesWhen.ltv_above)
-  if (r.field === 'loan_amount' && r.op === '<=' && limit != null) return loanFix(p, s, Math.floor(p.lien !== 'first' && p.loanAmountBasis === 'combined' ? limit - s.firstLienBalance : limit), gap)
+  if ((r.field === 'ltv' || r.field === 'cltv') && limit != null) return loanFix(s, loanAtRatio(p, s, limit), gap)
+  if (r.field === 'first_time_buyer' && r.appliesWhen?.ltv_above != null) return loanFix(s, loanAtRatio(p, s, r.appliesWhen.ltv_above), (ratioOf(p, s) - r.appliesWhen.ltv_above) / r.appliesWhen.ltv_above)
+  if (r.field === 'loan_amount' && r.op === '<=' && limit != null) return loanFix(s, Math.floor(p.lien !== 'first' && p.loanAmountBasis === 'combined' ? limit - s.firstLienBalance : limit), gap)
   if (r.field === 'fico' && r.op === '>=' && limit != null && s.fico != null) return { fix: { text: `Needs ${limit} FICO (+${limit - s.fico})`, fico: limit }, gap, unfixable: false }
   if (r.field === 'reserves_months' && limit != null) return { fix: { text: `Needs ${limit} months of reserves` }, gap, unfixable: false }
   if (r.field === 'dti' || r.field === 'dscr' || r.field === 'mortgage_lates_12' || r.field === 'mortgage_lates_24' || r.field.endsWith('_seasoning_months') || r.field === 'self_employed_years') return { fix: null, gap, unfixable: false }
@@ -223,11 +230,12 @@ function ruleFailure(r: ProgramRule, s: Scenario, p: CatalogProgram, v: ReturnTy
 // ---------------------------------------------------------------------------
 
 /** "Lower loan amount to $X (−$Y)", or for a purchase "Fits with N% down ($Z)". */
-function loanFix(p: CatalogProgram, s: Scenario, loan: number, gap: number): Pick<Reason, 'fix' | 'gap' | 'unfixable'> {
+function loanFix(s: Scenario, loan: number, gap: number): Pick<Reason, 'fix' | 'gap' | 'unfixable'> {
   if (loan <= 0 || loan >= s.loanAmount) return { fix: null, gap: 1, unfixable: true }
-  if (s.purpose === 'purchase' && s.purchasePrice && p.lien === 'first') {
-    const down = s.purchasePrice - loan
-    return { fix: { text: `Fits with ${formatPercent((down / s.purchasePrice) * 100, 2)} down (${formatCurrency(down)})`, loanAmount: loan }, gap, unfixable: false }
+  const price = purchasePriceOf(s)
+  if (price) {
+    const down = price - loan
+    return { fix: { text: `Fits with ${formatPercent((down / price) * 100, 2)} down (${formatCurrency(down)})`, loanAmount: loan }, gap, unfixable: false }
   }
   return { fix: { text: `Lower loan amount to ${formatCurrency(loan)} (−${formatCurrency(s.loanAmount - loan)})`, loanAmount: loan }, gap, unfixable: false }
 }
@@ -293,7 +301,7 @@ export function evaluateProgram(p: CatalogProgram, lender: CatalogLender, s: Sce
         kind: 'loan_amount',
         message: tooLow ? `Minimum loan amount ${formatCurrency(lowest)}` : `Maximum loan amount ${formatCurrency(highest)}`,
         trace: { cellId: atScore[0].id, page: atScore[0].sourcePage },
-        ...(tooLow ? { fix: null, gap: (lowest - amount) / lowest, unfixable: false } : max ? loanFix(p, s, max, (amount - (highest ?? amount)) / (highest ?? amount)) : { fix: null, gap: 1, unfixable: true }),
+        ...(tooLow ? { fix: null, gap: (lowest - amount) / lowest, unfixable: false } : max ? loanFix(s, max, (amount - (highest ?? amount)) / (highest ?? amount)) : { fix: null, gap: 1, unfixable: true }),
       })
     } else if (!cell.offered) {
       reasons.push({
@@ -313,7 +321,7 @@ export function evaluateProgram(p: CatalogProgram, lender: CatalogLender, s: Sce
       if (roomPts < -EPS) {
         const at = limitedBy === 'texas' ? `Texas §50(a)(6) caps homestead cash-out at ${TEXAS_CASH_OUT_CAP}% CLTV` : `Max ${kind.toUpperCase()} ${formatPercent(max, 3)} at ${bandLabel(cell)}`
         const maxLoan = maxLoanAt(p, s, fico)
-        const fix = maxLoan ? loanFix(p, s, maxLoan, -roomPts / max) : { fix: null, gap: 1, unfixable: true }
+        const fix = maxLoan ? loanFix(s, maxLoan, -roomPts / max) : { fix: null, gap: 1, unfixable: true }
         reasons.push({ kind: 'ratio', message: `${at}; scenario is ${formatPercent(actual, 2)}`, trace: { cellId: cell.id, page: cell.sourcePage }, ...fix })
       }
       // Limits printed in the cell itself.
@@ -389,8 +397,9 @@ export function assignBadges(ranked: ProgramResult[]): ProgramResult[] {
 export function missingForSearch(s: Scenario): string[] {
   const missing: string[] = []
   if (s.fico == null) missing.push('credit score')
-  if (!(s.value > 0)) missing.push(s.purpose === 'purchase' ? 'price or value' : 'value')
-  if (s.purpose === 'purchase' && s.lien === 'first' && !s.purchasePrice) missing.push('purchase price')
+  if (s.purpose === 'purchase' && s.lien === 'first') {
+    if (!s.purchasePrice) missing.push('price')
+  } else if (!(s.value > 0)) missing.push('value')
   if (!(s.loanAmount > 0)) missing.push('loan amount')
   if (s.lien !== 'first' && !(s.firstLienBalance > 0)) missing.push('1st lien balance')
   return missing

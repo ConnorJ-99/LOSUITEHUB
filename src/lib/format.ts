@@ -35,3 +35,10 @@ export function parseNumber(text: string): number | null {
   const value = Number(cleaned)
   return Number.isFinite(value) ? value : null
 }
+
+const usdCompact = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 })
+
+/** Short money for small tiles: "$388K", "$1.5M". */
+export function formatCompactCurrency(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value) ? '—' : usdCompact.format(value)
+}

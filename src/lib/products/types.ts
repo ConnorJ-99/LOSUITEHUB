@@ -37,9 +37,9 @@ export interface Scenario {
   citizenship: Citizenship
   mortgageLates12: number | null
   mortgageLates24: number | null
-  /** Months since a bankruptcy / foreclosure-type event; null = none. */
-  bkSeasoningMonths: number | null
-  fcSeasoningMonths: number | null
+  /** Months since a bankruptcy / foreclosure-type event; null = none; 'unknown' = an event with no date (rules show Verify). */
+  bkSeasoningMonths: number | 'unknown' | null
+  fcSeasoningMonths: number | 'unknown' | null
   selfEmployedYears: number | null
   firstTimeBuyer: boolean
   /** Household income as a percent of the area median, when known. */

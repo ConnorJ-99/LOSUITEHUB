@@ -212,3 +212,10 @@ describe('speed', () => {
     expect(r.searchedCount).toBe(300)
   })
 })
+
+describe('a purchase price left over from editing', () => {
+  it('never counts on a refinance or a 2nd lien', () => {
+    expect(search({ ...dscrSecond, purchasePrice: 400000 }, dscrCatalog).ratios.cltv).toBeCloseTo(67.1875, 6)
+    expect(search({ ...conventionalPurchase, purpose: 'rate_term', value: 500000 }, conventionalCatalog).ratios.ltv).toBe(76)
+  })
+})
