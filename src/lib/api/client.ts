@@ -49,6 +49,8 @@ export const keys = {
   lenders: ['lenders'] as const,
   lenderPrograms: (lenderId: string) => ['lenderPrograms', lenderId] as const,
   lenderDocuments: (lenderId: string) => ['lenderDocuments', lenderId] as const,
+  matrixImport: (id: string) => ['matrixImport', id] as const,
+  lenderImports: (lenderId: string) => ['lenderImports', lenderId] as const,
 }
 
 /** The Supabase client, or a clear error in preview mode (no .env.local). */

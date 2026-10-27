@@ -13,6 +13,7 @@ import { TodayPage } from '@/pages/TodayPage'
 import { LoanFileGalleryPage } from '@/pages/LoanFileGalleryPage'
 import { LendersPage } from '@/pages/LendersPage'
 import { LoanPage } from '@/pages/LoanPage'
+import { MatrixImportPage } from '@/pages/MatrixImportPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { PipelinePage } from '@/pages/PipelinePage'
 import { ProductSearchPage } from '@/pages/ProductSearchPage'
@@ -38,6 +39,7 @@ const router = createBrowserRouter([
       { path: 'loans/:loanId', element: <LoanPage /> },
       { path: 'product-search', element: <ProductSearchPage /> },
       { path: 'admin/lenders', element: <LendersPage /> },
+      { path: 'admin/lenders/imports/:importId', element: <MatrixImportPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'dev/components', element: <ComponentLibraryPage /> },
       { path: 'dev/loan-file', element: <LoanFileGalleryPage /> },

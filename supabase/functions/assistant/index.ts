@@ -28,6 +28,7 @@ import {
 } from './followUp.ts'
 import { NOTES_SCHEMA, NOTES_SYSTEM_PROMPT, normalizeNotes } from './callNotes.ts'
 import { CONTRACT_FIELDS, CONTRACT_SCHEMA, CONTRACT_SYSTEM_PROMPT, CONTRACT_USER_PROMPT, MAX_READ_BYTES, normalizeReading } from './contract.ts'
+import { MATRIX_SCHEMA, MATRIX_SYSTEM_PROMPT, MATRIX_USER_PROMPT, MAX_MATRIX_BYTES, normalizeMatrixReading } from './matrix.ts'
 
 /** Drafts use Sonnet (approved by Connor): fast and inexpensive for short messages. */
 const MODEL = 'claude-sonnet-5-5'
@@ -206,6 +207,7 @@ Deno.serve(async (request) => {
     const task = (body as { task?: unknown } | null)?.task
     if (task === 'contract_read') return await handleContractRead(db, body, userId, apiKey)
     if (task === 'call_notes_read') return await handleNotesRead(db, body, userId, apiKey)
+    if (task === 'matrix_read') return await handleMatrixRead(db, body, userId, apiKey)
     return await handleFollowUp(db, body, userId, apiKey)
   } catch (e) {
     return reply(500, { error: (e as Error).message })
@@ -213,7 +215,7 @@ Deno.serve(async (request) => {
 })
 
 /** Starts a run in the log; every assistant run is logged, whatever happens next. */
-async function startRun(db: SupabaseClient, organizationId: string, loanId: string, taskType: string, inputRef: unknown, model: string, userId: string): Promise<string> {
+async function startRun(db: SupabaseClient, organizationId: string, loanId: string | null, taskType: string, inputRef: unknown, model: string, userId: string): Promise<string> {
   const run = await db.from('ai_runs').insert({ organization_id: organizationId, loan_id: loanId, task_type: taskType, input_ref: inputRef, model, created_by: userId }).select('id').single()
   if (run.error) throw new Error(`Could not log the run: ${run.error.message}`)
   return run.data.id as string
@@ -487,6 +489,73 @@ ${noteText}
     if (item.error) throw new Error(`Could not add the review to the queue: ${item.error.message}`)
     await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
     return reply(200, { readingId, actionId: item.data.id, runId })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Read a lender matrix (Product Search)
+// ---------------------------------------------------------------------------
+
+/** Matrices are read with Opus: a misread cell sends a borrower to the wrong lender. */
+const MATRIX_MODEL = 'claude-opus-5-5'
+
+async function handleMatrixRead(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const documentId = (body as { documentId?: unknown } | null)?.documentId
+  if (typeof documentId !== 'string' || !UUID.test(documentId)) return reply(400, { error: 'Missing or invalid document.' })
+  const doc = await db.from('guideline_documents').select('id, organization_id, lender_id, title, storage_path').eq('id', documentId).maybeSingle()
+  if (doc.error || !doc.data) return reply(400, { error: "Document not found, or you don't have access." })
+  const { organization_id: organizationId, lender_id: lenderId, title, storage_path: storagePath } = doc.data as { organization_id: string; lender_id: string; title: string; storage_path: string | null }
+  if (!storagePath) return reply(400, { error: 'This document has no stored PDF. Upload the matrix PDF first.' })
+
+  const runId = await startRun(db, organizationId, null, 'matrix_read', { documentId }, MATRIX_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: MATRIX_MODEL }
+  try {
+    const blob = await db.storage.from('guideline-files').download(storagePath)
+    if (blob.error || !blob.data) throw new Error(`Could not open ${title}: ${blob.error?.message ?? 'missing file'}`)
+    const bytes = new Uint8Array(await blob.data.arrayBuffer())
+    if (bytes.length > MAX_MATRIX_BYTES) throw new UserError(`${title} is ${Math.round(bytes.length / 1024 / 1024)} MB; the assistant reads matrices up to 20 MB. Upload just the matrix pages.`)
+
+    const params = {
+      model: MATRIX_MODEL,
+      max_tokens: 64000,
+      system: MATRIX_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64(bytes) }, title },
+            { type: 'text', text: MATRIX_USER_PROMPT },
+          ],
+        },
+      ],
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: MATRIX_SCHEMA } },
+      // If Opus declines on a safety check, the API retries on a suitable model itself.
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    }
+    // Streamed: a full matrix is a long answer.
+    const res = await new Anthropic({ apiKey }).beta.messages.stream(params as never).finalMessage()
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read this document.')
+    if (res.stop_reason === 'max_tokens') throw new UserError('The matrix is too long to read in one go. Upload it in smaller parts (a few programs per PDF).')
+    const text = res.content.flatMap((b: { type: string; text?: string }) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
+    let raw: unknown
+    try {
+      raw = JSON.parse(text)
+    } catch {
+      throw new UserError('The assistant returned something unreadable. Try again.')
+    }
+    const reading = normalizeMatrixReading(raw)
+    if ('error' in reading) throw new UserError(reading.error)
+
+    const saved = await db.from('matrix_imports').insert({ organization_id: organizationId, lender_id: lenderId, document_id: documentId, ai_run_id: runId, reading }).select('id').single()
+    if (saved.error) throw new Error(`Could not save the reading: ${saved.error.message}`)
+    await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+    return reply(200, { importId: saved.data.id, runId })
   } catch (e) {
     return failRun(db, runId, usage, e)
   }

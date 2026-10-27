@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ExternalLinkIcon, PlusIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
@@ -9,6 +9,7 @@ import { LenderDialog } from '@/components/lenders/LenderDialog'
 import { UploadDocumentDialog } from '@/components/lenders/UploadDocumentDialog'
 import { LenderMark } from '@/components/products/ProgramCard'
 import { blankLender, useDeleteLenderDocument, useLenderDocuments, useLenderPrograms, useLenders, useSetProgramActive, useUpdateLenderDocument, type Lender, type LenderDocument, type LenderDraft, type LenderProgram } from '@/lib/api/lenders'
+import { readMatrix, usePendingImports } from '@/lib/api/matrixImports'
 import { openGuidelinePdf, searchPassages, type Passage } from '@/lib/api/products'
 import { useAuth } from '@/lib/auth/context'
 import { todayIso } from '@/lib/dates'
@@ -129,7 +130,9 @@ function LenderDetail({ lender: l, canEdit, onEdit }: { lender: Lender; canEdit:
         {stale && <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">Stale matrix: {verified ? `last verified ${daysSince(verified, today)} days ago` : 'a program has never been verified'}. Upload the latest matrix to refresh it (over {STALE_AFTER_DAYS} days counts as stale).</p>}
       </Card>
 
-      <Card title="Programs" description="Matrices become searchable cells through the import and review step (step 6).">
+      <PendingImports lenderId={l.id} />
+
+      <Card title="Programs" description="A program's matrix becomes searchable once you approve it on the review screen (read a matrix PDF below).">
         {programs.isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : <ProgramList lenderId={l.id} programs={programs.data ?? []} canEdit={canEdit} />}
       </Card>
 
@@ -165,7 +168,7 @@ function Info({ label, value }: { label: string; value: string }) {
 
 function ProgramList({ lenderId, programs, canEdit }: { lenderId: string; programs: LenderProgram[]; canEdit: boolean }) {
   const setActive = useSetProgramActive(lenderId)
-  if (programs.length === 0) return <p className="text-sm text-muted-foreground">No programs yet. They're created when a matrix is imported (step 6).</p>
+  if (programs.length === 0) return <p className="text-sm text-muted-foreground">No programs yet. They're created when you approve a matrix reading.</p>
   return (
     <ul className="divide-y">
       {programs.map((p) => (
@@ -189,6 +192,19 @@ function DocumentList({ lenderId, documents, programs, canEdit }: { lenderId: st
   const update = useUpdateLenderDocument(lenderId)
   const remove = useDeleteLenderDocument(lenderId)
   const [linking, setLinking] = useState<string | null>(null)
+  const [reading, setReading] = useState<string | null>(null)
+  const navigate = useNavigate()
+  const read = async (d: LenderDocument) => {
+    setReading(d.id)
+    try {
+      const importId = await readMatrix(d.id)
+      navigate(`/admin/lenders/imports/${importId}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setReading(null)
+    }
+  }
   if (documents.length === 0) return <p className="text-sm text-muted-foreground">No documents yet.</p>
   const fail = { onError: (e: Error) => toast.error(e.message) }
   return (
@@ -205,7 +221,7 @@ function DocumentList({ lenderId, documents, programs, canEdit }: { lenderId: st
                 {DOC_LABEL[d.docType]}
                 {d.versionLabel && ` · ${d.versionLabel}`}
                 {d.effectiveDate && ` · effective ${new Date(`${d.effectiveDate}T12:00:00`).toLocaleDateString('en-US')}`}
-                {d.pageCount != null && ` · ${d.pageCount} pages`} · {d.passageCount} searchable passage{d.passageCount === 1 ? '' : 's'}
+                {d.pageCount != null && ` · ${d.pageCount} page${d.pageCount === 1 ? '' : 's'}`} · {d.passageCount} searchable passage{d.passageCount === 1 ? '' : 's'}
                 {d.pageCount != null && d.passageCount === 0 && ' (scanned? no text found)'}
               </p>
               <p className="mt-0.5 text-xs">{d.programIds.length ? `Covers: ${programs.filter((p) => d.programIds.includes(p.id)).map((p) => p.name).join(', ')}` : <span className="text-amber-700">Not linked to a program yet</span>}</p>
@@ -218,6 +234,11 @@ function DocumentList({ lenderId, documents, programs, canEdit }: { lenderId: st
               )}
               {canEdit && (
                 <>
+                  {d.docType === 'matrix' && d.storagePath && (
+                    <Button size="sm" variant="outline" disabled={reading !== null} onClick={() => read(d)} title="The assistant reads every grid and rule; you review it against the PDF before anything is used">
+                      {reading === d.id ? 'Reading… (a minute or two)' : 'Read matrix (AI)'}
+                    </Button>
+                  )}
                   <Button size="sm" variant="ghost" onClick={() => setLinking(linking === d.id ? null : d.id)}>
                     Programs
                   </Button>
@@ -295,6 +316,28 @@ function LenderSearch({ documents }: { documents: LenderDocument[] }) {
           })}
         </ul>
       )}
+    </Card>
+  )
+}
+
+/** Matrix readings waiting for review. */
+function PendingImports({ lenderId }: { lenderId: string }) {
+  const imports = usePendingImports(lenderId)
+  if (!imports.data?.length) return null
+  return (
+    <Card title="Waiting for your review" description="Matrices the assistant read. Nothing in them is searchable until you approve it.">
+      <ul className="divide-y">
+        {imports.data.map((i) => (
+          <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+            <span>
+              {i.documentTitle ?? 'Matrix'} · {i.reading.programs.length} program{i.reading.programs.length === 1 ? '' : 's'} · read {new Date(i.createdAt).toLocaleDateString('en-US')}
+            </span>
+            <Button size="sm" asChild>
+              <Link to={`/admin/lenders/imports/${i.id}`}>Review</Link>
+            </Button>
+          </li>
+        ))}
+      </ul>
     </Card>
   )
 }
