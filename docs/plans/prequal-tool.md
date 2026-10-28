@@ -112,3 +112,13 @@ Build in small steps and commit after each one. Show me each step before moving 
 **Decisions needed before building:** MI in or out (and Tarrant's tax rate); FHA max DTI for the pre-qual; what "comfortable" means (a DTI band); the 14 counties and tax rates; one palette; Send estimate before GHL (Action Queue draft to copy); debts by category or by account.
 
 **Proposed steps** (each tested, shown and committed): 1) math and rules (county taxes, comfortable range, 9 outcomes, ask next, the sample test); 2) Phone Pre-Qual screen with mode tabs and autosave; 3) Present mode; 4) Playground (scenarios table, compare, PDF); 5) Send estimate + timeline log; 6) Start full 1003 handoff.
+
+## Connor's decisions (2026-10-27)
+1. Keep mortgage insurance in the payment; the sample test uses LOSuite's math (FHA MI was left out of the old estimate, overstating buying power by about $45K).
+2. FHA headline max at 45% DTI; show 50% as a "stretch" line.
+3. Comfortable range = 38–42% total DTI.
+4. Copy the 14 counties and tax rates from the old app's code.
+5. Keep the current editorial palette; small text and buttons must meet 4.5:1 contrast.
+6. Send estimate = a ready-to-copy draft in the Action Queue for now; wording from the old app's estimate email, plus an assumptions line under the payment range.
+7. Keep per-account debts (they flow into the 1003).
+Steps 1–6 approved; start with step 1 (math and rules).
