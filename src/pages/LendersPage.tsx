@@ -4,7 +4,7 @@ import { ExternalLinkIcon, PlusIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { Card, EmptyState, PageHeader, ToggleChip, ToggleChipGroup } from '@/components/shared'
+import { Card, EmptyState, PageHeader, ToggleChip, ToggleChipGroup, confirmAction } from '@/components/shared'
 import { LenderDialog } from '@/components/lenders/LenderDialog'
 import { UploadDocumentDialog } from '@/components/lenders/UploadDocumentDialog'
 import { LenderMark } from '@/components/products/ProgramCard'
@@ -245,7 +245,7 @@ function DocumentList({ lenderId, documents, programs, canEdit }: { lenderId: st
                   <Button size="sm" variant="ghost" onClick={() => update.mutate({ id: d.id, current: !d.current }, fail)}>
                     {d.current ? 'Mark superseded' : 'Mark current'}
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => window.confirm(`Delete "${d.title}" and its searchable text? This can't be undone.`) && remove.mutate(d, { onSuccess: () => toast.success('Deleted'), ...fail })}>
+                  <Button size="sm" variant="ghost" onClick={async () => (await confirmAction(`Delete "${d.title}" and its searchable text? This can't be undone.`, { confirmLabel: 'Delete', destructive: true })) && remove.mutate(d, { onSuccess: () => toast.success('Deleted'), ...fail })}>
                     Delete
                   </Button>
                 </>

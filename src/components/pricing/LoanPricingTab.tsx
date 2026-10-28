@@ -4,7 +4,7 @@ import { FileTextIcon, PlusIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { Card, CurrencyInput, DateInput, EmptyState, FormGrid, PercentInput, Select, ToggleChip } from '@/components/shared'
+import { Card, CurrencyInput, DateInput, EmptyState, FormGrid, PercentInput, Select, ToggleChip, confirmAction } from '@/components/shared'
 import { LenderMark } from '@/components/products/ProgramCard'
 import { breakEven, categoryWinners, sortQuotes, type QuoteFigures, type QuoteSort } from '@/lib/calc'
 import { useUpdateLoanDetails } from '@/lib/api/loans'
@@ -316,7 +316,7 @@ function OptionHeader({ option: o, children }: { option: ProgramOption; children
 function RemoveButton({ loan, option }: { loan: LoanProfile; option: ProgramOption }) {
   const remove = useRemoveProgramOption(loan.id)
   return (
-    <button type="button" title="Take off this comparison" className="text-muted-foreground hover:text-foreground" onClick={() => window.confirm(`Take ${option.lenderName} · ${option.programName} off the comparison? Its quotes are kept if you add it again.`) && remove.mutate(option.id, { onError: (e) => toast.error(e.message) })}>
+    <button type="button" title="Take off this comparison" className="text-muted-foreground hover:text-foreground" onClick={async () => (await confirmAction(`Take ${option.lenderName} · ${option.programName} off the comparison? Its quotes are kept if you add it again.`, { confirmLabel: 'Remove', destructive: true })) && remove.mutate(option.id, { onError: (e) => toast.error(e.message) })}>
       <XIcon className="size-4" />
     </button>
   )
@@ -406,7 +406,7 @@ function QuoteCard({ loan, option, quote, figures: f, rank, banner, tone, chips,
   const chosen = loan.details.chosenQuoteId === quote.id
   const name = option.lenderShortName ?? option.lenderName
   const choose = async () => {
-    if (!window.confirm(`Choose ${option.lenderName} · ${option.programName} at ${formatPercent(quote.rate)}? This writes the rate, points, lender credit, loan amount and closing cost estimates to the loan${property ? ` and the taxes and insurance to ${property.addressLine}` : ''}, and completes "Select lender & program".`)) return
+    if (!(await confirmAction(`Choose ${option.lenderName} · ${option.programName} at ${formatPercent(quote.rate)}? This writes the rate, points, lender credit, loan amount and closing cost estimates to the loan${property ? ` and the taxes and insurance to ${property.addressLine}` : ''}, and completes "Select lender & program".`, { confirmLabel: 'Choose' }))) return
     setChoosing(true)
     try {
       const at = { ...scenario, noteRate: quote.rate, pointsPct: Math.max(0, quote.pointsPct), lenderCredit: quote.lenderCredit }

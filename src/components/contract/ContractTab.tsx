@@ -4,7 +4,7 @@ import { CheckCircle2Icon, FileTextIcon, TriangleAlertIcon, UploadIcon } from 'l
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { Card, CurrencyInput, DateInput, EmptyState, FormGrid, Select } from '@/components/shared'
+import { Card, CurrencyInput, DateInput, EmptyState, FormGrid, Select, confirmAction } from '@/components/shared'
 import { SectionCard, YesNo } from '@/components/urla/parts'
 import { ContractFollowThrough } from './ContractFollowThrough'
 import { ContractReadingCard } from './ContractReadingCard'
@@ -69,8 +69,8 @@ function ContractDocuments({ loan }: { loan: LoanProfile }) {
     if (input.current) input.current.value = ''
   }
 
-  const del = (doc: LoanDocument) => {
-    if (!window.confirm(`Delete ${doc.fileName}? The file is removed from LOSuite.`)) return
+  const del = async (doc: LoanDocument) => {
+    if (!(await confirmAction(`Delete ${doc.fileName}? The file is removed from LOSuite.`, { confirmLabel: 'Delete', destructive: true }))) return
     remove.mutate(doc, { onSuccess: () => toast.success('Deleted'), onError: (e) => toast.error(e.message) })
   }
 

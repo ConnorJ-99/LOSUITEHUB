@@ -4,7 +4,7 @@ import { BookOpenIcon, ExternalLinkIcon, MessageSquareIcon, PlusIcon, SearchIcon
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/shared'
+import { Card, confirmAction } from '@/components/shared'
 import { keys } from '@/lib/api/client'
 import { openGuidelinePdf, useLogSearch } from '@/lib/api/products'
 import { answerFromGuidelines, findPassages, readScenario, saveChatMessages, useAssistantChats, useAssistantUsage, useDeleteChat, type NewChatMessage } from '@/lib/api/productAssistant'
@@ -257,7 +257,7 @@ export function AskAssistant({ catalog, loanId, organizationId, borrowerName, st
                       type="button"
                       aria-label="Delete chat"
                       className="text-muted-foreground hover:text-foreground"
-                      onClick={() => window.confirm('Delete this chat from the file?') && deleteChat.mutate(c.id, { onSuccess: () => c.id === chatId && newChat(), onError: (e) => toast.error(e.message) })}
+                      onClick={async () => (await confirmAction('Delete this chat from the file?', { confirmLabel: 'Delete', destructive: true })) && deleteChat.mutate(c.id, { onSuccess: () => c.id === chatId && newChat(), onError: (e) => toast.error(e.message) })}
                     >
                       <Trash2Icon className="size-3.5" />
                     </button>

@@ -3,7 +3,7 @@ import { FileTextIcon, FolderIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { Card, EmptyState, Select, ToggleChip, ToggleChipGroup } from '@/components/shared'
+import { Card, EmptyState, Select, ToggleChip, ToggleChipGroup, confirmAction } from '@/components/shared'
 import {
   ACCEPTED_TYPES,
   DOCUMENT_KIND_GROUPS,
@@ -60,7 +60,7 @@ function DocRow({ doc, people, loanId, home }: { doc: LoanDocument; people: Pers
         size="sm"
         variant="ghost"
         disabled={remove.isPending}
-        onClick={() => window.confirm(`Delete ${doc.fileName}? The file is removed from LOSuite.`) && remove.mutate(doc, { onSuccess: () => toast.success('Deleted'), onError: fail })}
+        onClick={async () => (await confirmAction(`Delete ${doc.fileName}? The file is removed from LOSuite.`, { confirmLabel: 'Delete', destructive: true })) && remove.mutate(doc, { onSuccess: () => toast.success('Deleted'), onError: fail })}
       >
         Delete
       </Button>

@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Card, CurrencyInput, FormGrid, Input, PercentInput, Select, ToggleChip, ToggleChipGroup } from '@/components/shared'
+import { Card, CurrencyInput, FormGrid, Input, PercentInput, Select, ToggleChip, ToggleChipGroup, confirmAction } from '@/components/shared'
 import { MORTGAGE_TYPE_OPTIONS } from '@/components/profile/options'
 import type { AmountType, FeeTemplate, PaidBy } from '@/lib/calc'
 import { formatCurrency, formatPercent } from '@/lib/format'
@@ -162,7 +162,7 @@ export function FeeListCard({ canEdit }: { canEdit: boolean }) {
                             size="sm"
                             variant="ghost"
                             disabled={remove.isPending}
-                            onClick={() => window.confirm(`Delete "${f.name}"? Files that changed this fee keep their change.`) && remove.mutate(f.id, { onSuccess: () => toast.success('Deleted'), onError: (e) => toast.error(e.message) })}
+                            onClick={async () => (await confirmAction(`Delete "${f.name}"? Files that changed this fee keep their change.`, { confirmLabel: 'Delete', destructive: true })) && remove.mutate(f.id, { onSuccess: () => toast.success('Deleted'), onError: (e) => toast.error(e.message) })}
                           >
                             Delete
                           </Button>

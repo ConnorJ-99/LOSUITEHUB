@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CurrencyInput, DateInput, FormGrid, Input, NumberInput, PercentInput, Select, SummaryBar, TextArea, ToggleChip } from '@/components/shared'
+import { Card, CurrencyInput, DateInput, FormGrid, Input, NumberInput, PercentInput, Select, SummaryBar, TextArea, ToggleChip, confirmAction } from '@/components/shared'
 import { MORTGAGE_TYPE_OPTIONS, TERM_OPTIONS } from '@/components/profile/options'
 import { firstPaymentDateFor, pointsAmount, pointsPct, prepaidInterestDays, round, type Factor, type FeeTemplate } from '@/lib/calc'
 import { useUpdateLoanDetails } from '@/lib/api/loans'
@@ -84,7 +84,7 @@ export function ScenarioEditor({ loan, scenario, properties, templates, earnestM
   }
   const useForLoan = async () => {
     const where = property ? ` and the taxes, insurance and HOA on ${property.addressLine}` : ' and its tax, insurance and HOA estimates'
-    if (!window.confirm(`Copy this scenario into the loan? This replaces the loan's amount, rate, term, loan type, points, lender credit and closing cost estimates${where}.`)) return
+    if (!(await confirmAction(`Copy this scenario into the loan? This replaces the loan's amount, rate, term, loan type, points, lender credit and closing cost estimates${where}.`, { confirmLabel: 'Copy into the loan' }))) return
     setUsing(true)
     try {
       if (dirty) await update.mutateAsync({ id: scenario.id, changes })

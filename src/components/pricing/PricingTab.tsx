@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Card, EmptyState } from '@/components/shared'
+import { Card, EmptyState, confirmAction } from '@/components/shared'
 import { copyScenario, useCreateScenario, useDeleteScenario, useFeeTemplates, usePricingScenarios } from '@/lib/api/pricing'
 import { useProperties } from '@/lib/api/properties'
 import type { LoanProfile, Property } from '@/lib/api/types'
@@ -68,8 +68,8 @@ export function PricingTab({ loan }: { loan: LoanProfile }) {
       setCopying(false)
     }
   }
-  const del = () => {
-    if (!selected || !window.confirm(`Delete "${selected.name}" and its fee changes?`)) return
+  const del = async () => {
+    if (!selected || !(await confirmAction(`Delete "${selected.name}" and its fee changes?`, { confirmLabel: 'Delete', destructive: true }))) return
     remove.mutate(selected.id, { onSuccess: () => (pick(null), toast.success('Deleted')), onError: (e) => toast.error(e.message) })
   }
 

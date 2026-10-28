@@ -3,7 +3,7 @@ import { MailIcon, MessageSquareIcon, PlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Card, FormGrid, Input, TextArea, ToggleChip } from '@/components/shared'
+import { Card, FormGrid, Input, TextArea, ToggleChip, confirmAction } from '@/components/shared'
 import { useDeleteTemplate, useMessageTemplates, useSaveTemplate, type MessageChannel, type TemplateDraft } from '@/lib/api/assistant'
 import { MAX_TEXT_LENGTH, MERGE_FIELDS } from '../../../supabase/functions/assistant/followUp'
 
@@ -115,8 +115,8 @@ export function MessageTemplatesCard() {
                     size="xs"
                     variant="ghost"
                     disabled={remove.isPending}
-                    onClick={() => {
-                      if (!window.confirm(`Delete the template "${t.name}"?`)) return
+                    onClick={async () => {
+                      if (!(await confirmAction(`Delete the template "${t.name}"?`, { confirmLabel: 'Delete', destructive: true }))) return
                       remove.mutate(t.id, { onSuccess: () => toast.success('Template deleted'), onError: (e) => toast.error(e.message) })
                     }}
                   >

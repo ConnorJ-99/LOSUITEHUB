@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Card, CurrencyInput, DateInput, EmptyState, FormGrid, Select, TextArea, ToggleChip } from '@/components/shared'
+import { Card, CurrencyInput, DateInput, EmptyState, FormGrid, Select, TextArea, ToggleChip, confirmAction } from '@/components/shared'
 import { MORTGAGE_TYPE_OPTIONS, OCCUPANCY_OPTIONS, TERM_OPTIONS } from '@/components/profile/options'
 import { useSavePdf } from '@/components/pdf/useSavePdf'
 import { keys } from '@/lib/api/client'
@@ -192,7 +192,7 @@ function LetterRow({ loan, letter: l, documentName, onOpen }: { loan: LoanProfil
         variant="ghost"
         aria-label="Remove letter"
         disabled={remove.isPending}
-        onClick={() => window.confirm(`Remove v${l.version} from the list? Only do this for a letter made by mistake. Its PDF stays in Documents.`) && remove.mutate(l.id, { onError: (e) => toast.error(e.message) })}
+        onClick={async () => (await confirmAction(`Remove v${l.version} from the list? Only do this for a letter made by mistake. Its PDF stays in Documents.`, { confirmLabel: 'Remove', destructive: true })) && remove.mutate(l.id, { onError: (e) => toast.error(e.message) })}
       >
         <Trash2Icon />
       </Button>

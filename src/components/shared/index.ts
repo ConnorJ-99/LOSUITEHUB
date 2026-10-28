@@ -3,6 +3,7 @@
 // '@/components/ui' and are wrapped here.
 export { AssistantLabel, QueueItem, ReviewField, SourceQuote, type ConfidenceLevel, type QueueItemProps, type ReviewFieldProps, type SourceRef } from './Assistant'
 export { Card, type CardProps } from './Card'
+export { confirmAction, ConfirmHost, type ConfirmOptions } from './ConfirmDialog'
 export { DataTable, type Column, type DataTableProps } from './DataTable'
 export { DateInput, type DateInputProps } from './DateInput'
 export { EmptyState, type EmptyStateProps } from './EmptyState'

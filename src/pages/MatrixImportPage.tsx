@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { Card, DateInput, FormGrid, Input, PageHeader, Select, SummaryBar, ToggleChip, ToggleChipGroup } from '@/components/shared'
+import { Card, DateInput, FormGrid, Input, PageHeader, Select, SummaryBar, ToggleChip, ToggleChipGroup, confirmAction } from '@/components/shared'
 import { useAuth } from '@/lib/auth/context'
 import { useApproveImport, useDiscardImport, useExistingPrograms, useMatrixImport, useSignedPdf, type ExistingProgram, type MatrixImport } from '@/lib/api/matrixImports'
 import { formatPercent } from '@/lib/format'
@@ -40,8 +40,8 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
   const errors = included.reduce((n, p) => n + checkProgram(p).filter((w) => w.level === 'error').length, 0)
   const cells = included.reduce((n, p) => n + cellsFromProgram(p).length, 0)
 
-  const onApprove = () => {
-    if (!window.confirm(`Approve ${included.length} program${included.length === 1 ? '' : 's'} (${cells} matrix cells)? They go live in Product Search right away; any earlier matrix for the same program is kept as superseded.`)) return
+  const onApprove = async () => {
+    if (!(await confirmAction(`Approve ${included.length} program${included.length === 1 ? '' : 's'} (${cells} matrix cells)? They go live in Product Search right away; any earlier matrix for the same program is kept as superseded.`, { confirmLabel: 'Approve' }))) return
     approve.mutate(
       { programs, effectiveDate },
       {
@@ -102,7 +102,7 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
           ]}
           action={
             <div className="flex gap-2">
-              <Button variant="outline" disabled={discard.isPending} onClick={() => window.confirm('Discard this reading? Nothing from it will be used.') && discard.mutate(undefined, { onSuccess: () => navigate(`/admin/lenders?lender=${imp.lenderId}`), onError: (e) => toast.error(e.message) })}>
+              <Button variant="outline" disabled={discard.isPending} onClick={async () => (await confirmAction('Discard this reading? Nothing from it will be used.', { confirmLabel: 'Discard', destructive: true })) && discard.mutate(undefined, { onSuccess: () => navigate(`/admin/lenders?lender=${imp.lenderId}`), onError: (e) => toast.error(e.message) })}>
                 Discard
               </Button>
               <Button disabled={approve.isPending || errors > 0 || included.length === 0} title={errors > 0 ? 'Fix the errors first' : undefined} onClick={onApprove}>

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card, CurrencyInput, DateInput, FormGrid, Input, Select, ToggleChip } from '@/components/shared'
+import { Card, CurrencyInput, DateInput, FormGrid, Input, Select, ToggleChip, confirmAction } from '@/components/shared'
 import { EditDialog } from '@/components/urla/parts'
 import { useCreditEvents, useDeleteCreditEvent, useSaveCreditEvent, type CreditEventDraft } from '@/lib/api/creditEvents'
 import { useUpdateLoanDetails } from '@/lib/api/loans'
@@ -127,7 +127,7 @@ export function CreditHistorySection({ loan, app }: { loan: LoanProfile; app: Ap
                   variant="ghost"
                   aria-label="Delete"
                   disabled={remove.isPending}
-                  onClick={() => window.confirm(`Delete this ${EVENT_LABEL[e.eventType].toLowerCase()}?`) && remove.mutate(e.id, { onError: (err) => toast.error(err.message) })}
+                  onClick={async () => (await confirmAction(`Delete this ${EVENT_LABEL[e.eventType].toLowerCase()}?`, { confirmLabel: 'Delete', destructive: true })) && remove.mutate(e.id, { onError: (err) => toast.error(err.message) })}
                 >
                   <Trash2Icon />
                 </Button>

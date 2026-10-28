@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Card, EmptyState, ToggleChip } from '@/components/shared'
+import { Card, EmptyState, ToggleChip, confirmAction } from '@/components/shared'
 import { useSavedReadiness } from '@/components/prequal/Readiness'
 import {
   useAddDocumentRequests,
@@ -82,7 +82,7 @@ function RequestRow({ request, requests, docs, loanId }: { request: DocumentRequ
             Undo
           </Button>
         )}
-        <Button size="sm" variant="ghost" disabled={remove.isPending} onClick={() => window.confirm(`Stop tracking "${request.label}"?`) && remove.mutate(request.id, { onError: fail })}>
+        <Button size="sm" variant="ghost" disabled={remove.isPending} onClick={async () => (await confirmAction(`Stop tracking "${request.label}"?`, { confirmLabel: 'Remove', destructive: true })) && remove.mutate(request.id, { onError: fail })}>
           Remove
         </Button>
       </div>

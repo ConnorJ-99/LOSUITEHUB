@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Card, FormGrid, Input, Select, TextArea, ToggleChip } from '@/components/shared'
+import { Card, FormGrid, Input, Select, TextArea, ToggleChip, confirmAction } from '@/components/shared'
 import { CONDITION_LABEL, useDeleteDocumentRule, useDocumentRules, useSaveDocumentRule, type RuleDraft, type SavedRule } from '@/lib/api/documentRules'
 import { DOCUMENT_KIND_GROUPS, DOCUMENT_KIND_LABEL, type DocumentKind } from '@/lib/api/documents'
 import type { DocumentCondition } from '@/lib/prequal/nextStep'
@@ -120,7 +120,7 @@ export function DocumentRulesCard({ canEdit }: { canEdit: boolean }) {
                             size="sm"
                             variant="ghost"
                             disabled={remove.isPending}
-                            onClick={() => window.confirm(`Delete "${r.shortText}"? Files already tracking it keep their item.`) && remove.mutate(r.id, { onSuccess: () => toast.success('Deleted'), onError: (e) => toast.error(e.message) })}
+                            onClick={async () => (await confirmAction(`Delete "${r.shortText}"? Files already tracking it keep their item.`, { confirmLabel: 'Delete', destructive: true })) && remove.mutate(r.id, { onSuccess: () => toast.success('Deleted'), onError: (e) => toast.error(e.message) })}
                           >
                             Delete
                           </Button>
