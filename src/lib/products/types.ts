@@ -3,7 +3,7 @@
 // Scenario; the catalog is what the database holds (approved versions only).
 
 import type { Occupancy } from '@/lib/api/types'
-import type { Citizenship, DocType, Feature, LenderStatus, Lien, MatrixPropertyType, MatrixPurpose, ProductFamily, RuleField, RuleOp } from './taxonomy'
+import type { Citizenship, DocType, Feature, LenderStatus, Lien, MatrixPropertyType, MatrixPurpose, ProductFamily, ProgramTerm, RuleField, RuleOp } from './taxonomy'
 
 export interface Scenario {
   // 1 · What kind of loan (the product-type gate)
@@ -116,6 +116,8 @@ export interface CatalogProgram {
   docTypes: DocType[]
   features: Feature[]
   purposes: MatrixPurpose[]
+  /** Term options offered (30-yr fixed, 7/6 ARM, HELOC 10/20...): a program is a product, its terms are options. */
+  termOptions: ProgramTerm[]
   loanAmountBasis: 'this_lien' | 'combined'
   active: boolean
   /** The approved matrix version's cells (none = no approved matrix). */

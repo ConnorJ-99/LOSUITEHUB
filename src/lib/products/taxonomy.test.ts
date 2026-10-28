@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import * as M from '../../../supabase/functions/assistant/matrix'
 import {
   CITIZENSHIPS,
   DOC_TYPES,
@@ -16,6 +17,9 @@ import {
   lienFor,
   matrixPropertyTypeFor,
   matrixPurposeFor,
+  TERM_OPTIONS,
+  termMonths,
+  termsSummary,
 } from './taxonomy'
 
 const scripts = import.meta.glob<string>('/supabase/migrations/*.sql', { query: '?raw', import: 'default', eager: true })
@@ -41,6 +45,14 @@ describe('taxonomy', () => {
     expect(dbEnum('rule_field')).toEqual(RULE_FIELDS.values)
     expect(dbEnum('rule_op')).toEqual([...RULE_OPS])
     expect(dbEnum('product_citizenship')).toEqual(CITIZENSHIPS.values)
+    expect(dbEnum('program_term')).toEqual(TERM_OPTIONS.values)
+    expect([...M.TERMS]).toEqual(TERM_OPTIONS.values)
+  })
+  it('summarizes term options and their months', () => {
+    expect(termsSummary(['fixed_15', 'arm_7_6', 'fixed_30', 'fixed_25'])).toBe('30, 25, 15-yr fixed · 7/6 ARM')
+    expect(termsSummary(['heloc_10_20'])).toBe('HELOC 10/20')
+    expect(termsSummary([])).toBe('')
+    expect([termMonths('fixed_15'), termMonths('arm_5_6'), termMonths('heloc_10_20')]).toEqual([180, 360, 360])
   })
   it('maps a borrower file onto the taxonomy', () => {
     expect(lienFor('heloc')).toBe('heloc')

@@ -57,6 +57,48 @@ export const FEATURES = labels([
 ] as const)
 export type Feature = (typeof FEATURES.values)[number]
 
+/** Term options a program offers. A program is a loan product; its terms are options, never separate programs. */
+export const TERM_OPTIONS = labels([
+  ['fixed_40', '40-yr fixed'],
+  ['fixed_30', '30-yr fixed'],
+  ['fixed_25', '25-yr fixed'],
+  ['fixed_20', '20-yr fixed'],
+  ['fixed_15', '15-yr fixed'],
+  ['fixed_10', '10-yr fixed'],
+  ['arm_5_6', '5/6 ARM'],
+  ['arm_7_6', '7/6 ARM'],
+  ['arm_10_6', '10/6 ARM'],
+  ['heloc_10_20', 'HELOC 10-yr draw / 20-yr repay'],
+  ['heloc_10_15', 'HELOC 10-yr draw / 15-yr repay'],
+  ['heloc_5_25', 'HELOC 5-yr draw / 25-yr repay'],
+  ['heloc_3_27', 'HELOC 3-yr draw / 27-yr repay'],
+] as const)
+export type ProgramTerm = (typeof TERM_OPTIONS.values)[number]
+
+/** The term options that make sense for a lien: HELOCs have draw/repay periods, closed-end seconds fixed terms, 1st liens fixed terms and ARMs. */
+export function termChoices(lien: Lien): ProgramTerm[] {
+  if (lien === 'heloc') return TERM_OPTIONS.values.filter((t) => t.startsWith('heloc_'))
+  if (lien === 'ces') return TERM_OPTIONS.values.filter((t) => t.startsWith('fixed_'))
+  return TERM_OPTIONS.values.filter((t) => !t.startsWith('heloc_'))
+}
+
+/** Total months of a term option: fixed terms by their years, ARMs amortize over 30 years, HELOCs draw + repay. */
+export function termMonths(t: ProgramTerm): number {
+  const [kind, a, b] = t.split('_')
+  if (kind === 'fixed') return Number(a) * 12
+  if (kind === 'heloc') return (Number(a) + Number(b)) * 12
+  return 360
+}
+
+/** "30, 25, 15-yr fixed · 7/6 ARM · HELOC 10/20" (in the list's order). */
+export function termsSummary(terms: readonly ProgramTerm[]): string {
+  const ordered = TERM_OPTIONS.values.filter((t) => terms.includes(t))
+  const fixed = ordered.filter((t) => t.startsWith('fixed_')).map((t) => t.split('_')[1])
+  const arms = ordered.filter((t) => t.startsWith('arm_')).map((t) => TERM_OPTIONS.label[t])
+  const helocs = ordered.filter((t) => t.startsWith('heloc_')).map((t) => `HELOC ${t.split('_')[1]}/${t.split('_')[2]}`)
+  return [fixed.length ? `${fixed.join(', ')}-yr fixed` : '', ...arms, ...helocs].filter(Boolean).join(' · ')
+}
+
 /** Features a program must have when the scenario asks for them; DPA programs are also left out unless asked for (plan §4.1). */
 export const OPT_IN_FEATURES: readonly Feature[] = ['dpa']
 

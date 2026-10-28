@@ -29,7 +29,7 @@ import {
 } from './followUp.ts'
 import { NOTES_SCHEMA, NOTES_SYSTEM_PROMPT, normalizeNotes } from './callNotes.ts'
 import { CONTRACT_FIELDS, CONTRACT_SCHEMA, CONTRACT_SYSTEM_PROMPT, CONTRACT_USER_PROMPT, MAX_READ_BYTES, normalizeReading } from './contract.ts'
-import { MATRIX_SCHEMA, MATRIX_SYSTEM_PROMPT, MATRIX_USER_PROMPT, MAX_MATRIX_BYTES, normalizeMatrixReading } from './matrix.ts'
+import { MATRIX_FORMAT_PROMPT, MATRIX_SYSTEM_PROMPT, MATRIX_USER_PROMPT, MAX_MATRIX_BYTES, normalizeMatrixReading, parseJsonReply } from './matrix.ts'
 import { SCENARIO_SCHEMA, SCENARIO_SYSTEM_PROMPT, normalizeScenarioRead } from './scenarioRead.ts'
 import { ANSWER_SCHEMA, ANSWER_SYSTEM_PROMPT, MAX_PASSAGES, answerPrompt, normalizeAnswer, type AnswerPassage } from './guidelineAnswer.ts'
 
@@ -533,11 +533,12 @@ async function handleMatrixRead(db: SupabaseClient, body: unknown, userId: strin
           role: 'user',
           content: [
             { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64(bytes) }, title },
-            { type: 'text', text: MATRIX_USER_PROMPT },
+            { type: 'text', text: `${MATRIX_USER_PROMPT}\n\n${MATRIX_FORMAT_PROMPT}` },
           ],
         },
       ],
-      output_config: { effort: 'medium', format: { type: 'json_schema', schema: MATRIX_SCHEMA } },
+      // No structured-output format: the matrix form is too large for it; the reply is checked field by field below.
+      output_config: { effort: 'medium' },
       // If Opus declines on a safety check, the API retries on a suitable model itself.
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
@@ -550,12 +551,8 @@ async function handleMatrixRead(db: SupabaseClient, body: unknown, userId: strin
     if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read this document.')
     if (res.stop_reason === 'max_tokens') throw new UserError('The matrix is too long to read in one go. Upload it in smaller parts (a few programs per PDF).')
     const text = res.content.flatMap((b: { type: string; text?: string }) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
-    let raw: unknown
-    try {
-      raw = JSON.parse(text)
-    } catch {
-      throw new UserError('The assistant returned something unreadable. Try again.')
-    }
+    const raw = parseJsonReply(text)
+    if (raw == null) throw new UserError('The assistant returned something unreadable. Try again.')
     const reading = normalizeMatrixReading(raw)
     if ('error' in reading) throw new UserError(reading.error)
 

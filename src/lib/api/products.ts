@@ -24,6 +24,7 @@ export interface ProgramRow {
   doc_types: CatalogProgram['docTypes']
   features: CatalogProgram['features']
   purposes: CatalogProgram['purposes']
+  term_options: CatalogProgram['termOptions']
   loan_amount_basis: CatalogProgram['loanAmountBasis']
   active: boolean
   last_verified_on: string | null
@@ -146,6 +147,7 @@ export function toCatalog(rows: CatalogRows): Catalog & { verifiedOn: Map<string
     docTypes: p.doc_types,
     features: p.features,
     purposes: p.purposes,
+    termOptions: p.term_options ?? [],
     loanAmountBasis: p.loan_amount_basis,
     active: p.active,
     cells: cellsBy.get(p.id) ?? [],
@@ -186,7 +188,7 @@ export function useCatalog() {
     queryFn: async () => {
       const [lenders, programs, versions, rules, overlays] = await Promise.all([
         readAll<LenderRow>((a, b) => db().from('lenders').select('id, name, status, states').order('name').range(a, b)),
-        readAll<ProgramRow>((a, b) => db().from('programs').select('id, lender_id, name, product_family, lien, doc_types, features, purposes, loan_amount_basis, active, last_verified_on').order('name').range(a, b)),
+        readAll<ProgramRow>((a, b) => db().from('programs').select('id, lender_id, name, product_family, lien, doc_types, features, purposes, term_options, loan_amount_basis, active, last_verified_on').order('name').range(a, b)),
         readAll<VersionRow>((a, b) => db().from('matrix_versions').select('id, program_id').eq('status', 'approved').range(a, b)),
         readAll<RuleRow>((a, b) => db().from('program_rules').select('id, program_id, matrix_version_id, field, op, value, applies_when, severity, message, source_page, source_quote').order('created_at').range(a, b)),
         readAll<RuleRow & { program_id: string | null }>((a, b) => db().from('overlays').select('id, scope, lender_id, program_id, field, op, value, applies_when, severity, message').eq('active', true).range(a, b)),

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { MatrixReading } from '../../../supabase/functions/assistant/matrix'
+import type { MatrixReading, ReadProgram } from '../../../supabase/functions/assistant/matrix'
 import type { ReviewProgram } from '@/lib/products/matrixImport'
 import { approvalPayload } from '@/lib/products/matrixImport'
 import { blankProgram } from '@/lib/products/typedMatrix'
@@ -46,8 +46,8 @@ export async function readMatrix(documentId: string): Promise<string> {
 export function useStartTypedMatrix(lenderId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ organizationId, documentId, programName }: { organizationId: string; documentId: string | null; programName?: string }) => {
-      const reading: MatrixReading = { programs: [blankProgram(programName ?? '')], effectiveDate: null, notes: null, dropped: [] }
+    mutationFn: async ({ organizationId, documentId, program }: { organizationId: string; documentId: string | null; program?: ReadProgram }) => {
+      const reading: MatrixReading = { programs: [program ?? blankProgram()], effectiveDate: null, notes: null, dropped: [] }
       const row = unwrap<{ id: string }>(await db().from('matrix_imports').insert({ organization_id: organizationId, lender_id: lenderId, document_id: documentId, source: 'manual', reading }).select('id').single())
       return row.id
     },

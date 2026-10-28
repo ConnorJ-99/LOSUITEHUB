@@ -9,7 +9,7 @@ import { PlusIcon, Trash2Icon } from 'lucide-react'
 import { GridEditor, RuleForm } from '@/components/lenders/MatrixGridEditor'
 import { saveTypedDraft, useApproveImport, useDiscardImport, useExistingPrograms, useMatrixImport, useSignedPdf, type ExistingProgram, type MatrixImport } from '@/lib/api/matrixImports'
 import { cellsFromProgram, changeText, checkProgram, diffCells, matchProgram, type ReviewProgram } from '@/lib/products/matrixImport'
-import { DOC_TYPES, FEATURES, LIENS, MATRIX_PURPOSES, PRODUCT_FAMILIES } from '@/lib/products/taxonomy'
+import { DOC_TYPES, FEATURES, LIENS, MATRIX_PURPOSES, PRODUCT_FAMILIES, TERM_OPTIONS, termChoices } from '@/lib/products/taxonomy'
 import { blankGrid, blankProgram, copyGrid, ratioFor, syncGrids } from '@/lib/products/typedMatrix'
 
 const options = <T extends string>(l: { values: T[]; label: Record<T, string> }) => l.values.map((v) => ({ value: v, label: l.label[v] }))
@@ -178,9 +178,10 @@ function ProgramReview({ program: p, existing, pdfUrl, editable, onChange, onRem
         <Input label="Program name" value={p.name} onChange={set('name')} readOnly={!editable} span={2} />
         <Select label="Updates" value={p.programId} options={existing.map((e) => ({ value: e.id, label: e.name }))} onChange={set('programId')} onClear={() => set('programId')(null)} placeholder="A new program" readOnly={!editable} span={2} />
         <Select label="Product family" value={p.family} options={options(PRODUCT_FAMILIES)} onChange={set('family')} readOnly={!editable} />
-        <Select label="Lien" value={p.lien} options={options(LIENS)} onChange={(lien) => onChange({ ...p, lien, grids: p.grids.map((g) => ({ ...g, ratio: ratioFor(lien) })) })} readOnly={!editable} />
+        <Select label="Lien" value={p.lien} options={options(LIENS)} onChange={(lien) => onChange({ ...p, lien, termOptions: p.termOptions.filter((t) => termChoices(lien).includes(t)), grids: p.grids.map((g) => ({ ...g, ratio: ratioFor(lien) })) })} readOnly={!editable} />
       </FormGrid>
       <div className="mt-3 space-y-2">
+        <ChipLine label="Terms offered" values={termChoices(p.lien)} labels={TERM_OPTIONS.label} picked={p.termOptions} disabled={!editable} onToggle={(v, on) => onChange({ ...p, termOptions: on ? [...p.termOptions, v] : p.termOptions.filter((x) => x !== v) })} />
         <ChipLine label="Doc types" values={DOC_TYPES.values} labels={DOC_TYPES.label} picked={p.docTypes} disabled={!editable} onToggle={(v, on) => toggle('docTypes', v, on)} />
         <ChipLine label="Purposes" values={MATRIX_PURPOSES.values} labels={MATRIX_PURPOSES.label} picked={p.purposes} disabled={!editable} onToggle={(v, on) => toggle('purposes', v, on)} />
         <ChipLine label="Features" values={FEATURES.values} labels={FEATURES.label} picked={p.features} disabled={!editable} onToggle={(v, on) => toggle('features', v, on)} />

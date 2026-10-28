@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
 import { pdfPages, sha256Hex } from '@/lib/documents/pdfText'
-import { splitIntoPassages } from '@/lib/products/passages'
-import type { DocType, Feature, LenderChannel, LenderStatus, Lien, MatrixPurpose, ProductFamily } from '@/lib/products/taxonomy'
+import { guessDocument, type DocGuess } from '@/lib/products/docGuess'
+import { splitIntoPassages, type ExtractedPassage } from '@/lib/products/passages'
+import { termMonths, type DocType, type Feature, type LenderChannel, type LenderStatus, type Lien, type MatrixPurpose, type ProductFamily, type ProgramTerm } from '@/lib/products/taxonomy'
 import type { GuidelineDocument } from './products'
 import { db, keys, unwrap } from './client'
 
@@ -123,6 +124,8 @@ export interface LenderProgram {
   docTypes: DocType[]
   features: Feature[]
   purposes: MatrixPurpose[]
+  termOptions: ProgramTerm[]
+  loanAmountBasis: 'this_lien' | 'combined'
   active: boolean
   lastVerifiedOn: string | null
   hasApprovedMatrix: boolean
@@ -132,11 +135,36 @@ export function useLenderPrograms(lenderId: string) {
   return useQuery({
     queryKey: keys.lenderPrograms(lenderId),
     queryFn: async () =>
-      unwrap<{ id: string; name: string; product_family: ProductFamily; lien: Lien; doc_types: DocType[]; features: Feature[]; purposes: MatrixPurpose[]; active: boolean; last_verified_on: string | null; matrix_versions: { status: string }[] }[]>(
-        await db().from('programs').select('id, name, product_family, lien, doc_types, features, purposes, active, last_verified_on, matrix_versions(status)').eq('lender_id', lenderId).order('name'),
+      unwrap<{ id: string; name: string; product_family: ProductFamily; lien: Lien; doc_types: DocType[]; features: Feature[]; purposes: MatrixPurpose[]; term_options: ProgramTerm[] | null; loan_amount_basis: 'this_lien' | 'combined'; active: boolean; last_verified_on: string | null; matrix_versions: { status: string }[] }[]>(
+        await db().from('programs').select('id, name, product_family, lien, doc_types, features, purposes, term_options, loan_amount_basis, active, last_verified_on, matrix_versions(status)').eq('lender_id', lenderId).order('name'),
       ).map(
-        (p): LenderProgram => ({ id: p.id, name: p.name, family: p.product_family, lien: p.lien, docTypes: p.doc_types, features: p.features, purposes: p.purposes, active: p.active, lastVerifiedOn: p.last_verified_on, hasApprovedMatrix: p.matrix_versions.some((v) => v.status === 'approved') }),
+        (p): LenderProgram => ({ id: p.id, name: p.name, family: p.product_family, lien: p.lien, docTypes: p.doc_types, features: p.features, purposes: p.purposes, termOptions: p.term_options ?? [], loanAmountBasis: p.loan_amount_basis, active: p.active, lastVerifiedOn: p.last_verified_on, hasApprovedMatrix: p.matrix_versions.some((v) => v.status === 'approved') }),
       ),
+  })
+}
+
+export type ProgramEdit = Pick<LenderProgram, 'id' | 'name' | 'family' | 'lien' | 'docTypes' | 'features' | 'purposes' | 'termOptions'>
+
+/** Changes a program's product details and term options (owners and admins). Its matrix is changed only through a new matrix. */
+export function useEditProgram(lenderId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (p: ProgramEdit) => {
+      if (!p.name.trim()) throw new Error('Give the program a name.')
+      if (!p.docTypes.length || !p.purposes.length) throw new Error('Pick at least one doc type and one purpose.')
+      const result = await db()
+        .from('programs')
+        .update({ name: p.name.trim(), product_family: p.family, lien: p.lien, doc_types: p.docTypes, features: p.features, purposes: p.purposes, term_options: p.termOptions, terms_months: [...new Set(p.termOptions.map(termMonths))] })
+        .eq('id', p.id)
+        .select('id')
+      if (result.error?.code === '23505') throw new Error('This lender already has a program with that name.')
+      if (unwrap<{ id: string }[]>(result).length === 0) throw new Error('Only owners and admins can change programs.')
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.lenderPrograms(lenderId) })
+      queryClient.invalidateQueries({ queryKey: keys.lenders })
+      invalidateCatalog(queryClient)
+    },
   })
 }
 
@@ -193,9 +221,38 @@ export function useLenderDocuments(lenderId: string) {
   })
 }
 
+/** A PDF read in the browser before upload: its text, searchable passages and what it looks like (no AI). */
+export interface PreparedFile {
+  file: File
+  sha256: string
+  pageCount: number
+  passages: ExtractedPassage[]
+  guess: DocGuess
+  /** The title of the same file already uploaded for this lender, if any. */
+  duplicateOf: string | null
+}
+
+/** Reads a PDF in the browser: checks it, hashes it, pulls its text into passages and guesses what it is. Nothing is saved. */
+export async function prepareGuidelineFile(lenderId: string, file: File): Promise<PreparedFile> {
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) throw new Error(`${file.name} isn't a PDF.`)
+  if (file.size > 50 * 1024 * 1024) throw new Error(`${file.name} is over 50 MB.`)
+  const sha256 = await sha256Hex(await file.arrayBuffer())
+  const same = unwrap<{ title: string }[]>(await db().from('guideline_documents').select('title').eq('lender_id', lenderId).eq('sha256', sha256))
+  const pages = await pdfPages(await file.arrayBuffer())
+  return { file, sha256, pageCount: pages.length, passages: splitIntoPassages(pages), guess: guessDocument({ fileName: file.name, pages }), duplicateOf: same[0]?.title ?? null }
+}
+
+/** Guesses what an already-uploaded document is from its title and first passages (no AI), to set up its program. */
+export async function guessStoredDocument(d: Pick<LenderDocument, 'id' | 'title'>): Promise<DocGuess> {
+  const rows = unwrap<{ page: number; body: string }[]>(await db().from('guideline_passages').select('page, body').eq('document_id', d.id).order('position').limit(60))
+  const pages: string[][] = []
+  for (const r of rows) (pages[r.page - 1] ??= []).push(r.body)
+  return guessDocument({ fileName: d.title, pages: Array.from(pages, (p) => p ?? []) })
+}
+
 export interface UploadInput {
   lenderId: string
-  file: File
+  prepared: PreparedFile
   docType: GuidelineDocument['docType']
   title: string
   versionLabel: string | null
@@ -213,19 +270,12 @@ const safeName = (name: string) =>
     .replace(/^-|-$/g, '')
     .slice(0, 80) || 'document.pdf'
 
-/** Stores the PDF, reads its text into passages, and links it to programs. Undoes the upload if a later step fails. */
-export async function uploadGuidelineDocument(organizationId: string, u: UploadInput): Promise<{ pages: number; passages: number }> {
-  if (u.file.type !== 'application/pdf' && !u.file.name.toLowerCase().endsWith('.pdf')) throw new Error(`${u.file.name} isn't a PDF.`)
-  if (u.file.size > 50 * 1024 * 1024) throw new Error(`${u.file.name} is over 50 MB.`)
-  const data = await u.file.arrayBuffer()
-  const sha256 = await sha256Hex(data)
-  const same = unwrap<{ title: string }[]>(await db().from('guideline_documents').select('title').eq('lender_id', u.lenderId).eq('sha256', sha256))
-  if (same.length) throw new Error(`This exact file is already uploaded as "${same[0].title}".`)
-
-  const pages = await pdfPages(data)
-  const passages = splitIntoPassages(pages)
-  const path = `${organizationId}/${u.lenderId}/${crypto.randomUUID().slice(0, 8)}-${safeName(u.file.name)}`
-  const stored = await db().storage.from('guideline-files').upload(path, u.file, { contentType: 'application/pdf', upsert: false })
+/** Stores a prepared PDF with its passages and links it to programs. Undoes the upload if a later step fails. */
+export async function uploadGuidelineDocument(organizationId: string, u: UploadInput): Promise<{ documentId: string; pages: number; passages: number }> {
+  const { file, sha256, passages, pageCount } = u.prepared
+  if (u.prepared.duplicateOf) throw new Error(`This exact file is already uploaded as "${u.prepared.duplicateOf}".`)
+  const path = `${organizationId}/${u.lenderId}/${crypto.randomUUID().slice(0, 8)}-${safeName(file.name)}`
+  const stored = await db().storage.from('guideline-files').upload(path, file, { contentType: 'application/pdf', upsert: false })
   if (stored.error) throw new Error(stored.error.message)
 
   let documentId: string | null = null
@@ -233,7 +283,7 @@ export async function uploadGuidelineDocument(organizationId: string, u: UploadI
     documentId = unwrap<{ id: string }>(
       await db()
         .from('guideline_documents')
-        .insert({ organization_id: organizationId, lender_id: u.lenderId, doc_type: u.docType, title: u.title.trim() || u.file.name, version_label: u.versionLabel, effective_date: u.effectiveDate, page_count: pages.length, sha256, storage_path: path })
+        .insert({ organization_id: organizationId, lender_id: u.lenderId, doc_type: u.docType, title: u.title.trim() || file.name, version_label: u.versionLabel, effective_date: u.effectiveDate, page_count: pageCount, sha256, storage_path: path })
         .select('id')
         .single(),
     ).id
@@ -247,7 +297,7 @@ export async function uploadGuidelineDocument(organizationId: string, u: UploadI
     await db().storage.from('guideline-files').remove([path])
     throw e
   }
-  return { pages: pages.length, passages: passages.length }
+  return { documentId: documentId!, pages: pageCount, passages: passages.length }
 }
 
 export function useUploadGuidelineDocument(lenderId: string) {

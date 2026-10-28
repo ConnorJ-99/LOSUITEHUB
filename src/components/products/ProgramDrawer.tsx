@@ -8,7 +8,7 @@ import { ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { openGuidelinePdf, searchPassages, useLenderDetail, useProgramGuidelines, type GuidelineDocument, type Passage } from '@/lib/api/products'
 import { formatPercent } from '@/lib/format'
 import { defaultFilters, firstFilters, fitLine, gridOptions, matrixGrid, type GridFilters } from '@/lib/products/matrixGrid'
-import { DOC_TYPES, LENDER_STATUSES, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES } from '@/lib/products/taxonomy'
+import { DOC_TYPES, LENDER_STATUSES, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, termsSummary } from '@/lib/products/taxonomy'
 import type { CheckItem, ProgramResult, Scenario } from '@/lib/products/types'
 import { LenderMark } from './ProgramCard'
 
@@ -45,6 +45,7 @@ export function ProgramDrawer({ result: r, scenario, onClose }: Props) {
                 {lender.data?.aeName && ` · AE: ${lender.data.aeName}${lender.data.aePhone ? ` · ${lender.data.aePhone}` : ''}`}
               </p>
               <DialogPrimitive.Title className="text-lg font-semibold">{r.program.name}</DialogPrimitive.Title>
+              {r.program.termOptions.length > 0 && <p className="text-xs text-muted-foreground">Terms: {termsSummary(r.program.termOptions)}</p>}
               <DialogPrimitive.Description className="sr-only">Matrix, requirements and guidelines for this program</DialogPrimitive.Description>
             </div>
             {scenario && (

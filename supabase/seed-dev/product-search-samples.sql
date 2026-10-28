@@ -43,7 +43,7 @@ begin
     (org, d, 1, 11, '3.6', 'High-LTV purchases', 'For purchase transactions above 95% LTV, at least one borrower must be a first-time homebuyer unless the loan is underwritten as HomeReady or Home Possible. (Sample text.)');
 
   insert into public.programs (organization_id, lender_id, name, product_family, lien, doc_types, purposes, terms_months, last_verified_on)
-  values (org, l_north, 'Conventional 30-Year Fixed', 'conventional', 'first', '{full_doc}', '{purchase,rate_term,cash_out}', '{360}', '2026-10-01') returning id into p;
+  values (org, l_north, 'Conventional', 'conventional', 'first', '{full_doc}', '{purchase,rate_term,cash_out}', '{360}', '2026-10-01') returning id into p;
   insert into public.guideline_document_programs values (d, p, org);
   insert into public.matrix_versions (organization_id, program_id, version, status, effective_date, approved_at) values (org, p, 1, 'approved', '2026-10-01', now()) returning id into v;
   insert into public.program_matrix_cells (organization_id, matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_max, offered, max_ltv, source_page, notes)
@@ -79,7 +79,7 @@ begin
     (org, p, v, 'income_vs_ami', '<=', '80', 'Income limit 80% of area median income', 2);
 
   insert into public.programs (organization_id, lender_id, name, product_family, lien, doc_types, purposes, terms_months, last_verified_on)
-  values (org, l_north, 'FHA 30-Year Fixed', 'fha', 'first', '{full_doc}', '{purchase,rate_term,cash_out}', '{360}', '2026-10-01') returning id into p;
+  values (org, l_north, 'FHA', 'fha', 'first', '{full_doc}', '{purchase,rate_term,cash_out}', '{360}', '2026-10-01') returning id into p;
   insert into public.matrix_versions (organization_id, program_id, version, status, approved_at) values (org, p, 1, 'approved', now()) returning id into v;
   insert into public.program_matrix_cells (organization_id, matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, loan_amount_max, max_ltv, source_page) values
     (org, v, 'primary', '{sfr_pud,condo,two_to_four}', '{purchase,rate_term}', 'full_doc', 1, 4, 580, 524225, 96.5, 1),
@@ -102,7 +102,7 @@ begin
     (org, d, 2, 8, '3.4', 'DSCR calculation', 'DSCR is gross monthly rent divided by the full PITIA of all liens on the subject property. (Sample text.)');
 
   insert into public.programs (organization_id, lender_id, name, product_family, lien, doc_types, features, purposes, terms_months, prepay_options, last_verified_on)
-  values (org, l_blue, 'DSCR 30-Year Fixed', 'non_qm', 'first', '{dscr}', '{llc_vesting,interest_only}', '{purchase,rate_term,cash_out}', '{360}', '{0,1,2,3,5}', '2026-10-03') returning id into p;
+  values (org, l_blue, 'DSCR', 'non_qm', 'first', '{dscr}', '{llc_vesting,interest_only}', '{purchase,rate_term,cash_out}', '{360}', '{0,1,2,3,5}', '2026-10-03') returning id into p;
   insert into public.guideline_document_programs values (d, p, org);
   insert into public.matrix_versions (organization_id, program_id, version, status, approved_at) values (org, p, 1, 'approved', now()) returning id into v;
   insert into public.program_matrix_cells (organization_id, matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, dscr_min, max_ltv, source_page)
@@ -127,7 +127,7 @@ begin
     (org, p, v, 'reserves_months', '>=', '6', 'Six months of reserves', d, 8);
 
   insert into public.programs (organization_id, lender_id, name, product_family, lien, doc_types, purposes, terms_months, last_verified_on)
-  values (org, l_blue, 'Bank Statement 30-Year Fixed', 'non_qm', 'first', '{bank_statement_12}', '{purchase,rate_term,cash_out}', '{360}', '2026-10-03') returning id into p;
+  values (org, l_blue, 'Bank Statement', 'non_qm', 'first', '{bank_statement_12}', '{purchase,rate_term,cash_out}', '{360}', '2026-10-03') returning id into p;
   insert into public.matrix_versions (organization_id, program_id, version, status, approved_at) values (org, p, 1, 'approved', now()) returning id into v;
   insert into public.program_matrix_cells (organization_id, matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, offered, max_ltv, source_page)
   select org, v, 'primary', '{sfr_pud,condo}', c.pu::public.matrix_purpose[], 'bank_statement_12', 1, 1, c.f1, c.f2, 100000, 2000000, c.ltv is not null, c.ltv, 4
@@ -143,7 +143,7 @@ begin
   -- Lakeshore (not signed up): conventional and a DSCR second
   -- -------------------------------------------------------------------------
   insert into public.programs (organization_id, lender_id, name, product_family, lien, doc_types, purposes, terms_months, last_verified_on)
-  values (org, l_lake, 'Conventional 30 Fixed', 'conventional', 'first', '{full_doc}', '{purchase,rate_term}', '{360}', '2026-09-22') returning id into p;
+  values (org, l_lake, 'Conventional', 'conventional', 'first', '{full_doc}', '{purchase,rate_term}', '{360}', '2026-09-22') returning id into p;
   insert into public.matrix_versions (organization_id, program_id, version, status, approved_at) values (org, p, 1, 'approved', now()) returning id into v;
   insert into public.program_matrix_cells (organization_id, matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, loan_amount_max, max_ltv, source_page)
   values (org, v, 'primary', '{sfr_pud,condo}', '{purchase,rate_term}', 'full_doc', 1, 1, 620, 806500, 97, 1);

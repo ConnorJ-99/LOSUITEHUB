@@ -3,7 +3,7 @@
 
 import { formatCurrency, formatPercent } from '@/lib/format'
 import type { ReadGrid, ReadProgram } from '../../../supabase/functions/assistant/matrix'
-import { MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, type MatrixPropertyType, type MatrixPurpose } from './taxonomy'
+import { MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, termMonths, type MatrixPropertyType, type MatrixPurpose } from './taxonomy'
 import type { MatrixCell } from './types'
 
 /** A cell ready to save (no id yet). */
@@ -192,7 +192,8 @@ export function approvalPayload(programs: ReviewProgram[]) {
       doc_types: p.docTypes,
       features: p.features,
       purposes: p.purposes,
-      terms_months: p.termsMonths,
+      term_options: p.termOptions,
+      terms_months: [...new Set(p.termOptions.map(termMonths))],
       loan_amount_basis: p.loanAmountBasis,
       description: p.description ?? '',
       cells: cellsFromProgram(p).map((c) => ({

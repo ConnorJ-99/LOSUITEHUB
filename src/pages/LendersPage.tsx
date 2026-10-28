@@ -6,16 +6,18 @@ import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, PageHeader, ToggleChip, ToggleChipGroup, confirmAction } from '@/components/shared'
 import { LenderDialog } from '@/components/lenders/LenderDialog'
+import { ProgramDialog } from '@/components/lenders/ProgramDialog'
 import { UploadDocumentDialog } from '@/components/lenders/UploadDocumentDialog'
 import { LenderMark } from '@/components/products/ProgramCard'
-import { blankLender, useDeleteLenderDocument, useLenderDocuments, useLenderPrograms, useLenders, useSetProgramActive, useUpdateLenderDocument, type Lender, type LenderDocument, type LenderDraft, type LenderProgram } from '@/lib/api/lenders'
+import { blankLender, guessStoredDocument, useDeleteLenderDocument, useLenderDocuments, useLenderPrograms, useLenders, useSetProgramActive, useUpdateLenderDocument, type Lender, type LenderDocument, type LenderDraft, type LenderProgram } from '@/lib/api/lenders'
 import { readMatrix, usePendingImports, useStartTypedMatrix } from '@/lib/api/matrixImports'
 import { useAiStatus } from '@/lib/api/assistant'
 import { openGuidelinePdf, searchPassages, type Passage } from '@/lib/api/products'
 import { useAuth } from '@/lib/auth/context'
 import { todayIso } from '@/lib/dates'
 import { daysSince, isStale, oldestVerified, STALE_AFTER_DAYS } from '@/lib/products/stale'
-import { DOC_TYPES, LENDER_CHANNELS, LENDER_STATUSES, LIENS, PRODUCT_FAMILIES } from '@/lib/products/taxonomy'
+import { programFromGuess } from '@/lib/products/typedMatrix'
+import { DOC_TYPES, LENDER_CHANNELS, LENDER_STATUSES, LIENS, PRODUCT_FAMILIES, termsSummary } from '@/lib/products/taxonomy'
 
 const STATUS_CLASS: Record<Lender['status'], string> = {
   approved: 'bg-emerald-50 text-emerald-700',
@@ -173,6 +175,7 @@ function Info({ label, value }: { label: string; value: string }) {
 
 function ProgramList({ lenderId, programs, canEdit }: { lenderId: string; programs: LenderProgram[]; canEdit: boolean }) {
   const setActive = useSetProgramActive(lenderId)
+  const [editing, setEditing] = useState<LenderProgram | null>(null)
   if (programs.length === 0) return <p className="text-sm text-muted-foreground">No programs yet. Use Type a matrix to add one, or have the assistant read a matrix PDF; it appears here once you approve it.</p>
   return (
     <ul className="divide-y">
@@ -182,13 +185,20 @@ function ProgramList({ lenderId, programs, canEdit }: { lenderId: string; progra
             <p className="text-sm font-medium">{p.name}</p>
             <p className="text-xs text-muted-foreground">
               {PRODUCT_FAMILIES.label[p.family]} · {LIENS.label[p.lien]} · {p.docTypes.map((d) => DOC_TYPES.label[d]).join(', ')}
+              {p.termOptions.length > 0 ? ` · ${termsSummary(p.termOptions)}` : ' · no terms listed'}
               {p.lastVerifiedOn && ` · verified ${new Date(`${p.lastVerifiedOn}T12:00:00`).toLocaleDateString('en-US')}`}
               {!p.hasApprovedMatrix && ' · no approved matrix yet'}
             </p>
           </div>
+          {canEdit && (
+            <Button size="sm" variant="ghost" onClick={() => setEditing(p)}>
+              Edit
+            </Button>
+          )}
           <ToggleChip label={p.active ? 'In searches' : 'Retired'} pressed={p.active} disabled={!canEdit || setActive.isPending} onChange={(active) => setActive.mutate({ id: p.id, active }, { onError: (e) => toast.error(e.message) })} />
         </li>
       ))}
+      {editing && <ProgramDialog lenderId={lenderId} program={editing} onClose={() => setEditing(null)} />}
     </ul>
   )
 }
@@ -200,6 +210,9 @@ function DocumentList({ lenderId, documents, programs, canEdit }: { lenderId: st
   const [reading, setReading] = useState<string | null>(null)
   const navigate = useNavigate()
   const ai = useAiStatus()
+  const pending = usePendingImports(lenderId)
+  /** A draft already started for a document (typed or read), so it is continued instead of started twice. */
+  const draftFor = (id: string) => pending.data?.find((i) => i.documentId === id)?.id ?? null
   const aiOff = ai.data?.ready === false
   const read = async (d: LenderDocument) => {
     setReading(d.id)
@@ -241,10 +254,18 @@ function DocumentList({ lenderId, documents, programs, canEdit }: { lenderId: st
               )}
               {canEdit && (
                 <>
-                  {d.docType === 'matrix' && <TypeMatrixButton lenderId={lenderId} documentId={d.id} label="Type it in" />}
-                  {d.docType === 'matrix' && d.storagePath && (
+                  {d.programIds.length === 0 &&
+                    (draftFor(d.id) ? (
+                      <Button size="sm" variant="outline" asChild>
+                        <Link to={`/admin/lenders/imports/${draftFor(d.id)}`}>Continue setup</Link>
+                      </Button>
+                    ) : (
+                      <SetUpProgramButton lenderId={lenderId} document={d} />
+                    ))}
+                  {d.docType === 'matrix' && d.programIds.length > 0 && <TypeMatrixButton lenderId={lenderId} documentId={d.id} label="Type it in" />}
+                  {(d.docType === 'matrix' || d.docType === 'guidelines') && d.storagePath && (
                     <Button size="sm" variant="outline" disabled={reading !== null || aiOff} onClick={() => read(d)} title={aiOff ? 'Turns on once the AI assistant is set up (the Anthropic key in Supabase)' : 'The assistant reads every grid and rule; you review it against the PDF before anything is used'}>
-                      {reading === d.id ? 'Reading… (a minute or two)' : 'Read matrix (AI)'}
+                      {reading === d.id ? 'Reading… (a minute or two)' : 'Read with AI'}
                     </Button>
                   )}
                   <Button size="sm" variant="ghost" onClick={() => setLinking(linking === d.id ? null : d.id)}>
@@ -345,6 +366,34 @@ function TypeMatrixButton({ lenderId, documentId, label }: { lenderId: string; d
     >
       <KeyboardIcon />
       {start.isPending ? 'Starting…' : label}
+    </Button>
+  )
+}
+
+/** For a document no program covers: guesses its product from the title and first pages (no AI) and opens a matrix draft for a new program beside it. */
+function SetUpProgramButton({ lenderId, document: d }: { lenderId: string; document: LenderDocument }) {
+  const { state } = useAuth()
+  const start = useStartTypedMatrix(lenderId)
+  const navigate = useNavigate()
+  const [guessing, setGuessing] = useState(false)
+  if (state.status !== 'signedIn' || !state.user.organizationId) return null
+  const organizationId = state.user.organizationId
+  const setUp = async () => {
+    setGuessing(true)
+    try {
+      const guess = await guessStoredDocument(d)
+      const id = await start.mutateAsync({ organizationId, documentId: d.id, program: programFromGuess(guess.product) })
+      navigate(`/admin/lenders/imports/${id}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setGuessing(false)
+    }
+  }
+  return (
+    <Button size="sm" variant="outline" disabled={guessing} onClick={setUp} title="Starts a new program from this document (loan type, lien and terms filled in from it) for you to finish beside the PDF">
+      <PlusIcon />
+      {guessing ? 'Starting…' : 'Set up program'}
     </Button>
   )
 }

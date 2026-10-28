@@ -14,6 +14,8 @@ export const FEATURES = ['dpa', 'itin', 'foreign_national', 'interest_only', 'no
 export const PURPOSES = ['purchase', 'rate_term', 'cash_out'] as const
 export const PROPERTY_TYPES = ['sfr_pud', 'condo', 'non_warrantable_condo', 'two_to_four', 'manufactured', 'mixed_use'] as const
 export const OCCUPANCIES = ['primary', 'second_home', 'investment'] as const
+/** Term options: fixed terms, ARMs, and HELOC draw/repay periods (years). */
+export const TERMS = ['fixed_40', 'fixed_30', 'fixed_25', 'fixed_20', 'fixed_15', 'fixed_10', 'arm_5_6', 'arm_7_6', 'arm_10_6', 'heloc_10_20', 'heloc_10_15', 'heloc_5_25', 'heloc_3_27'] as const
 export const RULE_FIELDS = ['dti', 'reserves_months', 'mortgage_lates_12', 'mortgage_lates_24', 'bk_seasoning_months', 'fc_seasoning_months', 'state', 'citizenship', 'self_employed_years', 'loan_amount', 'fico', 'ltv', 'cltv', 'dscr', 'units', 'first_time_buyer', 'income_vs_ami'] as const
 export const RULE_OPS = ['<=', '>=', 'in', 'not_in', 'required', 'between'] as const
 
@@ -78,7 +80,8 @@ export interface ReadProgram {
   docTypes: Of<typeof DOC_TYPES>[]
   features: Of<typeof FEATURES>[]
   purposes: Of<typeof PURPOSES>[]
-  termsMonths: number[]
+  /** Every term the program offers; a program is a product, not one term. */
+  termOptions: Of<typeof TERMS>[]
   /** 2nd liens: whether the loan-amount tier uses the 2nd alone or 1st + 2nd. */
   loanAmountBasis: 'this_lien' | 'combined'
   description: string | null
@@ -115,7 +118,7 @@ export const MATRIX_SCHEMA = {
           doc_types: arrayOf(DOC_TYPES, 'Income documentation the program allows.'),
           features: arrayOf(FEATURES, 'Only features the matrix states the program offers or requires.'),
           purposes: arrayOf(PURPOSES, 'Loan purposes offered.'),
-          terms_months: { type: 'array', items: { type: 'integer' }, description: 'Terms offered, in months (e.g. 360).' },
+          term_options: arrayOf(TERMS, 'Every term the program offers: fixed terms, ARMs, HELOC draw/repay periods. One program per product: list its terms here, never a separate program per term.'),
           loan_amount_basis: { type: 'string', enum: ['this_lien', 'combined'], description: 'For 2nd liens: whether loan-amount tiers use the 2nd lien alone (this_lien) or 1st + 2nd (combined). this_lien for 1st liens.' },
           description: { type: 'string', description: 'One or two sentences on who the program is for, from the document. Empty if none.' },
           grids: {
@@ -191,7 +194,7 @@ export const MATRIX_SCHEMA = {
             },
           },
         },
-        required: ['name', 'family', 'lien', 'doc_types', 'features', 'purposes', 'terms_months', 'loan_amount_basis', 'description', 'grids', 'rules'],
+        required: ['name', 'family', 'lien', 'doc_types', 'features', 'purposes', 'term_options', 'loan_amount_basis', 'description', 'grids', 'rules'],
         additionalProperties: false,
       },
     },
@@ -209,10 +212,32 @@ export const MATRIX_SYSTEM_PROMPT = `You read mortgage lender eligibility matric
 - Credit bands: "720-739" is 720 to 739; "740+" or "≥740" is 740 to 850; "<620" is 300 to 619.
 - Loan amounts in dollars: "$1,000,001 - $1.5MM" is 1000001 to 1500000; "≤ $1MM" is 0 to 1000000.
 - Use only the words in the schema's lists. If the lender uses another name, pick the matching one; if none fits, leave it out and say so in notes.
+- A program is a loan product ("Conventional", "FHA", "Equity Advantage HELOC"), not a term: list its terms in term_options. Split a product into two programs only when the lender prints separate grids or rules for them.
+- If the document is a guideline with no grids, still return each program it covers with its terms, doc types, purposes, rules and description, and an empty grids list.
 - Program-wide requirements that are not grid cells go in rules, each with the exact quote and page.
 - Do not calculate, average or fill gaps. Report what is printed.`
 
-export const MATRIX_USER_PROMPT = 'Read this lender matrix and return every program, every grid (with every cell) and every program-wide rule, with pages and quotes.'
+export const MATRIX_USER_PROMPT = 'Read this lender document (a matrix or a guideline) and return every program (loan product) with its term options, every grid (with every cell) and every program-wide rule, with pages and quotes.'
+
+/**
+ * The matrix form is too large for structured outputs ("The compiled grammar is
+ * too large"), so its shape is given in the request instead, and every field
+ * of the reply is checked by normalizeMatrixReading (anything off the lists is
+ * dropped and listed for review).
+ */
+export const MATRIX_FORMAT_PROMPT = `Reply with one JSON object and nothing else (no Markdown, no commentary). It must match this JSON Schema exactly; use only the listed words where a list is given:\n${JSON.stringify(MATRIX_SCHEMA)}`
+
+/** The JSON object in a reply, even if it came wrapped in a code fence or a sentence; null if there isn't one. */
+export function parseJsonReply(text: string): unknown {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start < 0 || end <= start) return null
+  try {
+    return JSON.parse(text.slice(start, end + 1))
+  } catch {
+    return null
+  }
+}
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
@@ -313,7 +338,7 @@ export function normalizeMatrixReading(raw: unknown): MatrixReading | { error: s
         docTypes: pickAll(DOC_TYPES, p.doc_types, dropped, `${name} doc type`),
         features: pickAll(FEATURES, p.features, dropped, `${name} feature`),
         purposes: pickAll(PURPOSES, p.purposes, dropped, `${name} purpose`),
-        termsMonths: (Array.isArray(p.terms_months) ? p.terms_months : []).map(int).filter((n): n is number => n != null && n > 0),
+        termOptions: Array.isArray(p.term_options) ? pickAll(TERMS, p.term_options, dropped, `${name} term`) : legacyTerms(p.terms_months),
         loanAmountBasis: p.loan_amount_basis === 'combined' ? 'combined' : 'this_lien',
         description: str(p.description) || null,
         grids: (Array.isArray(p.grids) ? p.grids : []).filter(isObject).flatMap((g) => normalizeGrid(g, name, dropped) ?? []),
@@ -321,9 +346,15 @@ export function normalizeMatrixReading(raw: unknown): MatrixReading | { error: s
       },
     ]
   })
-  if (programs.length === 0) return { error: "The assistant couldn't find a program matrix in this document. Check that it's a matrix PDF." }
+  if (programs.length === 0) return { error: "The assistant couldn't find a loan program in this document. Check that it's a lender matrix or guideline." }
   const date = str(raw.effective_date)
   return { programs, effectiveDate: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null, notes: str(raw.notes) || null, dropped }
+}
+
+/** Older readings listed terms in months; fixed terms map to term options. */
+function legacyTerms(months: unknown): Of<typeof TERMS>[] {
+  const map: Record<number, Of<typeof TERMS>> = { 480: 'fixed_40', 360: 'fixed_30', 300: 'fixed_25', 240: 'fixed_20', 180: 'fixed_15', 120: 'fixed_10' }
+  return Array.isArray(months) ? [...new Set(months.map(int).flatMap((n) => (n != null && map[n] ? [map[n]] : [])))] : []
 }
 
 /** Matrix PDFs are read one at a time; base64 adds a third, so 20 MB stays under the request limit. */

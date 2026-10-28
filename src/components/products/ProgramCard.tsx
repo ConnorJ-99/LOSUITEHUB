@@ -1,7 +1,7 @@
 import { CheckIcon } from 'lucide-react'
 import { cn } from 'cn'
 import { formatCompactCurrency, formatCurrency, formatPercent } from '@/lib/format'
-import { DOC_TYPES, LENDER_STATUSES, PRODUCT_FAMILIES } from '@/lib/products/taxonomy'
+import { DOC_TYPES, LENDER_STATUSES, PRODUCT_FAMILIES, termsSummary } from '@/lib/products/taxonomy'
 import type { Badge, ProgramResult } from '@/lib/products/types'
 
 const BADGE_LABEL: Record<Badge, string> = { best_fit: 'Best fit', highest_max_loan: 'Highest max loan', lowest_fico_floor: 'Lowest FICO floor' }
@@ -73,6 +73,7 @@ export function ProgramCard({ result: r, selected, onSelect, verifiedOn, onView 
         <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
           {PRODUCT_FAMILIES.label[r.program.family]} · {r.program.docTypes.map((d) => DOC_TYPES.label[d]).join(', ')}
         </span>
+        {r.program.termOptions.length > 0 && <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">{termsSummary(r.program.termOptions)}</span>}
         {r.badges.map((b) => (
           <span key={b} className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
             {BADGE_LABEL[b]}

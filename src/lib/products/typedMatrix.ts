@@ -253,7 +253,13 @@ export function blankGrid(p: Pick<ReadProgram, 'lien' | 'purposes' | 'docTypes'>
 }
 
 export function blankProgram(name = ''): ReadProgram {
-  const p: ReadProgram = { name, family: 'conventional', lien: 'first', docTypes: ['full_doc'], features: [], purposes: ['purchase', 'rate_term', 'cash_out'], termsMonths: [360], loanAmountBasis: 'this_lien', description: null, grids: [], rules: [] }
+  const p: ReadProgram = { name, family: 'conventional', lien: 'first', docTypes: ['full_doc'], features: [], purposes: ['purchase', 'rate_term', 'cash_out'], termOptions: ['fixed_30'], loanAmountBasis: 'this_lien', description: null, grids: [], rules: [] }
+  return { ...p, grids: [blankGrid(p)] }
+}
+
+/** A new program filled in from what an uploaded PDF looks like (name, loan type, lien, doc types, terms); seconds start as cash-out. */
+export function programFromGuess(g: Pick<ReadProgram, 'name' | 'family' | 'lien' | 'docTypes' | 'features' | 'termOptions'>): ReadProgram {
+  const p: ReadProgram = { ...blankProgram(g.name), family: g.family, lien: g.lien, docTypes: [...g.docTypes], features: [...g.features], termOptions: [...g.termOptions], purposes: g.lien === 'first' ? ['purchase', 'rate_term', 'cash_out'] : ['cash_out'] }
   return { ...p, grids: [blankGrid(p)] }
 }
 

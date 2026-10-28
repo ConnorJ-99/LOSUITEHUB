@@ -85,8 +85,18 @@ describe('checking what the assistant read', () => {
   it('rules keep their quote, page and when they apply', () => {
     expect(r.programs[0].rules[1]).toEqual({ field: 'first_time_buyer', op: 'required', value: null, appliesWhen: { purposes: ['purchase'], ltv_above: 95 }, severity: 'hard', message: 'Above 95% LTV, a first-time buyer', page: 11, quote: 'at least one borrower must be a first-time homebuyer' })
   })
+  it('finds the JSON in a reply, fenced or with a sentence around it', () => {
+    expect(M.parseJsonReply('{"programs":[]}')).toEqual({ programs: [] })
+    expect(M.parseJsonReply('Here it is:\n```json\n{"programs":[{"name":"A"}]}\n```')).toEqual({ programs: [{ name: 'A' }] })
+    expect(M.parseJsonReply('no json here')).toBeNull()
+    expect(M.parseJsonReply('{"programs": [')).toBeNull()
+  })
+  it('asks for the form in the request, with its lists', () => {
+    expect(M.MATRIX_FORMAT_PROMPT).toContain('"term_options"')
+    expect(M.MATRIX_FORMAT_PROMPT).toContain('heloc_10_20')
+  })
   it('nothing usable is an error', () => {
-    expect(M.normalizeMatrixReading({ programs: [] })).toEqual({ error: expect.stringContaining("couldn't find a program matrix") })
+    expect(M.normalizeMatrixReading({ programs: [] })).toEqual({ error: expect.stringContaining("couldn't find a loan program") })
   })
 })
 
@@ -173,6 +183,16 @@ describe('approval', () => {
     expect(payload[0].cells).toHaveLength(6)
     expect(payload[0].cells[5]).toMatchObject({ occupancy: 'investment', offered: false, max_ltv: null, source_page: 1 })
     expect(payload[0].rules[0]).toEqual({ field: 'dti', op: '<=', value: 50, applies_when: null, severity: 'hard', message: 'Max DTI 50%', source_page: 3, source_quote: 'Maximum DTI 50%' })
+  })
+  it('saves the term options, with their months for older screens', () => {
+    expect(p.termOptions).toEqual(['fixed_30'])
+    const payload = approvalPayload([{ ...p, termOptions: ['fixed_30', 'fixed_15', 'arm_7_6'], include: true, programId: null }])
+    expect(payload[0]).toMatchObject({ term_options: ['fixed_30', 'fixed_15', 'arm_7_6'], terms_months: [360, 180] })
+  })
+  it('reads term options and drops ones not on the list', () => {
+    const r = M.normalizeMatrixReading({ programs: [{ name: 'HELOC', family: 'non_qm', lien: 'heloc', doc_types: ['full_doc'], features: [], purposes: ['cash_out'], term_options: ['heloc_10_20', 'heloc_99_1'], loan_amount_basis: 'combined', description: '', grids: [], rules: [] }] }) as M.MatrixReading
+    expect(r.programs[0].termOptions).toEqual(['heloc_10_20'])
+    expect(r.dropped).toEqual(['HELOC term: "heloc_99_1"'])
   })
   it('a newer matrix updates the program with the same name', () => {
     expect(matchProgram('Conventional 30-Year  Fixed', [{ id: 'a', name: 'conventional 30 year fixed' }])).toBe('a')

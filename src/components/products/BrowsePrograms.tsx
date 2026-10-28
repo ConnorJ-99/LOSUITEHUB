@@ -7,7 +7,7 @@ import { todayIso } from '@/lib/dates'
 import { formatCompactCurrency, formatPercent } from '@/lib/format'
 import { allBrowseFilters, BROWSE_GROUP_LABEL, BROWSE_GROUPS, browseCounts, browseResult, browseRows, filterBrowse, groupBrowse, type BrowseFilters, type BrowseRow, type BrowseSort } from '@/lib/products/browse'
 import { daysSince, isStale } from '@/lib/products/stale'
-import { FEATURES, LENDER_STATUSES, LIENS, type Lien } from '@/lib/products/taxonomy'
+import { FEATURES, LENDER_STATUSES, LIENS, termsSummary, type Lien } from '@/lib/products/taxonomy'
 import type { Catalog, ProgramResult } from '@/lib/products/types'
 import { LenderMark } from './ProgramCard'
 import { ProgramDrawer } from './ProgramDrawer'
@@ -180,6 +180,7 @@ function BrowseCard({ row: r, verifiedOn, onView }: { row: BrowseRow; verifiedOn
             {r.lender.name} · <span className={r.lender.status === 'approved' ? 'text-emerald-700' : 'text-amber-700'}>{LENDER_STATUSES.label[r.lender.status]}</span>
           </p>
           <p className="leading-tight font-semibold">{r.program.name}</p>
+          {r.program.termOptions.length > 0 && <p className="text-xs text-muted-foreground">{termsSummary(r.program.termOptions)}</p>}
         </div>
       </div>
       {chips.length > 0 && (

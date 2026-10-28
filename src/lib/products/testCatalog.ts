@@ -54,6 +54,7 @@ export function program(lenderId: string, name: string, over: Partial<CatalogPro
     docTypes: ['full_doc'],
     features: [],
     purposes: ['purchase', 'rate_term', 'cash_out'],
+    termOptions: ['fixed_30'],
     loanAmountBasis: 'this_lien',
     active: true,
     cells: [],

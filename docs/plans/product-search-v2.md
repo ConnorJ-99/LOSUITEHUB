@@ -2,7 +2,7 @@
 
 Status: ready to build after the current pricing work is finished
 Owner: Connor
-Mockups: `docs/design-reference/product-search-v2/01–07*.png`
+Mockups: `docs/design-reference/product-search-v2/01–09*.png`
 
 ## 1. Why this matters
 Connor spent five hours finding one lender with one product for one borrower. The goal: **any scenario → the right programs from every lender in under 30 seconds**, with the guideline text on screen to confirm it.
@@ -122,6 +122,9 @@ Golden tests: Connor provides 2–3 real lender matrices, and for each one 10 sc
 - **06 Borrower → Loan → Pricing (empty)**: lender cards with only the lender and program until pricing is entered, a pricing scenario selector (**TBD, no property** or a saved home), and quote entry (rate, lock, points, lender credit, total closing costs or "use fee sheet", MI, date) or upload of a quote PDF for the assistant to read.
 - **07 Pricing comparison (filled)**: sort by Best rate, Lowest cash to close, Lowest payment or Lowest 5-year cost. The winner for the active sort gets a **green outline and banner**; other category winners get orange chips/outline. Each card shows cash to close, P&I, MI, taxes and insurance, total payment and 5-year cost. "What the numbers say" shows break-even math between options. Actions: Choose, Save comparison, Create borrower estimate PDF (all options), Draft summary to borrower.
 
+- **08 Lenders**: summary tiles (lenders, approved, pending/not signed up, programs, needs attention), status tabs, search, "offers" filters by product type. Lender cards show status, channel and states, product-type counts, programs, your loans YTD, matrix date (green when current, orange when stale), AE, and banners for "new matrix waiting for review" or "stale matrix".
+- **09 Lender detail**: header with status, comp, matrix version, your loans, average app-to-close and AE contact. Tabs: Products, Documents, Overlays & notes, Contacts, Loans. Products shows a table grouped by product type (lien, min FICO, max LTV/CLTV, loan range, occupancy, verified date), filter chips, and a search box over this lender's guidelines; clicking a program opens the same drawer as Product Search (04). The side panel shows documents with versions and what was extracted, the last matrix update's diff, Connor's private notes about the lender, and contacts.
+
 ## 7. Pricing math (pure functions in `src/lib/calc/`, tested)
 - P&I from rate, term and loan amount; total payment = P&I + MI + taxes + insurance + HOA.
 - Cash to close = down payment + closing costs (incl. points) − lender credits − seller credits − earnest money.
@@ -141,7 +144,7 @@ Golden tests: Connor provides 2–3 real lender matrices, and for each one 10 sc
 4. Program detail drawer with matrix grid, requirements and guideline passages (04).
 5. Lender admin: add lender with status, upload documents, text extraction and passage indexing, full-text search.
 6. AI import + review screen + automatic checks + versioning/diff (section 5). Test on Connor's real matrices.
-7. Browse all programs (05).
+7. Browse all programs (05), the Lenders page and lender detail (08, 09).
 8. Borrower shortlist, quotes, TBD pricing scenarios, comparison and sorting, choose program (06, 07), and estimate PDF from the comparison.
 9. Ask the assistant: scenario parsing into the same `Scenario` shape (schema-validated), guideline Q&A over passages with citations, usage counter (02).
 

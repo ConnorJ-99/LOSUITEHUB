@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { cellsFromGrid, checkProgram } from './matrixImport'
 import type { MatrixPurpose } from './taxonomy'
-import { addColumn, addRow, applyPaste, blankGrid, blankProgram, closeBands, closeTiers, copyGrid, parseBand, parseColumn, parsePaste, removeColumn, removeRow, ruleFromInput, setColumnHeader, setRowBand, syncGrids, unitsFor } from './typedMatrix'
+import { addColumn, addRow, applyPaste, blankGrid, blankProgram, closeBands, closeTiers, copyGrid, parseBand, parseColumn, parsePaste, programFromGuess, removeColumn, removeRow, ruleFromInput, setColumnHeader, setRowBand, syncGrids, unitsFor } from './typedMatrix'
 
 /** The Equity Flex CLTV grid from the Product Search mockup, as copied from Excel (tabs between squares). */
 const EXCEL = [
@@ -189,6 +189,11 @@ describe('grid shape', () => {
     const g = { ...p.grids[0], purposes: ['purchase'] as MatrixPurpose[] }
     expect(syncGrids({ ...p, grids: [g], purposes: ['cash_out'] }).grids[0].purposes).toEqual(['cash_out'])
     expect(syncGrids({ ...p, docTypes: [] }).grids[0].docType).toBe('full_doc')
+  })
+  it('starts a program from what an uploaded PDF looks like', () => {
+    const p = programFromGuess({ name: 'Equity Advantage HELOC', family: 'non_qm', lien: 'heloc', docTypes: ['full_doc'], features: [], termOptions: ['heloc_10_20'] })
+    expect(p).toMatchObject({ name: 'Equity Advantage HELOC', lien: 'heloc', purposes: ['cash_out'], termOptions: ['heloc_10_20'] })
+    expect(p.grids[0]).toMatchObject({ ratio: 'cltv', purposes: ['cash_out'], docType: 'full_doc' })
   })
   it('uses CLTV for 2nd liens', () => {
     expect(blankGrid({ lien: 'heloc', purposes: [], docTypes: [] }).ratio).toBe('cltv')
