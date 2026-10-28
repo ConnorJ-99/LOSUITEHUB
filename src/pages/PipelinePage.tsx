@@ -10,7 +10,7 @@ import { PipelineList } from '@/components/pipeline/PipelineList'
 import { useStageChanger } from '@/components/pipeline/useStageChanger'
 import { useOrgMembers, usePipeline } from '@/lib/api/loans'
 import { emptyFilters, isOnBoard, matchesFilters, type PipelineFilters } from '@/lib/pipeline/helpers'
-import { pipelineFor, PIPELINES, type PipelineId } from '@/lib/pipeline/pipelines'
+import { pipelineFor, PIPELINES, purposePipeline, type PipelineId } from '@/lib/pipeline/pipelines'
 import { PURPOSES, STAGES } from '@/lib/pipeline/stages'
 
 type View = 'board' | 'list'
@@ -87,6 +87,9 @@ function PipelineView({ pipeline: only }: { pipeline: PipelineId | null }) {
   })
 
   const active = allLoans.filter((l) => l.stage !== 'closed' && l.stage !== 'lost' && l.stage !== 'nurture').length
+  // A loan-type board only offers its own purposes (none to pick on Purchase or Investment).
+  const typeBoard = only === 'purchase' || only === 'refinance' || only === 'investment' || only === 'heloc'
+  const purposes = typeBoard ? PURPOSES.filter((p) => purposePipeline(p.value) === only) : PURPOSES
   const filtersActive = JSON.stringify(filters) !== JSON.stringify(emptyFilters)
 
   return (
@@ -142,9 +145,11 @@ function PipelineView({ pipeline: only }: { pipeline: PipelineId | null }) {
               placeholder="Name, phone, email or source"
               className="w-full sm:w-72"
             />
-            <div className="w-full sm:w-44">
-              <Select label="Purpose" value={filters.purpose} onChange={setFilter('purpose')} options={[{ value: 'all', label: 'All purposes' }, ...PURPOSES]} />
-            </div>
+            {purposes.length > 1 && (
+              <div className="w-full sm:w-44">
+                <Select label="Purpose" value={filters.purpose} onChange={setFilter('purpose')} options={[{ value: 'all', label: 'All purposes' }, ...purposes]} />
+              </div>
+            )}
             {view === 'list' && (
               <div className="w-full sm:w-48">
                 <Select label="Stage" value={filters.stage} onChange={setFilter('stage')} options={[{ value: 'all', label: 'All stages' }, ...STAGES]} />
@@ -168,7 +173,7 @@ function PipelineView({ pipeline: only }: { pipeline: PipelineId | null }) {
           </div>
 
           {view === 'board' ? (
-            <PipelineBoard loans={visible} showLo={showLo} onRequestChange={requestChange} stages={info ? [...new Set(info.columns.flatMap((c) => c.stages))] : undefined} />
+            <PipelineBoard loans={visible} showLo={showLo} onRequestChange={requestChange} columns={info?.columns} />
           ) : visible.length === 0 ? (
             <Card>
               <EmptyState icon={SearchXIcon} title="No loans match" description="Try a different search or clear the filters." />

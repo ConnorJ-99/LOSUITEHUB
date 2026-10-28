@@ -424,6 +424,34 @@ export function useSetPriority(loanId: string) {
   })
 }
 
+export type CardChanges = Partial<Pick<PipelineLoan, 'priority' | 'statusDetail' | 'timeline'>>
+
+/** Saves a pipeline card's star, status detail or timeline; the board updates at once and rolls back if the save fails. */
+export function useUpdateCard() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ loanId, changes }: { loanId: string; changes: CardChanges }) => {
+      const row = {
+        ...(changes.priority !== undefined && { priority: changes.priority }),
+        ...(changes.statusDetail !== undefined && { status_detail: changes.statusDetail }),
+        ...(changes.timeline !== undefined && { timeline: changes.timeline }),
+      }
+      unwrap(await db().from('loans').update(row).eq('id', loanId).select('id'))
+    },
+    onMutate: async ({ loanId, changes }) => {
+      await queryClient.cancelQueries({ queryKey: keys.pipeline })
+      const before = queryClient.getQueryData<PipelineLoan[]>(keys.pipeline)
+      queryClient.setQueryData<PipelineLoan[]>(keys.pipeline, (loans) => loans?.map((l) => (l.id === loanId ? { ...l, ...changes } : l)))
+      return { before }
+    },
+    onError: (_e, _v, context) => context?.before && queryClient.setQueryData(keys.pipeline, context.before),
+    onSettled: (_d, _e, { loanId }) => {
+      queryClient.invalidateQueries({ queryKey: keys.pipeline })
+      queryClient.invalidateQueries({ queryKey: keys.loan(loanId) })
+    },
+  })
+}
+
 export function useUpdateLoanDetails(loanId: string) {
   const queryClient = useQueryClient()
   return useMutation({
