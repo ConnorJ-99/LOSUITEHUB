@@ -21,6 +21,8 @@ export interface FileHeaderProps {
   saveDisabled?: boolean
   onChangeStatus?: () => void
   backTo?: string
+  /** The back link's words, e.g. the file's pipeline ("Purchase"). */
+  backLabel?: string
   /** Extra buttons on the second line (e.g. Edit and the stage menu). */
   actions?: React.ReactNode
   /** A full-width notice under the chips, e.g. why the file was lost. */
@@ -30,14 +32,14 @@ export interface FileHeaderProps {
 }
 
 /** Header on every borrower page: name, chips and actions stay pinned at the top; the details (metrics, milestones, team) sit below and scroll with the page. */
-export function FileHeader({ borrowerName, fileNumber, statusLabel, nextStep, updatedLabel, detailsOpen, onToggleDetails, onSave, saveDisabled, onChangeStatus, backTo = '/pipeline', actions, notice, children }: FileHeaderProps) {
+export function FileHeader({ borrowerName, fileNumber, statusLabel, nextStep, updatedLabel, detailsOpen, onToggleDetails, onSave, saveDisabled, onChangeStatus, backTo = '/pipeline', backLabel = 'Pipeline', actions, notice, children }: FileHeaderProps) {
   return (
     <>
       <header className="sticky top-0 z-20 -mx-4 space-y-2 border-b bg-card/95 px-4 pt-3 pb-2.5 backdrop-blur md:-mx-6 md:px-6">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <Link to={backTo} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
             <ArrowLeftIcon className="size-4" />
-            Pipeline
+            {backLabel}
           </Link>
           <h1 className="text-2xl leading-tight">{borrowerName}</h1>
           {fileNumber && <span className="rounded border px-1.5 py-0.5 font-mono text-[0.7rem] text-muted-foreground">{fileNumber}</span>}

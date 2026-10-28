@@ -11,9 +11,10 @@ import { useTodayData, type FileInfo } from '@/lib/api/queue'
 import { useMyOpenTasks, useToggleTask } from '@/lib/api/tasks'
 import { useAuth } from '@/lib/auth/context'
 import { formatIsoDate, todayIso } from '@/lib/dates'
-import { isOnBoard } from '@/lib/pipeline/helpers'
+import { formatCompactCurrency } from '@/lib/format'
+import { pipelineTiles } from '@/lib/pipeline/leadsHome'
+import { pipelineInfo } from '@/lib/pipeline/pipelines'
 import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
-import { STAGES } from '@/lib/pipeline/stages'
 import { WebLeadsCard } from '@/components/queue/WebLeadsCard'
 import { buildToday, groupToday, type TodayEntry } from '@/lib/queue/today'
 
@@ -72,22 +73,23 @@ function Entries({ entries, files }: { entries: TodayEntry[]; files: Map<string,
   )
 }
 
+/** Each pipeline with files in it, its count and dollar total; one click opens that board. */
 function PipelineSnapshot() {
   const pipeline = usePipeline()
   if (pipeline.isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>
-  const loans = (pipeline.data ?? []).filter((l) => isOnBoard(l.stage, l.stageChangedAt))
-  if (loans.length === 0) return <p className="text-sm text-muted-foreground">No active files.</p>
+  const tiles = pipelineTiles(pipeline.data ?? []).filter((t) => t.count > 0)
+  if (tiles.length === 0) return <p className="text-sm text-muted-foreground">No active files.</p>
   return (
-    <ul className="space-y-1.5 text-sm">
-      {STAGES.map((stage) => {
-        const count = loans.filter((l) => l.stage === stage.value).length
-        return count ? (
-          <li key={stage.value} className="flex justify-between gap-2">
-            <span className="text-muted-foreground">{stage.label}</span>
-            <span className="font-medium tabular-nums">{count}</span>
-          </li>
-        ) : null
-      })}
+    <ul className="space-y-1 text-sm">
+      {tiles.map((t) => (
+        <li key={t.id}>
+          <Link to={`/pipeline/${t.id}`} className="-mx-2 flex items-baseline gap-2 rounded-md px-2 py-1 hover:bg-muted">
+            <span className="mr-auto text-muted-foreground">{pipelineInfo(t.id).label}</span>
+            <span className="text-xs font-medium text-money tabular-nums">{formatCompactCurrency(t.total)}</span>
+            <span className="w-6 text-right font-medium tabular-nums">{t.count}</span>
+          </Link>
+        </li>
+      ))}
     </ul>
   )
 }

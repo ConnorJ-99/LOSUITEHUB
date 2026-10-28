@@ -53,6 +53,7 @@ import { validateApplication } from '@/lib/loanfile/urla'
 import { buildWorkflow, daysWaiting, milestoneView, OWNER_LABEL } from '@/lib/loanfile/workflow'
 import { fullName } from '@/lib/pipeline/helpers'
 import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
+import { pipelineFor, pipelineInfo } from '@/lib/pipeline/pipelines'
 import { applicationSummary } from '@/lib/urla/summary'
 
 const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'loan', 'properties', 'letters'] as const
@@ -124,6 +125,8 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const goTo = (next: string) => setSearchParams(next === 'overview' ? {} : { tab: next }, { replace: true })
 
   const name = fullName(loan.borrower)
+  // The back link returns to the board this file shows on (Purchase, In Process, Nurture...).
+  const home = pipelineFor(loan)
   const today = todayIso()
   const ready = app.data && properties.data
   const summary = ready ? applicationSummary(loan, app.data!, properties.data) : null
@@ -192,6 +195,8 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     <>
       <FileHeader
         borrowerName={name}
+        backTo={home ? `/pipeline/${home}` : '/pipeline'}
+        backLabel={home ? pipelineInfo(home).label : 'Pipeline'}
         fileNumber={loan.details.ariveLoanNumber}
         statusLabel={`${purposeLabel(loan.purpose)} · ${stageLabel(loan.stage)}`}
         nextStep={next ? `${next.name} · ${OWNER_LABEL[next.owner]} · ${days}d` : null}

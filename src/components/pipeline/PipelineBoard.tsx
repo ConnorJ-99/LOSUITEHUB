@@ -90,6 +90,42 @@ function Column({ column, loans, showLo, onRequestChange, tasks, onAddLead }: { 
   )
 }
 
+/** A one-column pipeline as a grid of cards with the column's count and dollar total. */
+function SingleList({ column, loans, showLo, onRequestChange, tasks, onAddLead }: { column: PipelineColumn; loans: PipelineLoan[] } & Omit<BoardProps, 'loans' | 'columns'>) {
+  const navigate = useNavigate()
+  const total = loans.reduce((sum, l) => sum + (cardAmount(l) ?? 0), 0)
+  return (
+    <section aria-label={column.label} className="space-y-3">
+      <header className="flex items-baseline gap-3">
+        <h2 className="font-heading text-lg">{column.label}</h2>
+        <span className="text-sm text-muted-foreground tabular-nums">{loans.length}</span>
+        <span className="text-sm font-medium text-money tabular-nums">{formatCompactCurrency(total)}</span>
+        {onAddLead && column.dropStage && column.dropStage !== 'lost' && (
+          <button type="button" onClick={() => onAddLead(column.dropStage!)} className="ml-auto rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-card hover:text-foreground">
+            + Add lead
+          </button>
+        )}
+      </header>
+      {loans.length === 0 ? (
+        <p className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">Nothing here.</p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          {loans.map((loan) => (
+            <LoanCard
+              key={loan.id}
+              loan={loan}
+              showLo={showLo}
+              tasks={tasks?.get(loan.id)}
+              onOpen={() => navigate(`/loans/${loan.id}`)}
+              onStageSelect={(stage) => onRequestChange({ id: loan.id, stage: loan.stage, borrowerName: fullName(loan.borrower) }, stage)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 /** Kanban board: a pipeline's columns, each with a count and dollar total. Drag a card, or use its ⋯ menu, to move it. */
 export function PipelineBoard({ loans, showLo, onRequestChange, columns = STAGE_COLUMNS, tasks, onAddLead }: BoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -110,6 +146,13 @@ export function PipelineBoard({ loans, showLo, onRequestChange, columns = STAGE_
     // Dropping in the column it's already in changes nothing.
     if (!loan || !target || columns.find((c) => c.id === over?.id)?.stages.includes(loan.stage)) return
     onRequestChange({ id: loan.id, stage: loan.stage, borrowerName: fullName(loan.borrower) }, target)
+  }
+
+  // One-column pipelines (New Leads, Nurture, Lost): a grid across the page, newest first; move cards with their ⋯ menu.
+  if (columns.length === 1) {
+    const column = columns[0]
+    const here = inColumn(column).sort((a, b) => b.stageChangedAt.localeCompare(a.stageChangedAt))
+    return <SingleList column={column} loans={here} showLo={showLo} onRequestChange={onRequestChange} tasks={tasks} onAddLead={onAddLead} />
   }
 
   return (
