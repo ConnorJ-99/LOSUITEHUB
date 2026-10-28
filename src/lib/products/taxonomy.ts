@@ -38,6 +38,7 @@ export const DOC_TYPES = labels([
   ['dscr', 'DSCR'],
   ['wvoe', 'WVOE'],
   ['no_ratio', 'No ratio'],
+  ['retirement_distribution', 'IRA / retirement distribution'],
 ] as const)
 export type DocType = (typeof DOC_TYPES.values)[number]
 

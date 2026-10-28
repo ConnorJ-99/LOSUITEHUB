@@ -9,7 +9,7 @@
 
 export const FAMILIES = ['conventional', 'fha', 'va', 'usda', 'jumbo', 'non_qm'] as const
 export const LIENS = ['first', 'ces', 'heloc'] as const
-export const DOC_TYPES = ['full_doc', 'bank_statement_12', 'bank_statement_24', 'form_1099', 'pnl_only', 'asset_depletion', 'dscr', 'wvoe', 'no_ratio'] as const
+export const DOC_TYPES = ['full_doc', 'bank_statement_12', 'bank_statement_24', 'form_1099', 'pnl_only', 'asset_depletion', 'dscr', 'wvoe', 'no_ratio', 'retirement_distribution'] as const
 export const FEATURES = ['dpa', 'itin', 'foreign_national', 'interest_only', 'non_warrantable_condo', 'manufactured', 'buydown', 'recent_credit_event', 'first_time_investor', 'str_income', 'homeready_possible', 'llc_vesting'] as const
 export const PURPOSES = ['purchase', 'rate_term', 'cash_out'] as const
 export const PROPERTY_TYPES = ['sfr_pud', 'condo', 'non_warrantable_condo', 'two_to_four', 'manufactured', 'mixed_use'] as const
@@ -49,7 +49,8 @@ export interface ReadGrid {
   occupancy: Of<typeof OCCUPANCIES>
   propertyTypes: Of<typeof PROPERTY_TYPES>[]
   purposes: Of<typeof PURPOSES>[]
-  docType: Of<typeof DOC_TYPES>
+  /** Every income type the grid applies to (one grid can cover bank statement, asset depletion and IRA distribution alike). */
+  docTypes: Of<typeof DOC_TYPES>[]
   unitsMin: number
   unitsMax: number
   rows: GridRow[]
@@ -133,7 +134,7 @@ export const MATRIX_SCHEMA = {
                 occupancy: enumOf(OCCUPANCIES, 'Occupancy for the whole grid (columns can override).'),
                 property_types: arrayOf(PROPERTY_TYPES, 'Property types the whole grid covers (columns can override).'),
                 purposes: arrayOf(PURPOSES, 'Purposes the whole grid covers (columns can override).'),
-                doc_type: enumOf(DOC_TYPES),
+                doc_types: arrayOf(DOC_TYPES, 'Every income type this grid applies to. When one grid covers several (bank statement, asset depletion, IRA distribution...), list them all; never pick one or split the grid.'),
                 units_min: { type: 'integer' },
                 units_max: { type: 'integer' },
                 rows: {
@@ -165,7 +166,7 @@ export const MATRIX_SCHEMA = {
                 printed_columns: { type: 'integer', description: 'How many value columns the printed grid has.' },
                 notes: { type: 'string', description: 'Footnotes under the grid, as printed. Empty if none.' },
               },
-              required: ['page', 'title', 'ratio', 'occupancy', 'property_types', 'purposes', 'doc_type', 'units_min', 'units_max', 'rows', 'columns', 'values', 'printed_rows', 'printed_columns', 'notes'],
+              required: ['page', 'title', 'ratio', 'occupancy', 'property_types', 'purposes', 'doc_types', 'units_min', 'units_max', 'rows', 'columns', 'values', 'printed_rows', 'printed_columns', 'notes'],
               additionalProperties: false,
             },
           },
@@ -208,6 +209,7 @@ export const MATRIX_SYSTEM_PROMPT = `You read mortgage lender eligibility matric
 
 - Copy every max LTV / CLTV grid exactly as printed: one entry per grid, rows are credit-score bands top to bottom, columns left to right.
 - A blank cell, "—", "N/A", "NA" or "not offered" is null. Never write 0 for a blank.
+- A grid often covers several income types (e.g. one Non-QM grid for bank statement, asset depletion and IRA distribution): list every one in doc_types. Income types the lender names that aren't on the list go in notes.
 - Put what a column changes on the column (a loan-amount tier, an occupancy, units, purposes or property types) and what the whole grid shares on the grid.
 - Credit bands: "720-739" is 720 to 739; "740+" or "≥740" is 740 to 850; "<620" is 300 to 619.
 - Loan amounts in dollars: "$1,000,001 - $1.5MM" is 1000001 to 1500000; "≤ $1MM" is 0 to 1000000.
@@ -258,8 +260,9 @@ const pickAll = <T extends readonly string[]>(values: T, v: unknown, dropped: st
 function normalizeGrid(g: Record<string, unknown>, program: string, dropped: string[]): ReadGrid | null {
   const where = `${program}, grid "${str(g.title)}"`
   const occupancy = pick(OCCUPANCIES, g.occupancy)
-  const docType = pick(DOC_TYPES, g.doc_type)
-  if (!occupancy || !docType) {
+  // Older readings had one doc_type per grid.
+  const docTypes = Array.isArray(g.doc_types) ? pickAll(DOC_TYPES, g.doc_types, dropped, `${where} income type`) : [pick(DOC_TYPES, g.doc_type)].filter((d): d is Of<typeof DOC_TYPES> => d != null)
+  if (!occupancy || docTypes.length === 0) {
     dropped.push(`${where}: unknown occupancy or doc type`)
     return null
   }
@@ -284,7 +287,7 @@ function normalizeGrid(g: Record<string, unknown>, program: string, dropped: str
     occupancy,
     propertyTypes: pickAll(PROPERTY_TYPES, g.property_types, dropped, `${where} property type`),
     purposes: pickAll(PURPOSES, g.purposes, dropped, `${where} purpose`),
-    docType,
+    docTypes,
     unitsMin: int(g.units_min) ?? 1,
     unitsMax: int(g.units_max) ?? 4,
     rows,

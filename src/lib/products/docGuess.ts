@@ -101,12 +101,19 @@ function signals(text: string): Signals {
   const lien: Lien | null = /\bheloc\b|home equity line/.test(t) ? 'heloc' : /closed[- ]end second|\bces\b|second lien|2nd lien|stand[- ]?alone second|\bheloan\b|home equity loan|\b2nds?\b/.test(t) ? 'ces' : null
   const docTypes: DocType[] = []
   if (/\bdscr\b|debt service coverage/.test(t)) docTypes.push('dscr')
-  if (/bank[- ]statement/.test(t)) docTypes.push(/24[- ]?(mo|month)/.test(t) && !/12[- ]?(mo|month)/.test(t) ? 'bank_statement_24' : 'bank_statement_12')
+  if (/bank[- ]statement/.test(t)) {
+    // "12 or 24 month" offers both; one month count offers that one; none given means 12.
+    const both = /12\s*(or|\/|&|and|-)\s*24/.test(t)
+    const has24 = both || /24[- ]?(mo|month)/.test(t)
+    if (both || /12[- ]?(mo|month)/.test(t) || !has24) docTypes.push('bank_statement_12')
+    if (has24) docTypes.push('bank_statement_24')
+  }
   if (/\b1099\b/.test(t)) docTypes.push('form_1099')
   if (/\bp\s?&\s?l\b|profit (and|&) loss/.test(t)) docTypes.push('pnl_only')
   if (/asset (depletion|utilization|qualifier)/.test(t)) docTypes.push('asset_depletion')
   if (/\bwvoe\b|written verification of employment/.test(t)) docTypes.push('wvoe')
   if (/no[- ]ratio/.test(t)) docTypes.push('no_ratio')
+  if (/\bira\b|retirement (income|distribution|account)|401\s?\(?k\)?/.test(t)) docTypes.push('retirement_distribution')
   const features: Feature[] = []
   if (/home ?ready|home possible/.test(t)) features.push('homeready_possible')
   if (/\bdpa\b|down payment assistance/.test(t)) features.push('dpa')
@@ -156,7 +163,7 @@ export function productName(title: string): string {
   return title.replace(NOISE, ' ').replace(/[()[\]·|,–—-]+/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
-const DOC_NAME: Partial<Record<DocType, string>> = { dscr: 'DSCR', bank_statement_12: 'Bank Statement', bank_statement_24: 'Bank Statement', form_1099: '1099', pnl_only: 'P&L Only', asset_depletion: 'Asset Depletion', no_ratio: 'No Ratio' }
+const DOC_NAME: Partial<Record<DocType, string>> = { dscr: 'DSCR', bank_statement_12: 'Bank Statement', bank_statement_24: 'Bank Statement', form_1099: '1099', pnl_only: 'P&L Only', asset_depletion: 'Asset Depletion', no_ratio: 'No Ratio', retirement_distribution: 'IRA Distribution' }
 const FAMILY_NAME: Record<ProductFamily, string> = { conventional: 'Conventional', fha: 'FHA', va: 'VA', usda: 'USDA', jumbo: 'Jumbo', non_qm: 'Non-QM' }
 
 /** The kind of document and the product it covers, from its file name first and its first pages second. */
@@ -166,7 +173,8 @@ export function guessDocument({ fileName, pages }: { fileName: string; pages: st
   const fromTitle = signals(title)
   const fromText = signals(firstPages)
   const basis: ProductGuess['basis'] = hasAny(fromTitle) ? 'title' : hasAny(fromText) ? 'text' : 'none'
-  const s = basis === 'title' ? { ...fromTitle, family: fromTitle.family ?? fromText.family } : fromText
+  // The name wins; what it doesn't say (loan type, income types, features) comes from the first pages.
+  const s = basis === 'title' ? { ...fromTitle, family: fromTitle.family ?? fromText.family, docTypes: fromTitle.docTypes.length ? fromTitle.docTypes : fromText.docTypes, features: fromTitle.features.length ? fromTitle.features : fromText.features } : fromText
   const lien = s.lien ?? 'first'
   const family = s.family ?? (lien === 'first' ? 'conventional' : 'non_qm')
   const docTypes: DocType[] = s.docTypes.length ? s.docTypes : ['full_doc']

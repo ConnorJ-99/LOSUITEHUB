@@ -64,6 +64,11 @@ describe('guessing a document', () => {
     expect(guessDocument({ fileName: 'DSCR Closed-End Second v2.pdf', pages: [] }).product).toMatchObject({ family: 'non_qm', lien: 'ces', docTypes: ['dscr'] })
     expect(guessDocument({ fileName: 'ITIN Full Doc.pdf', pages: [] }).product).toMatchObject({ family: 'non_qm', features: ['itin'] })
     expect(guessDocument({ fileName: 'FHA Guide.pdf', pages: [] }).product).toMatchObject({ family: 'fha', lien: 'first', docTypes: ['full_doc'] })
+    expect(guessDocument({ fileName: 'Non-QM Bank Statement Asset Depletion IRA Distribution Matrix.pdf', pages: [] }).product).toMatchObject({ family: 'non_qm', docTypes: ['bank_statement_12', 'asset_depletion', 'retirement_distribution'] })
+  })
+  it('takes the income types from the first pages when the name only says the loan type', () => {
+    const g = guessDocument({ fileName: 'Summit Non-QM Alt Doc Matrix.pdf', pages: [page('Income documentation: 12 or 24 month bank statements, asset depletion, or IRA / retirement distribution.')] })
+    expect(g.product).toMatchObject({ family: 'non_qm', basis: 'title', docTypes: ['bank_statement_12', 'bank_statement_24', 'asset_depletion', 'retirement_distribution'] })
   })
   it('falls back to the first pages when the name says nothing', () => {
     const g = guessDocument({ fileName: 'doc_8812.pdf', pages: [page('Debt Service Coverage Ratio (DSCR) program for investors', '30 year and 40 year fixed, 7/6 ARM')] })

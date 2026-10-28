@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as M from '../../../supabase/functions/assistant/matrix'
-import { approvalPayload, cellsFromProgram, changeText, checkProgram, diffCells, matchProgram, parseSquare } from './matrixImport'
+import { approvalPayload, cellsFromGrid, cellsFromProgram, changeText, checkProgram, diffCells, matchProgram, parseSquare } from './matrixImport'
 import { DOC_TYPES, FEATURES, LIENS, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, PRODUCT_FAMILIES, RULE_FIELDS, RULE_OPS } from './taxonomy'
 
 /** A reading shaped like mockup 04's grid (fictional numbers): columns are occupancy, rows are credit bands. */
@@ -171,6 +171,31 @@ describe('the difference from the version in use', () => {
     ])
     expect(diffCells(current, current)).toEqual([])
     expect(diffCells(current, next.slice(0, 4)).map(changeText).slice(-2)).toEqual(['Primary · SFR/PUD, Condo · Purchase, Rate/term · 620–679 · ≤$806,500: 95% → not in the matrix', 'Investment · SFR/PUD, Condo · Purchase · 620–679 · ≤$806,500: not offered → not in the matrix'])
+  })
+})
+
+describe('one grid, several income types', () => {
+  const p = (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0]
+  it('an older reading with one doc_type per grid still reads', () => {
+    expect(p.grids[0].docTypes).toEqual(['full_doc'])
+  })
+  it('saves every box once per income type, so a search by any of them finds it', () => {
+    const g = { ...p.grids[0], docTypes: ['bank_statement_12', 'asset_depletion', 'retirement_distribution'] as M.ReadGrid['docTypes'] }
+    const cells = cellsFromGrid(g)
+    expect(cells).toHaveLength(p.grids[0].rows.length * p.grids[0].columns.length * 3)
+    expect([...new Set(cells.map((c) => c.docType))]).toEqual(['bank_statement_12', 'asset_depletion', 'retirement_distribution'])
+    expect(checkProgram({ ...p, docTypes: ['bank_statement_12', 'asset_depletion', 'retirement_distribution'], grids: [g] }).filter((w) => w.level === 'error')).toEqual([])
+  })
+  it('reads doc_types and asks the AI to list them all', () => {
+    const raw = reading() as { programs: { grids: Record<string, unknown>[] }[] }
+    const { doc_type: _d, ...grid } = raw.programs[0].grids[0]
+    raw.programs[0].grids = [{ ...grid, doc_types: ['bank_statement_12', 'asset_depletion', 'retirement_distribution'] }]
+    const r = M.normalizeMatrixReading(raw) as M.MatrixReading
+    expect(r.programs[0].grids[0].docTypes).toEqual(['bank_statement_12', 'asset_depletion', 'retirement_distribution'])
+    expect(M.MATRIX_SYSTEM_PROMPT).toContain('list every one in doc_types')
+  })
+  it('a grid with no income type is an error', () => {
+    expect(checkProgram({ ...p, grids: [{ ...p.grids[0], docTypes: [] }] }).some((w) => w.level === 'error' && w.message.includes('no income type'))).toBe(true)
   })
 })
 

@@ -10,7 +10,7 @@
 
 export const SCENARIO_FAMILIES = ['conventional', 'fha', 'va', 'usda', 'jumbo', 'non_qm', 'any'] as const
 export const SCENARIO_LIENS = ['first', 'ces', 'heloc'] as const
-export const SCENARIO_DOC_TYPES = ['full_doc', 'bank_statement_12', 'bank_statement_24', 'form_1099', 'pnl_only', 'asset_depletion', 'dscr', 'wvoe', 'no_ratio'] as const
+export const SCENARIO_DOC_TYPES = ['full_doc', 'bank_statement_12', 'bank_statement_24', 'form_1099', 'pnl_only', 'asset_depletion', 'dscr', 'wvoe', 'no_ratio', 'retirement_distribution'] as const
 export const SCENARIO_FEATURES = ['dpa', 'itin', 'foreign_national', 'interest_only', 'non_warrantable_condo', 'manufactured', 'buydown', 'recent_credit_event', 'first_time_investor', 'str_income', 'homeready_possible', 'llc_vesting'] as const
 export const SCENARIO_PURPOSES = ['purchase', 'rate_term', 'cash_out'] as const
 export const SCENARIO_OCCUPANCIES = ['primary', 'second_home', 'investment'] as const
@@ -125,7 +125,7 @@ export const SCENARIO_SYSTEM_PROMPT = `You read a loan officer's one-line descri
 
 Rules:
 - Fill in only what the sentence says or clearly implies. Leave everything else empty: "" for words and codes, -1 for numbers, null for yes/no (features: an empty list). Never guess a credit score, income, DTI or value.
-- Product type: lien "first" unless it says second, closed-end second, CES, HELOAN ("ces") or HELOC ("heloc"). family: conventional, fha, va, usda, jumbo, non_qm, or "any" when it says any or doesn't care. A DSCR, bank statement, P&L, 1099 or asset depletion loan is non_qm. docType: dscr for DSCR, bank_statement_12 / bank_statement_24 for bank statements (12 if no months are given), form_1099, pnl_only, asset_depletion, wvoe, no_ratio, otherwise full_doc when the income is W-2 or tax returns.
+- Product type: lien "first" unless it says second, closed-end second, CES, HELOAN ("ces") or HELOC ("heloc"). family: conventional, fha, va, usda, jumbo, non_qm, or "any" when it says any or doesn't care. A DSCR, bank statement, P&L, 1099, asset depletion or IRA distribution loan is non_qm. docType: dscr for DSCR, bank_statement_12 / bank_statement_24 for bank statements (12 if no months are given), form_1099, pnl_only, asset_depletion, wvoe, no_ratio, retirement_distribution (income from IRA or retirement account distributions), otherwise full_doc when the income is W-2 or tax returns.
 - Features only when stated: dpa (down payment assistance), itin, foreign_national, interest_only, non_warrantable_condo, manufactured, buydown, recent_credit_event, first_time_investor, str_income (short-term rental income), homeready_possible, llc_vesting (closing in an LLC).
 - purpose: purchase, rate_term (refi with no cash out), cash_out. occupancy: primary, second_home, investment (investor, rental, NOO, DSCR usually means investment).
 - propertyType: sfr_pud (house, SFR, single family, PUD, townhome), condo, non_warrantable_condo, two_to_four (duplex, triplex, fourplex; set units 2 to 4), manufactured, mixed_use.

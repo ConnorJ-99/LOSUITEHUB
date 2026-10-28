@@ -185,15 +185,15 @@ describe('grid shape', () => {
   it('keeps grids inside the purposes and doc types the program offers', () => {
     const p = blankProgram()
     const synced = syncGrids({ ...p, purposes: ['cash_out'], docTypes: ['bank_statement_12'] })
-    expect(synced.grids[0]).toMatchObject({ purposes: ['cash_out'], docType: 'bank_statement_12' })
+    expect(synced.grids[0]).toMatchObject({ purposes: ['cash_out'], docTypes: ['bank_statement_12'] })
     const g = { ...p.grids[0], purposes: ['purchase'] as MatrixPurpose[] }
     expect(syncGrids({ ...p, grids: [g], purposes: ['cash_out'] }).grids[0].purposes).toEqual(['cash_out'])
-    expect(syncGrids({ ...p, docTypes: [] }).grids[0].docType).toBe('full_doc')
+    expect(syncGrids({ ...p, docTypes: [] }).grids[0].docTypes).toEqual(['full_doc'])
   })
   it('starts a program from what an uploaded PDF looks like', () => {
     const p = programFromGuess({ name: 'Equity Advantage HELOC', family: 'non_qm', lien: 'heloc', docTypes: ['full_doc'], features: [], termOptions: ['heloc_10_20'] })
     expect(p).toMatchObject({ name: 'Equity Advantage HELOC', lien: 'heloc', purposes: ['cash_out'], termOptions: ['heloc_10_20'] })
-    expect(p.grids[0]).toMatchObject({ ratio: 'cltv', purposes: ['cash_out'], docType: 'full_doc' })
+    expect(p.grids[0]).toMatchObject({ ratio: 'cltv', purposes: ['cash_out'], docTypes: ['full_doc'] })
   })
   it('uses CLTV for 2nd liens', () => {
     expect(blankGrid({ lien: 'heloc', purposes: [], docTypes: [] }).ratio).toBe('cltv')

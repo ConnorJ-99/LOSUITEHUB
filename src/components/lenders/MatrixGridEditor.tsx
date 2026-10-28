@@ -45,7 +45,7 @@ export function GridEditor({ grid: g, docTypes, pdfUrl, editable, onChange, onCo
     toast.success('Pasted')
   }
   const docOptions = (docTypes.length ? docTypes : DOC_TYPES.values).map((d) => ({ value: d, label: DOC_TYPES.label[d] }))
-  const describe = [OCCUPANCIES.label[g.occupancy], g.propertyTypes.map((t) => MATRIX_PROPERTY_TYPES.label[t]).join(', '), g.purposes.map((x) => MATRIX_PURPOSES.label[x]).join(', '), DOC_TYPES.label[g.docType], g.unitsMin === g.unitsMax ? `${g.unitsMin} unit${g.unitsMin === 1 ? '' : 's'}` : `${g.unitsMin}–${g.unitsMax} units`].join(' · ')
+  const describe = [OCCUPANCIES.label[g.occupancy], g.propertyTypes.map((t) => MATRIX_PROPERTY_TYPES.label[t]).join(', '), g.purposes.map((x) => MATRIX_PURPOSES.label[x]).join(', '), g.docTypes.map((d) => DOC_TYPES.label[d]).join(', '), g.unitsMin === g.unitsMax ? `${g.unitsMin} unit${g.unitsMin === 1 ? '' : 's'}` : `${g.unitsMin}–${g.unitsMax} units`].join(' · ')
   const limits = g.values.flat().filter((x): x is number => x != null)
 
   const table = (
@@ -181,13 +181,13 @@ export function GridEditor({ grid: g, docTypes, pdfUrl, editable, onChange, onCo
             <Select label="Numbers are" value={g.ratio} options={RATIO_OPTIONS} onChange={(v) => set('ratio', v)} span={2} />
             <Select label="Occupancy" value={g.occupancy} options={options(OCCUPANCIES)} onChange={(v) => set('occupancy', v)} />
             <NumberInput label="PDF page" value={g.page > 0 ? g.page : null} onChange={(v) => set('page', v != null && v > 0 ? Math.round(v) : 0)} maxDecimals={0} />
-            <Select label="Doc type" value={g.docType} options={docOptions} onChange={(v) => set('docType', v)} span={2} />
             <Input label="Notes" value={g.notes ?? ''} onChange={(v) => set('notes', v.trim() ? v : null)} placeholder="e.g. Texas 50(a)(6) capped at 80% CLTV" span={4} />
           </FormGrid>
           <ChipLine label="Property types" values={MATRIX_PROPERTY_TYPES.values} labels={MATRIX_PROPERTY_TYPES.label} picked={g.propertyTypes} onToggle={(v, on) => {
             const propertyTypes = on ? [...g.propertyTypes, v] : g.propertyTypes.filter((x) => x !== v)
             onChange(withCounts({ ...g, propertyTypes, ...unitsFor(propertyTypes) }))
           }} />
+          <ChipLine label="Income types this grid covers" values={docOptions.map((o) => o.value)} labels={DOC_TYPES.label} picked={g.docTypes} onToggle={(v, on) => set('docTypes', on ? [...g.docTypes, v] : g.docTypes.filter((x) => x !== v))} />
           <ChipLine label="Purposes" values={MATRIX_PURPOSES.values} labels={MATRIX_PURPOSES.label} picked={g.purposes} onToggle={(v, on) => set('purposes', on ? [...g.purposes, v] : g.purposes.filter((x) => x !== v))} />
           <p className="text-xs text-muted-foreground">A column header can also name an occupancy or purpose (e.g. "Investment" or "Cash-Out ≤ $1M"); it overrides these for that column.</p>
         </div>

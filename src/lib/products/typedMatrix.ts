@@ -241,7 +241,7 @@ export function blankGrid(p: Pick<ReadProgram, 'lien' | 'purposes' | 'docTypes'>
     occupancy: 'primary',
     propertyTypes: ['sfr_pud'],
     purposes: p.purposes.length ? [...p.purposes] : [...MATRIX_PURPOSES.values],
-    docType: (p.docTypes[0] ?? 'full_doc') as DocType,
+    docTypes: [(p.docTypes[0] ?? 'full_doc') as DocType],
     ...unitsFor(['sfr_pud']),
     rows: STARTER_ROWS.map((r) => ({ ...r })),
     columns,
@@ -265,15 +265,16 @@ export function programFromGuess(g: Pick<ReadProgram, 'name' | 'family' | 'lien'
 
 /**
  * Keeps grids inside what the program offers: a purpose the program dropped
- * leaves its grids (all of them if none would be left), and a grid on a doc
- * type the program dropped moves to the program's first doc type.
+ * leaves its grids (all of them if none would be left), and an income type
+ * the program dropped leaves its grids (a grid left with none takes the program's first).
  */
 export function syncGrids<P extends Pick<ReadProgram, 'purposes' | 'docTypes' | 'grids'>>(p: P): P {
   return {
     ...p,
     grids: p.grids.map((g) => {
       const kept = g.purposes.filter((x) => p.purposes.includes(x))
-      return { ...g, purposes: kept.length ? kept : [...p.purposes], docType: p.docTypes.includes(g.docType) || !p.docTypes.length ? g.docType : p.docTypes[0] }
+      const docs = g.docTypes.filter((d) => p.docTypes.includes(d))
+      return { ...g, purposes: kept.length ? kept : [...p.purposes], docTypes: !p.docTypes.length ? g.docTypes : docs.length ? docs : [p.docTypes[0]] }
     }),
   }
 }

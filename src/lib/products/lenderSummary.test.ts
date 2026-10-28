@@ -26,6 +26,7 @@ describe('what a lender offers', () => {
     expect(offerTags(keystone.programs[1])).toEqual(['DSCR', '2nd lien'])
     expect(offerTags(prog({ family: 'fha', features: ['dpa'] }))).toEqual(['FHA', 'DPA'])
     expect(offerTags(prog({ family: 'non_qm', lien: 'heloc', docTypes: ['full_doc'] }))).toEqual(['HELOC'])
+    expect(offerTags(prog({ family: 'non_qm', docTypes: ['bank_statement_12', 'asset_depletion', 'retirement_distribution'] }))).toEqual(['Bank statement', 'Asset depletion', 'IRA / retirement'])
   })
   it('counts only programs in searches, like mockup 09 (DSCR 2 · Bank statement 1 · 2nd lien 1 · ITIN 1)', () => {
     expect(offerCounts(keystone.programs)).toEqual([

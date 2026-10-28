@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { MatrixReading, ReadProgram } from '../../../supabase/functions/assistant/matrix'
+import type { MatrixReading, ReadGrid, ReadProgram } from '../../../supabase/functions/assistant/matrix'
 import type { ReviewProgram } from '@/lib/products/matrixImport'
 import { approvalPayload } from '@/lib/products/matrixImport'
 import { blankProgram } from '@/lib/products/typedMatrix'
@@ -34,7 +34,13 @@ interface ImportRow {
 }
 
 const SELECT = 'id, lender_id, document_id, status, source, reading, created_at, lender:lenders(name), document:guideline_documents(title, storage_path)'
-const toImport = (r: ImportRow): MatrixImport => ({ id: r.id, lenderId: r.lender_id, lenderName: r.lender?.name ?? '', documentId: r.document_id, documentTitle: r.document?.title ?? null, storagePath: r.document?.storage_path ?? null, status: r.status, source: r.source, reading: r.reading, createdAt: r.created_at })
+/** Readings saved before a grid could cover several income types had one docType per grid. */
+const withGridDocTypes = (reading: MatrixReading): MatrixReading => ({
+  ...reading,
+  programs: reading.programs.map((p) => ({ ...p, grids: p.grids.map((g) => (Array.isArray(g.docTypes) ? g : { ...g, docTypes: [(g as unknown as { docType: ReadGrid['docTypes'][number] }).docType ?? 'full_doc'] })) })),
+})
+
+const toImport = (r: ImportRow): MatrixImport => ({ id: r.id, lenderId: r.lender_id, lenderName: r.lender?.name ?? '', documentId: r.document_id, documentTitle: r.document?.title ?? null, storagePath: r.document?.storage_path ?? null, status: r.status, source: r.source, reading: withGridDocTypes(r.reading), createdAt: r.created_at })
 
 /** Asks the assistant to read a matrix PDF. The reading waits for review; nothing is searchable until approved. */
 export async function readMatrix(documentId: string): Promise<string> {

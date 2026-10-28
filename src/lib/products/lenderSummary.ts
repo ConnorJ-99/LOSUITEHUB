@@ -5,7 +5,7 @@ import { isStale, oldestVerified } from './stale'
 import type { DocType, Feature, LenderStatus, Lien, ProductFamily } from './taxonomy'
 
 /** The product-type words a lender "offers", in the order the filters show them. */
-export const OFFER_TAGS = ['Conventional', 'FHA', 'VA', 'USDA', 'Jumbo', 'DSCR', 'Bank statement', '1099 / P&L', 'Asset depletion', '2nd lien', 'HELOC', 'ITIN', 'Foreign national', 'DPA'] as const
+export const OFFER_TAGS = ['Conventional', 'FHA', 'VA', 'USDA', 'Jumbo', 'DSCR', 'Bank statement', '1099 / P&L', 'Asset depletion', 'IRA / retirement', '2nd lien', 'HELOC', 'ITIN', 'Foreign national', 'DPA'] as const
 export type OfferTag = (typeof OFFER_TAGS)[number]
 
 export interface SummaryProgram {
@@ -27,6 +27,7 @@ export function offerTags(p: Pick<SummaryProgram, 'family' | 'lien' | 'docTypes'
   if (p.docTypes.some((d) => d === 'bank_statement_12' || d === 'bank_statement_24')) tags.add('Bank statement')
   if (p.docTypes.some((d) => d === 'form_1099' || d === 'pnl_only')) tags.add('1099 / P&L')
   if (p.docTypes.includes('asset_depletion')) tags.add('Asset depletion')
+  if (p.docTypes.includes('retirement_distribution')) tags.add('IRA / retirement')
   if (p.lien === 'ces') tags.add('2nd lien')
   if (p.lien === 'heloc') tags.add('HELOC')
   if (p.features.includes('itin')) tags.add('ITIN')

@@ -14,8 +14,10 @@ export function cellsFromProgram(p: ReadProgram): ImportCell[] {
   return p.grids.flatMap((g) => cellsFromGrid(g))
 }
 
+/** Every square of a grid as a cell, once for each income type the grid covers (so a search by any of them finds it). */
 export function cellsFromGrid(g: ReadGrid): ImportCell[] {
   const out: ImportCell[] = []
+  for (const docType of g.docTypes)
   g.rows.forEach((row, ri) =>
     g.columns.forEach((col, ci) => {
       const v = g.values[ri]?.[ci] ?? null
@@ -23,7 +25,7 @@ export function cellsFromGrid(g: ReadGrid): ImportCell[] {
         occupancy: col.occupancy ?? g.occupancy,
         propertyTypes: col.propertyTypes?.length ? col.propertyTypes : g.propertyTypes,
         purposes: col.purposes?.length ? col.purposes : g.purposes,
-        docType: g.docType,
+        docType,
         unitsMin: col.unitsMin ?? g.unitsMin,
         unitsMax: col.unitsMax ?? g.unitsMax,
         ficoMin: row.ficoMin,
@@ -69,6 +71,7 @@ export function checkProgram(p: ReadProgram): ImportWarning[] {
     const filled = g.values.reduce((n, row) => n + row.length, 0)
     if (g.values.length !== g.rows.length || g.values.some((row) => row.length !== g.columns.length)) out.push({ level: 'error', message: `${where}: ${filled} squares read for ${g.rows.length} rows × ${g.columns.length} columns.`, page: pg })
     if (g.printedRows !== g.rows.length || g.printedColumns !== g.columns.length) out.push({ level: 'warning', message: `${where}: the page shows ${g.printedRows} × ${g.printedColumns}, but ${g.rows.length} × ${g.columns.length} were read.`, page: pg })
+    if (!g.docTypes.length) out.push({ level: 'error', message: `${where}: no income type.`, page: pg })
     if (!g.propertyTypes.length && g.columns.some((c) => !c.propertyTypes?.length)) out.push({ level: 'error', message: `${where}: no property type.`, page: pg })
     if (!g.purposes.length && g.columns.some((c) => !c.purposes?.length)) out.push({ level: 'error', message: `${where}: no purpose.`, page: pg })
 
