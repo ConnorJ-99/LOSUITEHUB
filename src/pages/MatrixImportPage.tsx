@@ -39,7 +39,7 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
   const [repaired] = useState(() => imp.reading.programs.map((p) => (imp.status === 'pending_review' ? repairProgram(p) : { program: p, fixes: [] })))
   const [programs, setPrograms] = useState<ReviewProgram[]>(() =>
     repaired.map(({ program: p }) => {
-      const programId = matchProgram(p.name, existing, imp.lenderName)
+      const programId = matchProgram(p.name, existing, imp.lenderName, p)
       return { ...p, include: true, programId, mode: defaultMode(p, existing.find((e) => e.id === programId), imp.documentId) }
     }),
   )

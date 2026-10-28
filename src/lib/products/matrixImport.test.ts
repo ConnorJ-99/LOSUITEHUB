@@ -304,3 +304,42 @@ describe('one product, several documents', () => {
     expect(matchProgram('Program Matrix', existing, 'AmWest')).toBeNull()
   })
 })
+
+describe('a matrix fills in the existing product', () => {
+  const existing = [
+    { id: 'fha', name: 'FHA', family: 'fha' as const, lien: 'first' as const },
+    { id: 'stream', name: 'FHA Streamline', family: 'fha' as const, lien: 'first' as const },
+    { id: 'dscr', name: 'DSCR', family: 'non_qm' as const, lien: 'first' as const },
+    { id: 'dscr2', name: 'DSCR Closed-End Second', family: 'non_qm' as const, lien: 'ces' as const },
+  ]
+  const fha = { family: 'fha' as const, lien: 'first' as const }
+  it('a longer name for the same product still matches', () => {
+    expect(matchProgram('FHA 203(b) Standard', existing, 'A&D Mortgage', fha)).toBe('fha')
+    expect(matchProgram('A&D FHA Product Matrix', existing, 'A&D Mortgage', fha)).toBe('fha')
+    expect(matchProgram('FHA Streamline Refinance', existing, 'A&D Mortgage', fha)).toBe('stream')
+  })
+  it('a different product of the same loan type does not', () => {
+    expect(matchProgram('FHA with DPA', existing, 'A&D Mortgage', fha)).toBeNull()
+    expect(matchProgram('FHA 203k Renovation', existing, 'A&D Mortgage', fha)).toBeNull()
+    expect(matchProgram('DSCR Matrix', existing, 'A&D Mortgage', { family: 'non_qm', lien: 'ces' })).toBeNull()
+    expect(matchProgram('DSCR 5-8 Unit', existing, 'A&D Mortgage', { family: 'non_qm', lien: 'first' })).toBeNull()
+    expect(matchProgram('FHA', existing, 'A&D Mortgage', { family: 'va', lien: 'first' })).toBeNull()
+  })
+})
+
+describe('rule values the search can compare', () => {
+  const rule = (field: M.ReadRule['field'], value: string[], op: M.ReadRule['op'] = 'in') => ({ field, op, value, appliesWhen: null, severity: 'hard', message: 'x', page: 2, quote: '' }) as M.ReadRule
+  it('citizenship words become codes', () => {
+    expect(M.cleanRule(rule('citizenship', ['US Citizen', 'Permanent Resident']))?.value).toEqual(['us_citizen', 'permanent_resident'])
+    expect(M.cleanRule(rule('citizenship', ['Non-Permanent Resident Alien', 'ITIN']))?.value).toEqual(['non_permanent_resident', 'itin'])
+  })
+  it('"all states" is no rule; state names that are not codes are dropped', () => {
+    expect(M.cleanRule(rule('state', ['US (all states including DC)']))).toBeNull()
+    expect(M.cleanRule(rule('state', ['tx', 'Oklahoma', 'FL']))?.value).toEqual(['TX', 'FL'])
+    expect(M.cleanRule(rule('state', ['VI'], 'not_in'))?.value).toEqual(['VI'])
+  })
+  it('other rules pass through', () => {
+    const r = { ...rule('dti', []), op: '<=', value: 50 } as M.ReadRule
+    expect(M.cleanRule(r)).toBe(r)
+  })
+})

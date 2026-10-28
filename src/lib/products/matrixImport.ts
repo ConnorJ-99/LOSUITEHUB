@@ -2,7 +2,7 @@
 // and the difference from the version in use (plan §5.4–5.6). Pure.
 
 import { formatCurrency, formatPercent } from '@/lib/format'
-import type { ReadGrid, ReadProgram, ReadRule } from '../../../supabase/functions/assistant/matrix'
+import { cleanRule, type ReadGrid, type ReadProgram, type ReadRule } from '../../../supabase/functions/assistant/matrix'
 import { MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, termMonths, type MatrixPropertyType, type MatrixPurpose } from './taxonomy'
 import type { MatrixCell } from './types'
 
@@ -86,13 +86,19 @@ export function repairProgram(p: ReadProgram): { program: ReadProgram; fixes: st
     }
     return next
   })
+  const rules = p.rules.flatMap((r) => {
+    const c = cleanRule(r)
+    if (!c) fixes.push(`${p.name}: dropped the rule "${r.message}" (it applies everywhere, or names no state or citizenship LOSuite knows).`)
+    else if (JSON.stringify(c.value) !== JSON.stringify(r.value)) fixes.push(`${p.name}: "${r.message}" now uses ${Array.isArray(c.value) ? c.value.join(', ') : ''}.`)
+    return c ? [c] : []
+  })
   let docTypes = p.docTypes
   if (!docTypes.length) {
     docTypes = [...new Set(grids.flatMap((g) => g.docTypes))]
     if (!docTypes.length) docTypes = ['full_doc']
     fixes.push(`${p.name}: no income type was read; set to ${docTypes.length === 1 && docTypes[0] === 'full_doc' ? 'full doc' : 'the grids\' income types'}. Check it.`)
   }
-  return { program: { ...p, grids, docTypes }, fixes }
+  return { program: { ...p, grids, docTypes, rules }, fixes }
 }
 
 /** Errors block approval; warnings are shown for Connor to confirm against the PDF. */
@@ -326,13 +332,29 @@ const FILLER = new Set(['program', 'programs', 'product', 'products', 'matrix', 
  * product (or a newer matrix) adds to it instead of creating a duplicate.
  * "FHA" and "FHA Streamline" stay different programs.
  */
-export function matchProgram(name: string, existing: { id: string; name: string }[], lenderName = ''): string | null {
+export function matchProgram(name: string, existing: { id: string; name: string; family?: ReadProgram['family']; lien?: ReadProgram['lien'] }[], lenderName = '', reading?: Pick<ReadProgram, 'family' | 'lien'>): string | null {
   const lenderWords = new Set(lenderName.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))
-  const norm = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !FILLER.has(w) && !lenderWords.has(w)).join(' ')
-  const target = norm(name)
-  if (!target) return null
-  return existing.find((e) => norm(e.name) === target)?.id ?? null
+  const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !FILLER.has(w) && !lenderWords.has(w))
+  const target = words(name)
+  if (!target.length) return null
+  // A program of another lien or loan type is never the same product, whatever its name.
+  const sameKind = (e: (typeof existing)[number]) => !reading || e.family == null || (e.family === reading.family && e.lien === reading.lien)
+  const exact = existing.find((e) => sameKind(e) && words(e.name).join(' ') === target.join(' '))
+  if (exact || !reading) return exact?.id ?? null
+  // Same loan type and lien, every word of the existing name in this one ("FHA" in "FHA 203(b) Standard"),
+  // and no product-defining word on one side only ("FHA" is not "FHA Streamline" or "FHA with DPA").
+  const candidates = existing
+    .filter((e) => e.family === reading.family && e.lien === reading.lien)
+    .map((e) => ({ e, w: words(e.name) }))
+    .filter(({ w }) => w.length > 0 && w.every((x) => target.includes(x)) && target.filter((x) => VARIANTS.has(x)).every((x) => w.includes(x)))
+  if (!candidates.length) return null
+  const most = Math.max(...candidates.map((c) => c.w.length))
+  const best = candidates.filter((c) => c.w.length === most)
+  return best.length === 1 ? best[0].e.id : null
 }
+
+/** Words that make a different product of the same loan type. */
+const VARIANTS = new Set(['streamline', 'irrrl', 'dpa', 'assistance', 'down', '203k', 'renovation', 'homestyle', 'homeready', 'possible', 'refinow', 'simple', 'jumbo', 'heloc', 'ces', 'second', '2nd', 'itin', 'foreign', 'dscr', 'investor', 'no', 'ratio', 'bridge', 'doctor', 'medical', 'physician', 'construction', 'reverse', 'condotel', 'interest', 'io', '5', '8', 'unit'])
 
 /** A typed square: blank, "—", "N/A" or "NA" means not offered; otherwise a percent. */
 export function parseSquare(text: string): number | null | 'invalid' {

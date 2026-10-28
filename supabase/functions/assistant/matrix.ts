@@ -218,6 +218,10 @@ export const MATRIX_SYSTEM_PROMPT = `You read mortgage lender eligibility matric
 - Use only the words in the schema's lists. If the lender uses another name, pick the matching one; if none fits, leave it out and say so in notes.
 - A program is a loan product ("Conventional", "FHA", "Equity Advantage HELOC"), not a term: list its terms in term_options. Split a product into two programs only when the lender prints separate grids or rules for them.
 - If the document is a guideline with no grids, still return each program it covers with its terms, doc types, purposes, rules and description, and an empty grids list.
+- Some matrices list "special circumstances" (cash-out, manufactured home, second home, investment, manual underwrite, streamline) each with a credit score and max LTV instead of a grid. Turn each into cells on the matching column dimension: a purpose (cash-out, rate/term), a property type (manufactured, condo), an occupancy (second home, investment) or units. The row with no circumstance covers everything else.
+- Never return two cells that cover the same occupancy, property type, purpose, income type, units, credit band and loan amount with different limits. Where circumstances overlap ("when multiple circumstances apply the lowest LTV is used"), put the lowest limit in the overlapping cell.
+- A circumstance that is really another product (FHA Streamline, Simple Refinance, VA IRRRL, 203(k)) is a separate program with its own grid. A circumstance with no matching dimension (manual underwrite, non-occupant co-borrower, high balance) goes in rules (e.g. field ltv, op <=) with its quote, not in cells.
+- Rule values: states as two-letter codes (TX); "all states" means no state rule. Citizenship as us_citizen, permanent_resident, non_permanent_resident, itin, foreign_national.
 - Program-wide requirements that are not grid cells go in rules, each with the exact quote and page.
 - Do not calculate, average or fill gaps. Report what is printed.`
 
@@ -320,7 +324,41 @@ function normalizeRule(r: Record<string, unknown>, program: string, dropped: str
   const occupancies = Array.isArray(r.applies_occupancies) ? pickAll(OCCUPANCIES, r.applies_occupancies, dropped, `${program} rule occupancy`) : []
   const ltvAbove = numOrNull(r.applies_ltv_above)
   const appliesWhen = purposes.length || occupancies.length || ltvAbove != null ? { ...(purposes.length && { purposes }), ...(occupancies.length && { occupancies }), ...(ltvAbove != null && { ltv_above: ltvAbove }) } : null
-  return { field, op, value, appliesWhen, severity: r.severity === 'verify' ? 'verify' : 'hard', message: str(r.message) || `${field} ${op}`, page: int(r.page) && int(r.page)! > 0 ? int(r.page) : null, quote: str(r.quote) }
+  const rule: ReadRule = { field, op, value, appliesWhen, severity: r.severity === 'verify' ? 'verify' : 'hard', message: str(r.message) || `${field} ${op}`, page: int(r.page) && int(r.page)! > 0 ? int(r.page) : null, quote: str(r.quote) }
+  const clean = cleanRule(rule)
+  if (!clean) dropped.push(`${program} rule with no usable value (e.g. "all states"): "${rule.message}"`)
+  return clean
+}
+
+export const CITIZENSHIP_CODES = ['us_citizen', 'permanent_resident', 'non_permanent_resident', 'itin', 'foreign_national'] as const
+
+/**
+ * Puts a rule's values in the words the search compares against: two-letter
+ * states ("all states" means no rule at all) and citizenship codes ("US
+ * Citizen" → us_citizen). Null when nothing usable is left (the rule is dropped).
+ */
+export function cleanRule(r: ReadRule): ReadRule | null {
+  if ((r.op !== 'in' && r.op !== 'not_in') || !Array.isArray(r.value)) return r
+  const values = r.value.map((v) => String(v).trim())
+  if (r.field === 'state') {
+    if (r.op === 'in' && values.some((v) => /\ball\b|nationwide|united states|\bu\.?s\.?\b|50 states/i.test(v) && !/^[A-Z]{2}$/.test(v))) return null
+    const codes = [...new Set(values.filter((v) => /^[a-z]{2}$/i.test(v)).map((v) => v.toUpperCase()))]
+    return codes.length ? { ...r, value: codes } : null
+  }
+  if (r.field === 'citizenship') {
+    const code = (v: string): (typeof CITIZENSHIP_CODES)[number] | null => {
+      const t = v.toLowerCase()
+      if ((CITIZENSHIP_CODES as readonly string[]).includes(t)) return t as (typeof CITIZENSHIP_CODES)[number]
+      if (/itin/.test(t)) return 'itin'
+      if (/foreign/.test(t)) return 'foreign_national'
+      if (/permanent|resident|green/.test(t)) return /non[- ]?perm|temporary|non[- ]?resident/.test(t) ? 'non_permanent_resident' : 'permanent_resident'
+      if (/citizen/.test(t)) return 'us_citizen'
+      return null
+    }
+    const codes = [...new Set(values.map(code).filter((c): c is (typeof CITIZENSHIP_CODES)[number] => c != null))]
+    return codes.length ? { ...r, value: codes } : null
+  }
+  return r
 }
 
 /** Checks Claude's reading. Anything outside the lists is dropped and listed, never guessed. */
