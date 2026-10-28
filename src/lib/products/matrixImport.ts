@@ -64,22 +64,23 @@ export function checkProgram(p: ReadProgram): ImportWarning[] {
   if (!cells.some((c) => c.offered)) out.push({ level: 'error', message: 'The program has no matrix cells with a limit.', page: null })
 
   for (const g of p.grids) {
-    const where = g.title || `the grid on page ${g.page}`
+    const where = g.title || (g.page > 0 ? `the grid on page ${g.page}` : 'a grid')
+    const pg = g.page > 0 ? g.page : null
     const filled = g.values.reduce((n, row) => n + row.length, 0)
-    if (g.values.length !== g.rows.length || g.values.some((row) => row.length !== g.columns.length)) out.push({ level: 'error', message: `${where}: ${filled} squares read for ${g.rows.length} rows × ${g.columns.length} columns.`, page: g.page })
-    if (g.printedRows !== g.rows.length || g.printedColumns !== g.columns.length) out.push({ level: 'warning', message: `${where}: the page shows ${g.printedRows} × ${g.printedColumns}, but ${g.rows.length} × ${g.columns.length} were read.`, page: g.page })
-    if (!g.propertyTypes.length && g.columns.some((c) => !c.propertyTypes?.length)) out.push({ level: 'error', message: `${where}: no property type.`, page: g.page })
-    if (!g.purposes.length && g.columns.some((c) => !c.purposes?.length)) out.push({ level: 'error', message: `${where}: no purpose.`, page: g.page })
+    if (g.values.length !== g.rows.length || g.values.some((row) => row.length !== g.columns.length)) out.push({ level: 'error', message: `${where}: ${filled} squares read for ${g.rows.length} rows × ${g.columns.length} columns.`, page: pg })
+    if (g.printedRows !== g.rows.length || g.printedColumns !== g.columns.length) out.push({ level: 'warning', message: `${where}: the page shows ${g.printedRows} × ${g.printedColumns}, but ${g.rows.length} × ${g.columns.length} were read.`, page: pg })
+    if (!g.propertyTypes.length && g.columns.some((c) => !c.propertyTypes?.length)) out.push({ level: 'error', message: `${where}: no property type.`, page: pg })
+    if (!g.purposes.length && g.columns.some((c) => !c.purposes?.length)) out.push({ level: 'error', message: `${where}: no purpose.`, page: pg })
 
     g.rows.forEach((r) => {
-      if (r.ficoMin < 300 || r.ficoMax > 850 || r.ficoMin > r.ficoMax) out.push({ level: 'error', message: `${where}: credit band "${r.label || band(r.ficoMin, r.ficoMax)}" isn't possible (${r.ficoMin}–${r.ficoMax}).`, page: g.page })
+      if (r.ficoMin < 300 || r.ficoMax > 850 || r.ficoMin > r.ficoMax) out.push({ level: 'error', message: `${where}: credit band "${r.label || band(r.ficoMin, r.ficoMax)}" isn't possible (${r.ficoMin}–${r.ficoMax}).`, page: pg })
     })
     g.columns.forEach((c) => {
-      if (c.loanAmountMin < 0 || (c.loanAmountMax != null && c.loanAmountMax < c.loanAmountMin)) out.push({ level: 'error', message: `${where}: loan amounts in column "${c.label}" aren't possible.`, page: g.page })
+      if (c.loanAmountMin < 0 || (c.loanAmountMax != null && c.loanAmountMax < c.loanAmountMin)) out.push({ level: 'error', message: `${where}: loan amounts in column "${c.label}" aren't possible.`, page: pg })
     })
     g.values.forEach((row, ri) =>
       row.forEach((v, ci) => {
-        if (v != null && (v <= 0 || v > 100)) out.push({ level: 'error', message: `${where}: ${g.ratio.toUpperCase()} ${v}% at ${g.rows[ri]?.label ?? ''} / ${g.columns[ci]?.label ?? ''} isn't possible.`, page: g.page })
+        if (v != null && (v <= 0 || v > 100)) out.push({ level: 'error', message: `${where}: ${g.ratio.toUpperCase()} ${v}% at ${g.rows[ri]?.label ?? ''} / ${g.columns[ci]?.label ?? ''} isn't possible.`, page: pg })
       }),
     )
 
@@ -90,7 +91,7 @@ export function checkProgram(p: ReadProgram): ImportWarning[] {
         const higher = g.values[order[k - 1].i]?.[ci] ?? null
         const lower = g.values[order[k].i]?.[ci] ?? null
         if (lower != null && (higher == null || lower > higher))
-          out.push({ level: 'warning', message: `${where}, ${col.label}: ${band(order[k].r.ficoMin, order[k].r.ficoMax)} allows ${higher == null ? 'a loan where a higher score is not offered' : `${formatPercent(lower, 3)}, more than ${formatPercent(higher, 3)} at ${band(order[k - 1].r.ficoMin, order[k - 1].r.ficoMax)}`}. Check the PDF.`, page: g.page })
+          out.push({ level: 'warning', message: `${where}, ${col.label}: ${band(order[k].r.ficoMin, order[k].r.ficoMax)} allows ${higher == null ? 'a loan where a higher score is not offered' : `${formatPercent(lower, 3)}, more than ${formatPercent(higher, 3)} at ${band(order[k - 1].r.ficoMin, order[k - 1].r.ficoMax)}`}. Check the PDF.`, page: pg })
       }
     })
     // Across loan tiers that differ only by amount, the limit never goes up as the loan amount goes up.
@@ -103,10 +104,26 @@ export function checkProgram(p: ReadProgram): ImportWarning[] {
           const small = g.values[ri]?.[tiers[a].i] ?? null
           const big = g.values[ri]?.[tiers[b].i] ?? null
           if (big != null && small != null && big > small)
-            out.push({ level: 'warning', message: `${where}, ${band(row.ficoMin, row.ficoMax)}: ${tiers[b].c.label} allows ${formatPercent(big, 3)}, more than ${formatPercent(small, 3)} for the smaller ${tiers[a].c.label}. Check the PDF.`, page: g.page })
+            out.push({ level: 'warning', message: `${where}, ${band(row.ficoMin, row.ficoMax)}: ${tiers[b].c.label} allows ${formatPercent(big, 3)}, more than ${formatPercent(small, 3)} for the smaller ${tiers[a].c.label}. Check the PDF.`, page: pg })
         }
     })
   }
+
+  // Two grids that cover exactly the same loans (usually a copied grid whose occupancy or purpose wasn't changed).
+  const owner = new Map<string, number>()
+  const pairs = new Map<string, string>()
+  p.grids.forEach((g, gi) =>
+    cellsFromGrid(g).forEach((c) => {
+      const k = key(c)
+      const first = owner.get(k)
+      if (first == null) owner.set(k, gi)
+      else if (first !== gi && !pairs.has(`${first}|${gi}`)) {
+        const name = (i: number) => p.grids[i].title || `grid ${i + 1}`
+        pairs.set(`${first}|${gi}`, `"${name(first)}" and "${name(gi)}" cover the same loans (${cellLabel(c)}). Change one grid's occupancy, property types, purposes or doc type.`)
+      }
+    }),
+  )
+  for (const message of pairs.values()) out.push({ level: 'error', message, page: null })
   return out
 }
 

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MatrixReading } from '../../../supabase/functions/assistant/matrix'
 import type { ReviewProgram } from '@/lib/products/matrixImport'
 import { approvalPayload } from '@/lib/products/matrixImport'
+import { blankProgram } from '@/lib/products/typedMatrix'
 import type { MatrixCell } from '@/lib/products/types'
 import { invokeAssistant } from './assistant'
 import { db, keys, num, unwrap } from './client'
@@ -14,6 +15,8 @@ export interface MatrixImport {
   documentTitle: string | null
   storagePath: string | null
   status: 'pending_review' | 'approved' | 'discarded'
+  /** 'manual' = typed or pasted by hand; 'ai' = read by the assistant. */
+  source: 'ai' | 'manual'
   reading: MatrixReading
   createdAt: string
 }
@@ -23,19 +26,39 @@ interface ImportRow {
   lender_id: string
   document_id: string | null
   status: MatrixImport['status']
+  source: MatrixImport['source']
   reading: MatrixReading
   created_at: string
   lender: { name: string } | null
   document: { title: string; storage_path: string | null } | null
 }
 
-const SELECT = 'id, lender_id, document_id, status, reading, created_at, lender:lenders(name), document:guideline_documents(title, storage_path)'
-const toImport = (r: ImportRow): MatrixImport => ({ id: r.id, lenderId: r.lender_id, lenderName: r.lender?.name ?? '', documentId: r.document_id, documentTitle: r.document?.title ?? null, storagePath: r.document?.storage_path ?? null, status: r.status, reading: r.reading, createdAt: r.created_at })
+const SELECT = 'id, lender_id, document_id, status, source, reading, created_at, lender:lenders(name), document:guideline_documents(title, storage_path)'
+const toImport = (r: ImportRow): MatrixImport => ({ id: r.id, lenderId: r.lender_id, lenderName: r.lender?.name ?? '', documentId: r.document_id, documentTitle: r.document?.title ?? null, storagePath: r.document?.storage_path ?? null, status: r.status, source: r.source, reading: r.reading, createdAt: r.created_at })
 
 /** Asks the assistant to read a matrix PDF. The reading waits for review; nothing is searchable until approved. */
 export async function readMatrix(documentId: string): Promise<string> {
   const r = await invokeAssistant<{ importId: string }>({ task: 'matrix_read', documentId }, 'The assistant could not read this matrix.')
   return r.importId
+}
+
+/** Starts a matrix typed by hand (optionally beside one of the lender's PDFs). It's a draft until approved, like an AI reading. */
+export function useStartTypedMatrix(lenderId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ organizationId, documentId, programName }: { organizationId: string; documentId: string | null; programName?: string }) => {
+      const reading: MatrixReading = { programs: [blankProgram(programName ?? '')], effectiveDate: null, notes: null, dropped: [] }
+      const row = unwrap<{ id: string }>(await db().from('matrix_imports').insert({ organization_id: organizationId, lender_id: lenderId, document_id: documentId, source: 'manual', reading }).select('id').single())
+      return row.id
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.lenderImports(lenderId) }),
+  })
+}
+
+/** Saves a typed draft as it's edited, so nothing is lost if the page closes. */
+export async function saveTypedDraft(importId: string, reading: MatrixReading) {
+  const rows = unwrap<{ id: string }[]>(await db().from('matrix_imports').update({ reading }).eq('id', importId).eq('status', 'pending_review').eq('source', 'manual').select('id'))
+  if (rows.length === 0) throw new Error('This draft was already approved or discarded, or only owners and admins can edit it.')
 }
 
 export function useMatrixImport(id: string) {

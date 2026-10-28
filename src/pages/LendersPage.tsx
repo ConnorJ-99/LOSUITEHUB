@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { ExternalLinkIcon, PlusIcon, UploadIcon } from 'lucide-react'
+import { ExternalLinkIcon, KeyboardIcon, PlusIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -9,7 +9,7 @@ import { LenderDialog } from '@/components/lenders/LenderDialog'
 import { UploadDocumentDialog } from '@/components/lenders/UploadDocumentDialog'
 import { LenderMark } from '@/components/products/ProgramCard'
 import { blankLender, useDeleteLenderDocument, useLenderDocuments, useLenderPrograms, useLenders, useSetProgramActive, useUpdateLenderDocument, type Lender, type LenderDocument, type LenderDraft, type LenderProgram } from '@/lib/api/lenders'
-import { readMatrix, usePendingImports } from '@/lib/api/matrixImports'
+import { readMatrix, usePendingImports, useStartTypedMatrix } from '@/lib/api/matrixImports'
 import { useAiStatus } from '@/lib/api/assistant'
 import { openGuidelinePdf, searchPassages, type Passage } from '@/lib/api/products'
 import { useAuth } from '@/lib/auth/context'
@@ -133,7 +133,11 @@ function LenderDetail({ lender: l, canEdit, onEdit }: { lender: Lender; canEdit:
 
       <PendingImports lenderId={l.id} />
 
-      <Card title="Programs" description="A program's matrix becomes searchable once you approve it on the review screen (read a matrix PDF below).">
+      <Card
+        title="Programs"
+        description="A program's matrix becomes searchable once you approve it on the review screen. Type or paste it yourself, or have the assistant read a matrix PDF below."
+        action={canEdit && <TypeMatrixButton lenderId={l.id} documentId={null} label="Type a matrix" />}
+      >
         {programs.isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : <ProgramList lenderId={l.id} programs={programs.data ?? []} canEdit={canEdit} />}
       </Card>
 
@@ -169,7 +173,7 @@ function Info({ label, value }: { label: string; value: string }) {
 
 function ProgramList({ lenderId, programs, canEdit }: { lenderId: string; programs: LenderProgram[]; canEdit: boolean }) {
   const setActive = useSetProgramActive(lenderId)
-  if (programs.length === 0) return <p className="text-sm text-muted-foreground">No programs yet. They're created when you approve a matrix reading.</p>
+  if (programs.length === 0) return <p className="text-sm text-muted-foreground">No programs yet. Use Type a matrix to add one, or have the assistant read a matrix PDF; it appears here once you approve it.</p>
   return (
     <ul className="divide-y">
       {programs.map((p) => (
@@ -237,6 +241,7 @@ function DocumentList({ lenderId, documents, programs, canEdit }: { lenderId: st
               )}
               {canEdit && (
                 <>
+                  {d.docType === 'matrix' && <TypeMatrixButton lenderId={lenderId} documentId={d.id} label="Type it in" />}
                   {d.docType === 'matrix' && d.storagePath && (
                     <Button size="sm" variant="outline" disabled={reading !== null || aiOff} onClick={() => read(d)} title={aiOff ? 'Turns on once the AI assistant is set up (the Anthropic key in Supabase)' : 'The assistant reads every grid and rule; you review it against the PDF before anything is used'}>
                       {reading === d.id ? 'Reading… (a minute or two)' : 'Read matrix (AI)'}
@@ -323,20 +328,41 @@ function LenderSearch({ documents }: { documents: LenderDocument[] }) {
   )
 }
 
-/** Matrix readings waiting for review. */
+/** Starts a matrix typed by hand (beside this PDF, if one is given) and opens it. */
+function TypeMatrixButton({ lenderId, documentId, label }: { lenderId: string; documentId: string | null; label: string }) {
+  const { state } = useAuth()
+  const start = useStartTypedMatrix(lenderId)
+  const navigate = useNavigate()
+  if (state.status !== 'signedIn' || !state.user.organizationId) return null
+  const organizationId = state.user.organizationId
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={start.isPending}
+      title="Type the grid or paste it from Excel; it goes through the same checks and approval as an AI reading"
+      onClick={() => start.mutate({ organizationId, documentId }, { onSuccess: (id) => navigate(`/admin/lenders/imports/${id}`), onError: (e) => toast.error(e.message) })}
+    >
+      <KeyboardIcon />
+      {start.isPending ? 'Starting…' : label}
+    </Button>
+  )
+}
+
+/** Matrices waiting for review: typed drafts and assistant readings. */
 function PendingImports({ lenderId }: { lenderId: string }) {
   const imports = usePendingImports(lenderId)
   if (!imports.data?.length) return null
   return (
-    <Card title="Waiting for your review" description="Matrices the assistant read. Nothing in them is searchable until you approve it.">
+    <Card title="Waiting for your review" description="Matrices typed by hand or read by the assistant. Nothing in them is searchable until you approve it.">
       <ul className="divide-y">
         {imports.data.map((i) => (
           <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
             <span>
-              {i.documentTitle ?? 'Matrix'} · {i.reading.programs.length} program{i.reading.programs.length === 1 ? '' : 's'} · read {new Date(i.createdAt).toLocaleDateString('en-US')}
+              {i.source === 'manual' ? `Typed by hand: ${i.reading.programs.map((p) => p.name || 'Unnamed program').join(', ')}` : (i.documentTitle ?? 'Matrix')} · {i.reading.programs.length} program{i.reading.programs.length === 1 ? '' : 's'} · {i.source === 'manual' ? 'started' : 'read'} {new Date(i.createdAt).toLocaleDateString('en-US')}
             </span>
             <Button size="sm" asChild>
-              <Link to={`/admin/lenders/imports/${i.id}`}>Review</Link>
+              <Link to={`/admin/lenders/imports/${i.id}`}>{i.source === 'manual' ? 'Continue' : 'Review'}</Link>
             </Button>
           </li>
         ))}
