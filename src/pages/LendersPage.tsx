@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { ExternalLinkIcon, KeyboardIcon, PlusIcon, UploadIcon } from 'lucide-react'
+import { ArrowLeftIcon, ExternalLinkIcon, KeyboardIcon, PlusIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, PageHeader, ToggleChip, ToggleChipGroup, confirmAction } from '@/components/shared'
 import { LenderDialog } from '@/components/lenders/LenderDialog'
+import { LenderList } from '@/components/lenders/LenderList'
 import { ProgramDialog } from '@/components/lenders/ProgramDialog'
 import { UploadDocumentDialog } from '@/components/lenders/UploadDocumentDialog'
-import { LenderMark } from '@/components/products/ProgramCard'
 import { blankLender, guessStoredDocument, useDeleteLenderDocument, useLenderDocuments, useLenderPrograms, useLenders, useSetProgramActive, useUpdateLenderDocument, type Lender, type LenderDocument, type LenderDraft, type LenderProgram } from '@/lib/api/lenders'
 import { readMatrix, usePendingImports, useStartTypedMatrix } from '@/lib/api/matrixImports'
 import { useAiStatus } from '@/lib/api/assistant'
@@ -19,32 +19,32 @@ import { daysSince, isStale, oldestVerified, STALE_AFTER_DAYS } from '@/lib/prod
 import { programFromGuess } from '@/lib/products/typedMatrix'
 import { DOC_TYPES, LENDER_CHANNELS, LENDER_STATUSES, LIENS, PRODUCT_FAMILIES, termsSummary } from '@/lib/products/taxonomy'
 
-const STATUS_CLASS: Record<Lender['status'], string> = {
-  approved: 'bg-emerald-50 text-emerald-700',
-  pending: 'bg-accent text-accent-foreground',
-  not_signed_up: 'bg-amber-50 text-amber-800',
-  inactive: 'bg-muted text-muted-foreground',
-}
 const DOC_LABEL: Record<LenderDocument['docType'], string> = { matrix: 'Matrix', guidelines: 'Guidelines', overlay_bulletin: 'Overlay bulletin', rate_sheet: 'Rate sheet' }
 const toDraft = ({ programs: _p, documentCount: _d, ...l }: Lender): LenderDraft => l
 
-/** Lenders: add and edit lenders with their status, and upload their matrices and guidelines. */
+/** Lenders: the list of lenders (mockup 08), and one lender with its programs and documents. */
 export function LendersPage() {
   const { state } = useAuth()
   const canEdit = state.status === 'signedIn' && (state.user.role === 'owner' || state.user.role === 'admin')
   const lenders = useLenders()
   const [params, setParams] = useSearchParams()
   const [editing, setEditing] = useState<LenderDraft | null>(null)
-  const today = todayIso()
   const list = lenders.data ?? []
-  const selected = list.find((l) => l.id === params.get('lender')) ?? list[0] ?? null
-  const pick = (id: string) => setParams({ lender: id }, { replace: true })
+  const selected = list.find((l) => l.id === params.get('lender')) ?? null
+  const pick = (id: string) => setParams({ lender: id })
 
   return (
     <>
+      {selected && (
+        <button type="button" onClick={() => setParams({})} className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeftIcon className="size-4" />
+          Lenders
+        </button>
+      )}
       <PageHeader
-        title="Lenders"
-        description="Your lenders, their status, and the matrices and guidelines Product Search uses."
+        eyebrow="Admin"
+        title={selected ? selected.name : 'Lenders'}
+        description={selected ? undefined : 'Your lenders, what they offer, and the matrices and guidelines Product Search uses.'}
         action={
           canEdit && (
             <Button onClick={() => setEditing(blankLender())}>
@@ -63,30 +63,7 @@ export function LendersPage() {
           <EmptyState title="No lenders yet" description="Add a lender, then upload their matrix and guidelines." />
         </Card>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <ul className="space-y-2">
-            {list.map((l) => {
-              const verified = oldestVerified(l.programs)
-              const stale = l.programs.some((p) => p.active) && isStale(verified, today)
-              return (
-                <li key={l.id}>
-                  <button type="button" onClick={() => pick(l.id)} className={cn('flex w-full items-start gap-3 rounded-xl border bg-card p-3 text-left transition-colors', selected?.id === l.id ? 'border-primary ring-1 ring-primary' : 'hover:bg-muted/40')}>
-                    <LenderMark name={l.shortName ?? l.name} className="size-9 text-xs" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{l.name}</span>
-                      <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                        <span className={cn('rounded-full px-2 py-0.5 font-medium', STATUS_CLASS[l.status])}>{LENDER_STATUSES.label[l.status]}</span>
-                        {l.programs.length} program{l.programs.length === 1 ? '' : 's'} · {l.documentCount} document{l.documentCount === 1 ? '' : 's'}
-                      </span>
-                      {stale && <span className="mt-1 block text-xs text-amber-800">{verified ? `Matrix verified ${daysSince(verified, today)} days ago` : 'A matrix has never been verified'}</span>}
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-          {selected && <LenderDetail key={selected.id} lender={selected} canEdit={canEdit} onEdit={() => setEditing(toDraft(selected))} />}
-        </div>
+        selected ? <LenderDetail key={selected.id} lender={selected} canEdit={canEdit} onEdit={() => setEditing(toDraft(selected))} /> : <LenderList lenders={list} onOpen={pick} />
       )}
       {editing && <LenderDialog initial={editing} onClose={() => setEditing(null)} onSaved={pick} />}
     </>

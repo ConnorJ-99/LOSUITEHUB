@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
 import { pdfPages, sha256Hex } from '@/lib/documents/pdfText'
 import { guessDocument, type DocGuess } from '@/lib/products/docGuess'
+import type { LenderLoan } from '@/lib/products/lenderSummary'
 import { splitIntoPassages, type ExtractedPassage } from '@/lib/products/passages'
 import { termMonths, type DocType, type Feature, type LenderChannel, type LenderStatus, type Lien, type MatrixPurpose, type ProductFamily, type ProgramTerm } from '@/lib/products/taxonomy'
 import type { GuidelineDocument } from './products'
@@ -24,7 +25,7 @@ export interface Lender {
   compNotes: string | null
   states: string[] | null
   notes: string | null
-  programs: { id: string; name: string; active: boolean; lastVerifiedOn: string | null }[]
+  programs: { id: string; name: string; family: ProductFamily; lien: Lien; docTypes: DocType[]; features: Feature[]; active: boolean; lastVerifiedOn: string | null }[]
   documentCount: number
 }
 
@@ -41,7 +42,7 @@ interface LenderRow {
   comp_notes: string | null
   states: string[] | null
   notes: string | null
-  programs: { id: string; name: string; active: boolean; last_verified_on: string | null }[]
+  programs: { id: string; name: string; product_family: ProductFamily; lien: Lien; doc_types: DocType[]; features: Feature[]; active: boolean; last_verified_on: string | null }[]
   guideline_documents: { count: number }[]
 }
 
@@ -50,7 +51,7 @@ export function useLenders() {
     queryKey: keys.lenders,
     queryFn: async () =>
       unwrap<LenderRow[]>(
-        await db().from('lenders').select('id, name, short_name, status, channel, ae_name, ae_phone, ae_email, portal_url, comp_notes, states, notes, programs(id, name, active, last_verified_on), guideline_documents(count)').order('name'),
+        await db().from('lenders').select('id, name, short_name, status, channel, ae_name, ae_phone, ae_email, portal_url, comp_notes, states, notes, programs(id, name, product_family, lien, doc_types, features, active, last_verified_on), guideline_documents(count)').order('name'),
       ).map(
         (r): Lender => ({
           id: r.id,
@@ -65,10 +66,44 @@ export function useLenders() {
           compNotes: r.comp_notes,
           states: r.states,
           notes: r.notes,
-          programs: r.programs.map((p) => ({ id: p.id, name: p.name, active: p.active, lastVerifiedOn: p.last_verified_on })).sort((a, b) => a.name.localeCompare(b.name)),
+          programs: r.programs.map((p) => ({ id: p.id, name: p.name, family: p.product_family, lien: p.lien, docTypes: p.doc_types, features: p.features, active: p.active, lastVerifiedOn: p.last_verified_on })).sort((a, b) => a.name.localeCompare(b.name)),
           documentCount: r.guideline_documents[0]?.count ?? 0,
         }),
       ),
+  })
+}
+
+/** How many matrices (typed or read) wait for review, by lender. */
+export function usePendingReviewCounts() {
+  return useQuery({
+    queryKey: ['lenderImports', 'pendingCounts'],
+    queryFn: async () => {
+      const rows = unwrap<{ lender_id: string }[]>(await db().from('matrix_imports').select('lender_id').eq('status', 'pending_review'))
+      const counts = new Map<string, number>()
+      for (const r of rows) counts.set(r.lender_id, (counts.get(r.lender_id) ?? 0) + 1)
+      return counts
+    },
+  })
+}
+
+/** Your files that chose a program from each lender (Row Level Security limits them to files you can see). */
+export function useLenderLoans() {
+  return useQuery({
+    queryKey: ['lenderLoans'],
+    queryFn: async () => {
+      const rows = unwrap<{ loan_id: string; program: { lender_id: string } | null; loan: { stage: string; closing_date: string | null } | null }[]>(
+        await db()
+          .from('loan_program_options')
+          .select('loan_id, program:programs!loan_program_options_program_id_fkey(lender_id), loan:loans!loan_program_options_loan_id_fkey(stage, closing_date)')
+          .eq('status', 'chosen'),
+      )
+      const byLender = new Map<string, LenderLoan[]>()
+      for (const r of rows) {
+        if (!r.program || !r.loan) continue
+        byLender.set(r.program.lender_id, [...(byLender.get(r.program.lender_id) ?? []), { stage: r.loan.stage, closingDate: r.loan.closing_date }])
+      }
+      return byLender
+    },
   })
 }
 
