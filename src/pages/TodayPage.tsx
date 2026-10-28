@@ -126,7 +126,7 @@ export function TodayPage() {
         title={`Today${name ? `, ${name}` : ''}`}
         description={`${formatIsoDate(today)} · ${waiting} waiting for your approval`}
         action={
-          <Button size="sm" onClick={openNewLead}>
+          <Button size="sm" onClick={() => openNewLead()}>
             <PlusIcon />
             New Lead
           </Button>

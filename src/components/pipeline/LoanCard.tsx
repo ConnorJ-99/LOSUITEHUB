@@ -5,7 +5,10 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { useUpdateCard, type CardChanges } from '@/lib/api/loans'
-import type { PipelineLoan } from '@/lib/api/types'
+import { useToggleTask } from '@/lib/api/tasks'
+import type { PipelineLoan, Task } from '@/lib/api/types'
+import { todayIso } from '@/lib/dates'
+import { cardTasks } from '@/lib/pipeline/cardTasks'
 import { formatCurrency } from '@/lib/format'
 import { daysSince, fullName } from '@/lib/pipeline/helpers'
 import { cardAmount, stageLabelFor } from '@/lib/pipeline/pipelines'
@@ -20,6 +23,8 @@ export interface LoanCardProps extends React.ComponentProps<'div'> {
   dragging?: boolean
   onStageSelect?: (stage: PipelineStage) => void
   onOpen?: () => void
+  /** The file's open tasks, soonest due first (the next two show under the card). */
+  tasks?: Task[]
 }
 
 /** Stage dot colors, by how far along the file is. */
@@ -49,7 +54,7 @@ const initials = (name: string) =>
 const stop = { onClick: (e: React.SyntheticEvent) => e.stopPropagation(), onPointerDown: (e: React.SyntheticEvent) => e.stopPropagation(), onKeyDown: (e: React.SyntheticEvent) => e.stopPropagation() }
 
 /** Pipeline card (Connor's old app): star, who, loan type and amount, stage, status detail, timeline and quick contact buttons. */
-export function LoanCard({ loan, showLo, dragging, onStageSelect, onOpen, className, ...props }: LoanCardProps) {
+export function LoanCard({ loan, showLo, dragging, onStageSelect, onOpen, tasks = [], className, ...props }: LoanCardProps) {
   const update = useUpdateCard()
   const days = daysSince(loan.stageChangedAt)
   const name = fullName(loan.borrower)
@@ -158,8 +163,43 @@ export function LoanCard({ loan, showLo, dragging, onStageSelect, onOpen, classN
         )}
       </div>
 
+      {tasks.length > 0 && <CardTaskList loan={loan} tasks={tasks} />}
+
       {loan.stage === 'lost' && loan.lostReason && <p className="mt-2 line-clamp-2 border-t pt-2 text-xs text-muted-foreground">{loan.lostReason}</p>}
     </div>
+  )
+}
+
+/** The next two open tasks: tick one off right here, overdue in red. */
+function CardTaskList({ loan, tasks }: { loan: PipelineLoan; tasks: Task[] }) {
+  const toggle = useToggleTask(loan.id)
+  const { shown, more } = cardTasks(tasks, todayIso())
+  return (
+    <ul className="mt-2 space-y-1.5 border-t pt-2">
+      {shown.map(({ task, overdue, dueToday, when }) => (
+        <li key={task.id} className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            aria-label={`Mark ${task.title} done`}
+            className="mt-0.5 size-3.5 shrink-0 accent-primary"
+            disabled={toggle.isPending}
+            onChange={() => toggle.mutate({ id: task.id, done: true }, { onSuccess: () => toast.success(`Done: ${task.title}`), onError: (e) => toast.error(e.message) })}
+            {...stop}
+          />
+          <span className="min-w-0">
+            <span className="block truncate text-xs font-medium">{task.title}</span>
+            <span className={cn('block text-[11px]', overdue ? 'text-destructive' : dueToday ? 'font-medium text-amber-700' : 'text-muted-foreground')}>{when}</span>
+          </span>
+        </li>
+      ))}
+      {more > 0 && (
+        <li>
+          <Link to={`/loans/${loan.id}`} {...stop} className="text-[11px] font-medium text-primary hover:underline">
+            +{more} more
+          </Link>
+        </li>
+      )}
+    </ul>
   )
 }
 

@@ -33,7 +33,7 @@ export function ContactsPage() {
       <PageHeader
         title="Contacts"
         description={contacts.data ? `${contacts.data.length} ${contacts.data.length === 1 ? 'person' : 'people'}` : undefined}
-        action={<Button onClick={openNewLead}><PlusIcon />New Lead</Button>}
+        action={<Button onClick={() => openNewLead()}><PlusIcon />New Lead</Button>}
       />
 
       {contacts.isLoading && <p className="py-12 text-center text-sm text-muted-foreground">Loading…</p>}

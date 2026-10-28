@@ -8,11 +8,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { FormGrid, Input, Select, ToggleChip } from '@/components/shared'
 import { StageBadge } from '@/components/pipeline/StageBadge'
 import { useMatchingContacts } from '@/lib/api/contacts'
-import { useCreateLead, useOrgMembers } from '@/lib/api/loans'
+import { useCreateLead, useOrgMembers, useUpdateStage } from '@/lib/api/loans'
 import type { ContactSummary } from '@/lib/api/types'
 import { useAuth } from '@/lib/auth/context'
 import { formatPhone, fullName } from '@/lib/pipeline/helpers'
-import { PURPOSES, purposeLabel, type LoanPurpose } from '@/lib/pipeline/stages'
+import { PURPOSES, purposeLabel, stageLabel, type LoanPurpose } from '@/lib/pipeline/stages'
+import type { NewLeadPreset } from './new-lead-context'
 
 interface FormState {
   firstName: string
@@ -24,12 +25,12 @@ interface FormState {
   assignedLoId: string | null
 }
 
-const blankForm = (myId: string | null): FormState => ({
+const blankForm = (myId: string | null, preset: NewLeadPreset | null = null): FormState => ({
   firstName: '',
   lastName: '',
   phone: '',
   email: '',
-  purpose: 'purchase',
+  purpose: preset?.purpose ?? 'purchase',
   referralSource: '',
   assignedLoId: myId,
 })
@@ -44,14 +45,23 @@ function useDebounced<T>(value: T, ms = 400): T {
   return debounced
 }
 
-export function NewLeadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+/** preset: from a pipeline column's "+ Add lead": that board's loan type, and the column's stage to start in. */
+export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boolean; onOpenChange: (open: boolean) => void; preset?: NewLeadPreset | null }) {
   const { state } = useAuth()
   const myId = state.status === 'signedIn' ? state.user.id : null
   const navigate = useNavigate()
   const createLead = useCreateLead()
+  const updateStage = useUpdateStage()
   const members = useOrgMembers()
 
-  const [form, setForm] = useState<FormState>(() => blankForm(myId))
+  const [form, setForm] = useState<FormState>(() => blankForm(myId, preset))
+  // A different "+ Add lead" column starts the form over with its loan type.
+  const [presetSeen, setPresetSeen] = useState(preset)
+  if (open && preset !== presetSeen) {
+    setPresetSeen(preset)
+    setForm(blankForm(myId, preset))
+  }
+  const startStage = preset?.stage && preset.stage !== 'lead' ? preset.stage : null
   const [existing, setExisting] = useState<ContactSummary | null>(null)
   const [dismissedIds, setDismissedIds] = useState<string[]>([])
   const [submitted, setSubmitted] = useState(false)
@@ -66,7 +76,7 @@ export function NewLeadDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const suggestions = (matches.data ?? []).filter((m) => !dismissedIds.includes(m.id))
 
   const reset = () => {
-    setForm(blankForm(myId))
+    setForm(blankForm(myId, preset))
     setExisting(null)
     setDismissedIds([])
     setSubmitted(false)
@@ -101,15 +111,25 @@ export function NewLeadDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         priorLoanId: existing?.loans[0]?.id ?? null,
       },
       {
-        onSuccess: (loanId) => {
+        onSuccess: async (loanId) => {
           const name = existing ? fullName(existing) : `${form.firstName} ${form.lastName}`.trim()
           close(false)
+          // Added from a pipeline column: move it to that column (logged like any stage change).
+          if (startStage) {
+            try {
+              await updateStage.mutateAsync({ loanId, stage: startStage })
+            } catch (e) {
+              toast.error(`${name} was added as a Lead, but couldn't be moved to ${stageLabel(startStage)}: ${(e as Error).message}`)
+              return
+            }
+          }
+          const where = startStage ? stageLabel(startStage) : 'Lead'
           if (startPrequal) {
             navigate(`/loans/${loanId}?tab=prequal`)
-            toast.success(`${name} added to Lead`)
+            toast.success(`${name} added to ${where}`)
             return
           }
-          toast.success(`${name} added to Lead`, {
+          toast.success(`${name} added to ${where}`, {
             action: { label: 'Open', onClick: () => navigate(`/loans/${loanId}`) },
           })
         },
@@ -125,7 +145,7 @@ export function NewLeadDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New Lead</DialogTitle>
-          <DialogDescription>Starts in the Lead stage. You can fill in the rest later.</DialogDescription>
+          <DialogDescription>Starts in {startStage ? stageLabel(startStage) : 'the Lead stage'}. You can fill in the rest later.</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-4" noValidate>

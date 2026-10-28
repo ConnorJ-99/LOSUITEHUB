@@ -3,7 +3,7 @@ import { Outlet } from 'react-router'
 import { MenuIcon, TriangleAlertIcon } from 'lucide-react'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { NewLeadContext } from '@/components/leads/new-lead-context'
+import { NewLeadContext, type NewLeadPreset } from '@/components/leads/new-lead-context'
 import { NewLeadDialog } from '@/components/leads/NewLeadDialog'
 import type { CurrentUser } from '@/lib/auth/context'
 import { BrandMark } from './BrandMark'
@@ -31,6 +31,7 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [newLeadOpen, setNewLeadOpen] = useState(false)
+  const [newLeadPreset, setNewLeadPreset] = useState<NewLeadPreset | null>(null)
 
   const toggleCollapsed = () => {
     setCollapsed((value) => {
@@ -40,7 +41,7 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
   }
 
   return (
-    <NewLeadContext.Provider value={{ openNewLead: () => setNewLeadOpen(true) }}>
+    <NewLeadContext.Provider value={{ openNewLead: (preset) => (setNewLeadPreset(preset ?? null), setNewLeadOpen(true)) }}>
       <div className="flex min-h-svh">
         {/* Desktop sidebar */}
         <div
@@ -90,7 +91,7 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
           </main>
         </div>
       </div>
-      {!preview && <NewLeadDialog open={newLeadOpen} onOpenChange={setNewLeadOpen} />}
+      {!preview && <NewLeadDialog open={newLeadOpen} onOpenChange={setNewLeadOpen} preset={newLeadPreset} />}
     </NewLeadContext.Provider>
   )
 }

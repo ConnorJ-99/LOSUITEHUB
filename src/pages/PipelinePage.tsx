@@ -9,9 +9,13 @@ import { PipelineBoard } from '@/components/pipeline/PipelineBoard'
 import { PipelineList } from '@/components/pipeline/PipelineList'
 import { useStageChanger } from '@/components/pipeline/useStageChanger'
 import { useOrgMembers, usePipeline } from '@/lib/api/loans'
+import { useOpenTasks } from '@/lib/api/tasks'
 import { emptyFilters, isOnBoard, matchesFilters, type PipelineFilters } from '@/lib/pipeline/helpers'
 import { pipelineFor, PIPELINES, purposePipeline, type PipelineId } from '@/lib/pipeline/pipelines'
-import { PURPOSES, STAGES } from '@/lib/pipeline/stages'
+import { PURPOSES, STAGES, type LoanPurpose } from '@/lib/pipeline/stages'
+
+/** The loan type a lead added on each loan-type board starts as. */
+const BOARD_PURPOSE: Partial<Record<PipelineId, LoanPurpose>> = { purchase: 'purchase', refinance: 'refinance_rate_term', investment: 'investment_dscr', heloc: 'heloc' }
 
 type View = 'board' | 'list'
 const VIEW_KEY = 'losuite.pipelineView'
@@ -61,6 +65,7 @@ function PipelineView({ pipeline: only }: { pipeline: PipelineId | null }) {
   const pipeline = usePipeline()
   const members = useOrgMembers()
   const { openNewLead } = useNewLead()
+  const openTasks = useOpenTasks()
   const { requestChange, dialog } = useStageChanger()
   const info = only ? PIPELINES.find((p) => p.id === only)! : null
   const [view, setView] = useState<View>(initialView)
@@ -104,7 +109,7 @@ function PipelineView({ pipeline: only }: { pipeline: PipelineId | null }) {
         action={
           <div className="flex items-center gap-2">
             <ViewToggle view={view} onChange={changeView} />
-            <Button onClick={openNewLead}>
+            <Button onClick={() => openNewLead()}>
               <PlusIcon />
               New Lead
             </Button>
@@ -131,7 +136,7 @@ function PipelineView({ pipeline: only }: { pipeline: PipelineId | null }) {
             icon={UsersIcon}
             title="No leads yet"
             description="Add your first lead and it will show up here in the Lead stage."
-            action={<Button onClick={openNewLead}><PlusIcon />New Lead</Button>}
+            action={<Button onClick={() => openNewLead()}><PlusIcon />New Lead</Button>}
           />
         </Card>
       )}
@@ -173,7 +178,14 @@ function PipelineView({ pipeline: only }: { pipeline: PipelineId | null }) {
           </div>
 
           {view === 'board' ? (
-            <PipelineBoard loans={visible} showLo={showLo} onRequestChange={requestChange} columns={info?.columns} />
+            <PipelineBoard
+              loans={visible}
+              showLo={showLo}
+              onRequestChange={requestChange}
+              columns={info?.columns}
+              tasks={openTasks.data}
+              onAddLead={only ? (stage) => openNewLead({ purpose: BOARD_PURPOSE[only], stage }) : undefined}
+            />
           ) : visible.length === 0 ? (
             <Card>
               <EmptyState icon={SearchXIcon} title="No loans match" description="Try a different search or clear the filters." />

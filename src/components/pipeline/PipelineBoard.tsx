@@ -13,7 +13,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core'
 import { cn } from 'cn'
-import type { PipelineLoan } from '@/lib/api/types'
+import type { PipelineLoan, Task } from '@/lib/api/types'
 import { formatCompactCurrency } from '@/lib/format'
 import { fullName } from '@/lib/pipeline/helpers'
 import { cardAmount, type PipelineColumn } from '@/lib/pipeline/pipelines'
@@ -28,12 +28,16 @@ interface BoardProps {
   onRequestChange: RequestChange
   /** The pipeline's columns; one per stage when omitted (All loans). */
   columns?: readonly PipelineColumn[]
+  /** Each file's open tasks, by loan id (shown under the card). */
+  tasks?: Map<string, Task[]>
+  /** "+ Add lead" at the bottom of a column: starts a lead in that column's stage. */
+  onAddLead?: (stage: PipelineStage) => void
 }
 
 /** All loans: a column for every stage. */
 const STAGE_COLUMNS: PipelineColumn[] = STAGES.map((s) => ({ id: s.value, label: s.label, stages: [s.value], dropStage: s.value }))
 
-function DraggableCard({ loan, showLo, onRequestChange }: { loan: PipelineLoan; showLo: boolean; onRequestChange: RequestChange }) {
+function DraggableCard({ loan, showLo, onRequestChange, tasks }: { loan: PipelineLoan; showLo: boolean; onRequestChange: RequestChange; tasks?: Task[] }) {
   const navigate = useNavigate()
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: loan.id })
   return (
@@ -41,6 +45,7 @@ function DraggableCard({ loan, showLo, onRequestChange }: { loan: PipelineLoan; 
       ref={setNodeRef}
       loan={loan}
       showLo={showLo}
+      tasks={tasks}
       className={cn(isDragging && 'opacity-40')}
       onOpen={() => navigate(`/loans/${loan.id}`)}
       onStageSelect={(stage) => onRequestChange({ id: loan.id, stage: loan.stage, borrowerName: fullName(loan.borrower) }, stage)}
@@ -50,7 +55,7 @@ function DraggableCard({ loan, showLo, onRequestChange }: { loan: PipelineLoan; 
   )
 }
 
-function Column({ column, loans, showLo, onRequestChange }: { column: PipelineColumn; loans: PipelineLoan[]; showLo: boolean; onRequestChange: RequestChange }) {
+function Column({ column, loans, showLo, onRequestChange, tasks, onAddLead }: { column: PipelineColumn; loans: PipelineLoan[]; showLo: boolean; onRequestChange: RequestChange; tasks?: Map<string, Task[]>; onAddLead?: (stage: PipelineStage) => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id, disabled: !column.dropStage })
   const side = column.stages.every((s) => s === 'nurture' || s === 'lost')
   const total = loans.reduce((sum, l) => sum + (cardAmount(l) ?? 0), 0)
@@ -73,15 +78,20 @@ function Column({ column, loans, showLo, onRequestChange }: { column: PipelineCo
       </header>
       <div className="flex min-h-24 flex-1 flex-col gap-2 px-2 pb-2">
         {loans.map((loan) => (
-          <DraggableCard key={loan.id} loan={loan} showLo={showLo} onRequestChange={onRequestChange} />
+          <DraggableCard key={loan.id} loan={loan} showLo={showLo} onRequestChange={onRequestChange} tasks={tasks?.get(loan.id)} />
         ))}
+        {onAddLead && column.dropStage && (
+          <button type="button" onClick={() => onAddLead(column.dropStage!)} className="rounded-lg py-2 text-xs text-muted-foreground hover:bg-card hover:text-foreground">
+            + Add lead
+          </button>
+        )}
       </div>
     </section>
   )
 }
 
 /** Kanban board: a pipeline's columns, each with a count and dollar total. Drag a card, or use its ⋯ menu, to move it. */
-export function PipelineBoard({ loans, showLo, onRequestChange, columns = STAGE_COLUMNS }: BoardProps) {
+export function PipelineBoard({ loans, showLo, onRequestChange, columns = STAGE_COLUMNS, tasks, onAddLead }: BoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -111,7 +121,7 @@ export function PipelineBoard({ loans, showLo, onRequestChange, columns = STAGE_
     >
       <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-4 md:-mx-6 md:px-6">
         {columns.map((column) => (
-          <Column key={column.id} column={column} loans={inColumn(column)} showLo={showLo} onRequestChange={onRequestChange} />
+          <Column key={column.id} column={column} loans={inColumn(column)} showLo={showLo} onRequestChange={onRequestChange} tasks={tasks} onAddLead={onAddLead} />
         ))}
       </div>
       <DragOverlay>{active ? <LoanCard loan={active} showLo={showLo} dragging className="w-60" /> : null}</DragOverlay>

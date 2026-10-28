@@ -34,7 +34,7 @@ export function LeadsHomePage() {
         <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
         <p className="text-sm text-muted-foreground">Pick the pipeline you want to work.</p>
         <div className="mt-3 flex justify-center gap-2">
-          <Button onClick={openNewLead}>
+          <Button onClick={() => openNewLead()}>
             <PlusIcon />
             New Lead
           </Button>

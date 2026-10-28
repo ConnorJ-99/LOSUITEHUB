@@ -49,6 +49,19 @@ export function useLoanTasks(loanId: string) {
   })
 }
 
+/** Every open task the user can see, grouped by loan (for the pipeline cards). Soonest due first. */
+export function useOpenTasks() {
+  return useQuery({
+    queryKey: keys.openTasks,
+    queryFn: async () => {
+      const rows = unwrap<TaskRow[]>(await db().from('tasks').select(TASK_SELECT).is('completed_at', null))
+      const byLoan = new Map<string, Task[]>()
+      for (const t of sortTasks(rows.map(toTask))) byLoan.set(t.loanId, [...(byLoan.get(t.loanId) ?? []), t])
+      return byLoan
+    },
+  })
+}
+
 export interface MyTask extends Task {
   borrowerName: string
 }
@@ -85,6 +98,7 @@ function useInvalidateTasks(loanId: string) {
   return () => {
     queryClient.invalidateQueries({ queryKey: keys.loanTasks(loanId) })
     queryClient.invalidateQueries({ queryKey: keys.myTasks })
+    queryClient.invalidateQueries({ queryKey: keys.openTasks })
   }
 }
 
