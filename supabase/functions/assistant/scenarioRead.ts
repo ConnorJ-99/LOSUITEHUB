@@ -66,10 +66,14 @@ export interface ScenarioReading {
   unclear: string[]
 }
 
+// Structured outputs allow at most 16 "value or null" fields per form, so
+// words and numbers that weren't said come back empty ("" or -1) instead of
+// null; the checks below turn those into "not stated". Only yes/no stays nullable.
 const nullable = (schema: Record<string, unknown>) => ({ anyOf: [schema, { type: 'null' }] })
-const choice = (values: readonly string[]) => nullable({ type: 'string', enum: [...values] })
-const number = () => nullable({ type: 'number' })
-const integer = () => nullable({ type: 'integer' })
+const choice = (values: readonly string[]) => ({ type: 'string', enum: ['', ...values], description: '"" when not stated.' })
+const number = () => ({ type: 'number', description: '-1 when not stated.' })
+const integer = () => ({ type: 'integer', description: '-1 when not stated.' })
+const text = () => ({ type: 'string', description: '"" when not stated.' })
 const flag = () => nullable({ type: 'boolean' })
 
 const READ_PROPERTIES = {
@@ -81,8 +85,8 @@ const READ_PROPERTIES = {
   occupancy: choice(SCENARIO_OCCUPANCIES),
   propertyType: choice(SCENARIO_PROPERTY_TYPES),
   units: integer(),
-  state: nullable({ type: 'string' }),
-  county: nullable({ type: 'string' }),
+  state: text(),
+  county: text(),
   purchasePrice: number(),
   value: number(),
   loanAmount: number(),
@@ -120,7 +124,7 @@ export const SCENARIO_SCHEMA = {
 export const SCENARIO_SYSTEM_PROMPT = `You read a loan officer's one-line description of a borrower's mortgage scenario and fill in a search form. You only read; you never judge eligibility or suggest lenders.
 
 Rules:
-- Fill in only what the sentence says or clearly implies. Everything else is null (features: an empty list). Never guess a credit score, income, DTI or value.
+- Fill in only what the sentence says or clearly implies. Leave everything else empty: "" for words and codes, -1 for numbers, null for yes/no (features: an empty list). Never guess a credit score, income, DTI or value.
 - Product type: lien "first" unless it says second, closed-end second, CES, HELOAN ("ces") or HELOC ("heloc"). family: conventional, fha, va, usda, jumbo, non_qm, or "any" when it says any or doesn't care. A DSCR, bank statement, P&L, 1099 or asset depletion loan is non_qm. docType: dscr for DSCR, bank_statement_12 / bank_statement_24 for bank statements (12 if no months are given), form_1099, pnl_only, asset_depletion, wvoe, no_ratio, otherwise full_doc when the income is W-2 or tax returns.
 - Features only when stated: dpa (down payment assistance), itin, foreign_national, interest_only, non_warrantable_condo, manufactured, buydown, recent_credit_event, first_time_investor, str_income (short-term rental income), homeready_possible, llc_vesting (closing in an LLC).
 - purpose: purchase, rate_term (refi with no cash out), cash_out. occupancy: primary, second_home, investment (investor, rental, NOO, DSCR usually means investment).
