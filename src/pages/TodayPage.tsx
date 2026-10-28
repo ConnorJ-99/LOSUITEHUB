@@ -1,9 +1,9 @@
 import { Link } from 'react-router'
 import { cn } from 'cn'
-import { CalendarClockIcon, CheckIcon, InboxIcon, KanbanIcon, ListTodoIcon, PlusIcon } from 'lucide-react'
+import { CalculatorIcon, CalendarClockIcon, CheckIcon, FilePlus2Icon, InboxIcon, KanbanIcon, ListTodoIcon, PlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card, EmptyState, PageHeader } from '@/components/shared'
+import { Card, EmptyState, HeroBand, PageHeader, QuickAction, SectionTitle } from '@/components/shared'
 import { useNewLead } from '@/components/leads/new-lead-context'
 import { ActionEntry } from '@/components/queue/ActionEntry'
 import { usePipeline } from '@/lib/api/loans'
@@ -126,18 +126,30 @@ export function TodayPage() {
 
   return (
     <>
-      <PageHeader
-        title={`Today${name ? `, ${name}` : ''}`}
-        description={`${formatIsoDate(today)} · ${waiting} waiting for your approval`}
+      <HeroBand
+        eyebrow="Your workspace"
+        title={name ? 'Welcome back,' : 'Welcome back'}
+        highlight={name || undefined}
+        subtitle={
+          <>
+            {formatIsoDate(today)} · <span className="rounded-md bg-white/10 px-1.5 py-0.5 font-medium text-sky-300">{waiting} waiting for your approval</span>
+          </>
+        }
         action={
-          <Button size="sm" onClick={() => openNewLead()}>
+          <Button onClick={() => openNewLead()}>
             <PlusIcon />
             New Lead
           </Button>
         }
       />
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
+      <div className="mb-7 grid gap-3 md:grid-cols-3">
+        <QuickAction icon={CalculatorIcon} title="Price a loan" description="Search your lenders' matrices for a scenario." to="/product-search" />
+        <QuickAction icon={FilePlus2Icon} title="Start a new lead" description="Add a borrower and take the prequal call." onClick={() => openNewLead()} />
+        <QuickAction icon={KanbanIcon} title="Open the pipeline" description="Every file by stage, with tasks under each card." to="/pipeline" tone="green" />
+      </div>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
         <div className="min-w-0 space-y-5">
+          <SectionTitle eyebrow="Today" title="Your day," highlight="at a glance" />
           <WebLeadsCard />
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
@@ -166,9 +178,12 @@ export function TodayPage() {
             )
           )}
         </div>
-        <Card title="Pipeline" action={<Button variant="ghost" size="sm" asChild><Link to="/pipeline"><KanbanIcon />Open</Link></Button>}>
-          <PipelineSnapshot />
-        </Card>
+        <div>
+          <SectionTitle eyebrow="Pipeline" title="Pipeline" highlight="snapshot" />
+          <Card className="border-t-2 border-t-primary" action={<Button variant="ghost" size="sm" asChild><Link to="/pipeline"><KanbanIcon />Open</Link></Button>} title="By pipeline">
+            <PipelineSnapshot />
+          </Card>
+        </div>
       </div>
     </>
   )

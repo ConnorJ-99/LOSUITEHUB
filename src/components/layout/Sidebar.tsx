@@ -48,10 +48,10 @@ export function Sidebar({ user, collapsed, onToggleCollapsed, onNavigate }: Side
 
   return (
     <aside className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className={cn('flex h-14 items-center border-b px-3', collapsed ? 'justify-center' : 'justify-between')}>
-        <BrandMark collapsed={collapsed} />
+      <div className={cn('flex h-16 items-center border-b border-sidebar-border px-3', collapsed ? 'justify-center' : 'justify-between')}>
+        <BrandMark collapsed={collapsed} tone="dark" />
         {onToggleCollapsed && !collapsed && (
-          <Button variant="ghost" size="icon-sm" onClick={onToggleCollapsed} aria-label="Collapse sidebar">
+          <Button variant="ghost" size="icon-sm" className="text-sidebar-foreground/70 hover:bg-white/10 hover:text-white" onClick={onToggleCollapsed} aria-label="Collapse sidebar">
             <ChevronsLeftIcon />
           </Button>
         )}
@@ -60,7 +60,7 @@ export function Sidebar({ user, collapsed, onToggleCollapsed, onNavigate }: Side
       <div className="p-3">
         <MaybeTooltip label="New Lead" show={collapsed}>
           <Button
-            className={cn('w-full', collapsed && 'px-0')}
+            className={cn('w-full bg-white font-semibold text-navy hover:bg-white/90', collapsed && 'px-0')}
             onClick={() => {
               onNavigate?.()
               openNewLead()
@@ -77,7 +77,7 @@ export function Sidebar({ user, collapsed, onToggleCollapsed, onNavigate }: Side
         {navSections.map((section, i) => (
           <div key={section.label ?? i} className="space-y-0.5">
             {section.label && !collapsed && (
-              <p className="px-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+              <p className="px-2 pb-1 text-[11px] font-semibold tracking-[0.14em] text-sidebar-foreground/50 uppercase">
                 {section.label}
               </p>
             )}
@@ -92,8 +92,8 @@ export function Sidebar({ user, collapsed, onToggleCollapsed, onNavigate }: Side
                       'flex h-9 items-center gap-2.5 rounded-lg px-2 text-sm transition-colors',
                       collapsed && 'justify-center',
                       isActive
-                        ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                        ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-sm'
+                        : 'text-sidebar-foreground/80 hover:bg-white/8 hover:text-white',
                     )
                   }
                 >
@@ -108,31 +108,31 @@ export function Sidebar({ user, collapsed, onToggleCollapsed, onNavigate }: Side
 
       {onToggleCollapsed && collapsed && (
         <div className="flex justify-center pb-2">
-          <Button variant="ghost" size="icon-sm" onClick={onToggleCollapsed} aria-label="Expand sidebar">
+          <Button variant="ghost" size="icon-sm" className="text-sidebar-foreground/70 hover:bg-white/10 hover:text-white" onClick={onToggleCollapsed} aria-label="Expand sidebar">
             <ChevronsRightIcon />
           </Button>
         </div>
       )}
 
-      <div className="border-t p-3">
+      <div className="border-t border-sidebar-border p-3">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
               className={cn(
-                'flex w-full items-center gap-2.5 rounded-lg p-1.5 text-left transition-colors hover:bg-muted',
+                'flex w-full items-center gap-2.5 rounded-lg p-1.5 text-left transition-colors hover:bg-white/8',
                 collapsed && 'justify-center',
               )}
             >
               <Avatar className="size-8">
-                <AvatarFallback className="bg-accent text-xs text-accent-foreground">
+                <AvatarFallback className="bg-white/10 text-xs font-semibold text-white">
                   {initials(user.fullName)}
                 </AvatarFallback>
               </Avatar>
               {!collapsed && (
                 <div className="min-w-0 leading-tight">
-                  <p className="truncate text-sm font-medium">{user.fullName}</p>
-                  <p className="truncate text-xs text-muted-foreground">
+                  <p className="truncate text-sm font-medium text-white">{user.fullName}</p>
+                  <p className="truncate text-xs text-sidebar-foreground/60">
                     {user.role ? roleLabels[user.role] : 'No organization yet'}
                   </p>
                 </div>

@@ -2,22 +2,22 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/inter";
-@import "@fontsource/anton";
-@import "@fontsource-variable/jetbrains-mono";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    /* Editorial theme (Connor, 2026-10-27): Anton headlines, Inter body, JetBrains Mono numbers. */
-    --font-heading: 'Anton', 'Arial Narrow', sans-serif;
+    /* Workspace theme (Connor, 2026-10-28): navy sidebar and header band, one accent blue, cool grey page, Inter throughout. */
+    --font-heading: 'Inter Variable', system-ui, sans-serif;
     --font-sans: 'Inter Variable', system-ui, sans-serif;
-    --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+    --font-mono: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    --color-navy: var(--navy);
+    --color-navy-foreground: var(--navy-foreground);
     /* Priority accents: urgent/today, this week, nurture; gold for dollar values. */
     --color-urgent: var(--urgent);
     --color-week: var(--week);
     --color-nurture: var(--nurture);
     --color-money: var(--money);
-    --shadow-soft: 0 1px 2px rgb(26 26 26 / 0.04), 0 6px 20px rgb(26 26 26 / 0.06);
+    --shadow-soft: 0 1px 2px rgb(15 30 54 / 0.04), 0 4px 14px rgb(15 30 54 / 0.05);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -59,42 +59,45 @@
 }
 
 :root {
-    --background: #F3EFE9;
-    --foreground: #1A1A1A;
+    --background: #F4F7FB;
+    --foreground: #0F1E36;
     --card: #FFFFFF;
-    --card-foreground: #1A1A1A;
+    --card-foreground: #0F1E36;
     --popover: #FFFFFF;
-    --popover-foreground: #1A1A1A;
-    --primary: #1F2A5C;
+    --popover-foreground: #0F1E36;
+    --primary: #1670BE;
     --primary-foreground: #FFFFFF;
-    --secondary: #EDE7DE;
-    --secondary-foreground: #1A1A1A;
-    --muted: #EDE7DE;
-    --muted-foreground: #8A8580;
-    --accent: #E7E9F1;
-    --accent-foreground: #1F2A5C;
-    --destructive: #E0532F;
-    --border: #E5DED3;
-    --input: #DCD4C8;
-    --ring: rgb(31 42 92 / 45%);
-    --urgent: #E0532F;
-    --week: #1F2A5C;
-    --nurture: #6E8B6F;
-    --money: #C9A13B;
-    --chart-1: #1F2A5C;
-    --chart-2: #6E8B6F;
-    --chart-3: #C9A13B;
-    --chart-4: #E0532F;
-    --chart-5: #8A8580;
+    --secondary: #EDF2F8;
+    --secondary-foreground: #0F1E36;
+    --muted: #EDF2F8;
+    --muted-foreground: #63728A;
+    --accent: #E6F0FA;
+    --accent-foreground: #0F5A9C;
+    --destructive: #D4483B;
+    --border: #E1E7EF;
+    --input: #D3DBE6;
+    --ring: rgb(22 112 190 / 45%);
+    /* Navy for the sidebar and page header bands. */
+    --navy: #0C1D36;
+    --navy-foreground: #FFFFFF;
+    --urgent: #D4483B;
+    --week: #1670BE;
+    --nurture: #2E8B6A;
+    --money: #B9862C;
+    --chart-1: #1670BE;
+    --chart-2: #2E8B6A;
+    --chart-3: #B9862C;
+    --chart-4: #D4483B;
+    --chart-5: #63728A;
     --radius: 0.75rem;
-    --sidebar: #FFFFFF;
-    --sidebar-foreground: #1A1A1A;
-    --sidebar-primary: #1F2A5C;
+    --sidebar: #0C1D36;
+    --sidebar-foreground: #D5DEEA;
+    --sidebar-primary: #1670BE;
     --sidebar-primary-foreground: #FFFFFF;
-    --sidebar-accent: #E7E9F1;
-    --sidebar-accent-foreground: #1F2A5C;
-    --sidebar-border: #E5DED3;
-    --sidebar-ring: rgb(31 42 92 / 45%);
+    --sidebar-accent: #1670BE;
+    --sidebar-accent-foreground: #FFFFFF;
+    --sidebar-border: rgb(255 255 255 / 9%);
+    --sidebar-ring: rgb(22 112 190 / 55%);
 }
 
 .dark {
@@ -144,15 +147,33 @@
   html {
     @apply font-sans;
     }
-  /* Headlines: Anton, uppercase. Anton has one weight, so no bold. */
+  /* Headlines: bold Inter, slightly tight. */
   h1, .font-heading {
     font-family: var(--font-heading);
-    font-weight: 400;
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
+    font-weight: 650;
+    letter-spacing: -0.015em;
     }
-  /* Numbers line up in JetBrains Mono wherever the app marks them as figures. */
-  .tabular-nums {
-    font-family: var(--font-mono);
+  h1 {
+    font-weight: 750;
+    letter-spacing: -0.025em;
     }
+}
+
+/* A small uppercase label with a short line before it ("— PIPELINE"). */
+@utility eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--primary);
+  &::before {
+    content: '';
+    width: 1.25rem;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.7;
+  }
 }

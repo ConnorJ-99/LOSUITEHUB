@@ -46,7 +46,7 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
         {/* Desktop sidebar */}
         <div
           className={cn(
-            'sticky top-0 hidden h-svh shrink-0 border-r transition-[width] duration-200 md:block',
+            'sticky top-0 hidden h-svh shrink-0 transition-[width] duration-200 md:block',
             collapsed ? 'w-16' : 'w-60',
           )}
         >
@@ -62,7 +62,7 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
               className="absolute inset-0 bg-black/30"
               onClick={() => setMobileOpen(false)}
             />
-            <div className="absolute inset-y-0 left-0 w-64 border-r shadow-xl">
+            <div className="absolute inset-y-0 left-0 w-64 shadow-xl">
               <Sidebar user={user} collapsed={false} onNavigate={() => setMobileOpen(false)} />
             </div>
           </div>
