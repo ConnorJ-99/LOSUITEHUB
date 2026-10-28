@@ -21,6 +21,25 @@ const CONFIDENCE_STYLE: Record<ConfidenceLevel, string> = {
   low: 'border-amber-300 bg-amber-50 text-amber-900',
 }
 
+/**
+ * Shown in place of an AI action while the assistant isn't set up (the
+ * Anthropic key is added later): what turns on, and how to do it without AI.
+ */
+export function AiOffNote({ what, instead, reason = 'no_key', className }: { what: string; instead?: React.ReactNode; reason?: 'no_key' | 'unreachable'; className?: string }) {
+  return (
+    <div className={cn('rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-sm', className)}>
+      <p className="flex items-center gap-1.5 font-medium">
+        <SparklesIcon className="size-3.5 text-muted-foreground" />
+        {what} turns on once the AI assistant is set up.
+      </p>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        {reason === 'unreachable' ? "The assistant can't be reached right now." : 'It needs the Anthropic key added in Supabase (Edge Functions → Secrets).'}
+        {instead && <> {instead}</>}
+      </p>
+    </div>
+  )
+}
+
 /** The "Assistant" label, with confidence when there is one. */
 export function AssistantLabel({ confidence }: { confidence?: ConfidenceLevel | null }) {
   return (

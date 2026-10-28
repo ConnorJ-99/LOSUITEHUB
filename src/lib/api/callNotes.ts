@@ -86,6 +86,19 @@ export function useSaveAndReadNote(loanId: string, organizationId: string, conta
   })
 }
 
+/** Saves what Connor typed as a call note on the borrower, without reading it (while the assistant isn't set up). */
+export function useSaveCallNote(loanId: string, organizationId: string, contactId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: string) => {
+      const text = body.trim()
+      if (!text) throw new Error('Type or paste the notes first.')
+      unwrap(await db().from('notes').insert({ organization_id: organizationId, contact_id: contactId, loan_id: loanId, kind: 'call', body: text }).select('id'))
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.notes(contactId) }),
+  })
+}
+
 /** The newest call note on the borrower, to read again without retyping. */
 export function useLatestCallNote(contactId: string) {
   return useQuery({

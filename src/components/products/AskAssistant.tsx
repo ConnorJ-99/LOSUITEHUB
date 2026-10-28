@@ -4,7 +4,8 @@ import { BookOpenIcon, ExternalLinkIcon, MessageSquareIcon, PlusIcon, SearchIcon
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { Card, confirmAction } from '@/components/shared'
+import { AiOffNote, Card, confirmAction } from '@/components/shared'
+import { useAiStatus } from '@/lib/api/assistant'
 import { keys } from '@/lib/api/client'
 import { openGuidelinePdf, useLogSearch } from '@/lib/api/products'
 import { answerFromGuidelines, findPassages, readScenario, saveChatMessages, useAssistantChats, useAssistantUsage, useDeleteChat, type NewChatMessage } from '@/lib/api/productAssistant'
@@ -60,6 +61,8 @@ export function AskAssistant({ catalog, loanId, organizationId, borrowerName, st
   const chats = useAssistantChats(loanId)
   const deleteChat = useDeleteChat(loanId ?? '')
   const usage = useAssistantUsage()
+  const ai = useAiStatus()
+  const aiOff = ai.data?.ready === false
   const queryClient = useQueryClient()
 
   const lastScenario = [...items].reverse().find((i): i is Extract<Item, { kind: 'results' }> => i.kind === 'results')
@@ -166,7 +169,16 @@ export function AskAssistant({ catalog, loanId, organizationId, borrowerName, st
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
       <Card contentClassName="flex min-h-[540px] flex-col gap-4">
         <div className="flex-1 space-y-4">
-          {items.length === 0 && (
+          {aiOff && (
+            <div className="space-y-2">
+              <AiOffNote what="Ask the assistant" reason={ai.data?.reason} instead={<>Until then, Search by parameters does the same search with no AI, and each program's details have a guideline text search.{loanId ? ' Saved chats on this file still open.' : ''}</>} />
+              <Button size="sm" variant="outline" onClick={() => onOpenInForm(start, false)}>
+                <SearchIcon />
+                Search by parameters
+              </Button>
+            </div>
+          )}
+          {items.length === 0 && !aiOff && (
             <div className="space-y-3 py-6 text-center">
               <SparklesIcon className="mx-auto size-6 text-primary" />
               <p className="font-medium">Describe the scenario in plain English</p>
@@ -208,7 +220,7 @@ export function AskAssistant({ catalog, loanId, organizationId, borrowerName, st
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
-                if (!busy) primary()
+                if (!busy && !aiOff) primary()
               }
             }}
             rows={2}
@@ -217,11 +229,11 @@ export function AskAssistant({ catalog, loanId, organizationId, borrowerName, st
             className="w-full resize-none rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <div className="flex flex-wrap justify-end gap-2">
-            <Button size="sm" variant={hasSearch ? 'outline' : 'default'} disabled={!!busy || !text.trim()} onClick={find}>
+            <Button size="sm" variant={hasSearch ? 'outline' : 'default'} disabled={!!busy || !text.trim() || aiOff} onClick={find}>
               <SearchIcon />
               {hasSearch ? 'Change the scenario' : 'Find programs'}
             </Button>
-            <Button size="sm" variant={hasSearch ? 'default' : 'outline'} disabled={!!busy || !text.trim()} onClick={ask}>
+            <Button size="sm" variant={hasSearch ? 'default' : 'outline'} disabled={!!busy || !text.trim() || aiOff} onClick={ask}>
               <BookOpenIcon />
               Ask the guidelines
             </Button>

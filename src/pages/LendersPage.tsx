@@ -10,6 +10,7 @@ import { UploadDocumentDialog } from '@/components/lenders/UploadDocumentDialog'
 import { LenderMark } from '@/components/products/ProgramCard'
 import { blankLender, useDeleteLenderDocument, useLenderDocuments, useLenderPrograms, useLenders, useSetProgramActive, useUpdateLenderDocument, type Lender, type LenderDocument, type LenderDraft, type LenderProgram } from '@/lib/api/lenders'
 import { readMatrix, usePendingImports } from '@/lib/api/matrixImports'
+import { useAiStatus } from '@/lib/api/assistant'
 import { openGuidelinePdf, searchPassages, type Passage } from '@/lib/api/products'
 import { useAuth } from '@/lib/auth/context'
 import { todayIso } from '@/lib/dates'
@@ -194,6 +195,8 @@ function DocumentList({ lenderId, documents, programs, canEdit }: { lenderId: st
   const [linking, setLinking] = useState<string | null>(null)
   const [reading, setReading] = useState<string | null>(null)
   const navigate = useNavigate()
+  const ai = useAiStatus()
+  const aiOff = ai.data?.ready === false
   const read = async (d: LenderDocument) => {
     setReading(d.id)
     try {
@@ -235,7 +238,7 @@ function DocumentList({ lenderId, documents, programs, canEdit }: { lenderId: st
               {canEdit && (
                 <>
                   {d.docType === 'matrix' && d.storagePath && (
-                    <Button size="sm" variant="outline" disabled={reading !== null} onClick={() => read(d)} title="The assistant reads every grid and rule; you review it against the PDF before anything is used">
+                    <Button size="sm" variant="outline" disabled={reading !== null || aiOff} onClick={() => read(d)} title={aiOff ? 'Turns on once the AI assistant is set up (the Anthropic key in Supabase)' : 'The assistant reads every grid and rule; you review it against the PDF before anything is used'}>
                       {reading === d.id ? 'Reading… (a minute or two)' : 'Read matrix (AI)'}
                     </Button>
                   )}

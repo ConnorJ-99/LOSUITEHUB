@@ -3,8 +3,8 @@ import { SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Select, TextArea, ToggleChip } from '@/components/shared'
-import { useDraftFollowUp, useMessageTemplates, type MessageChannel } from '@/lib/api/assistant'
+import { AiOffNote, Select, TextArea, ToggleChip } from '@/components/shared'
+import { useAiStatus, useDraftFollowUp, useMessageTemplates, type MessageChannel } from '@/lib/api/assistant'
 
 const NO_TEMPLATE = 'none'
 
@@ -20,6 +20,8 @@ export function DraftFollowUpButton({ loanId, borrowerFirstName }: { loanId: str
   const [instructions, setInstructions] = useState('')
   const templates = useMessageTemplates()
   const draft = useDraftFollowUp(loanId)
+  const ai = useAiStatus()
+  const aiOff = ai.data?.ready === false
   const forChannel = (templates.data ?? []).filter((t) => t.channel === channel)
 
   const pickChannel = (c: MessageChannel) => {
@@ -72,13 +74,17 @@ export function DraftFollowUpButton({ loanId, borrowerFirstName }: { loanId: str
               rows={3}
               placeholder="e.g. Check in after the showing and ask for last month's bank statements"
             />
-            <p className="text-xs text-muted-foreground">File facts and recent notes are sent to Claude (Anthropic) to write the draft. No SSNs or account numbers are stored or sent.</p>
+            {aiOff ? (
+              <AiOffNote what="Drafting follow-ups" reason={ai.data?.reason} instead="Until then, copy a saved template (Settings → Message templates) into your text or email." />
+            ) : (
+              <p className="text-xs text-muted-foreground">File facts and recent notes are sent to Claude (Anthropic) to write the draft. No SSNs or account numbers are stored or sent.</p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)} disabled={draft.isPending}>
               Cancel
             </Button>
-            <Button onClick={submit} disabled={draft.isPending}>
+            <Button onClick={submit} disabled={draft.isPending || aiOff}>
               {draft.isPending ? 'Drafting…' : 'Draft it'}
             </Button>
           </DialogFooter>

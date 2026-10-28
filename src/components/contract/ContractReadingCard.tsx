@@ -3,9 +3,10 @@ import { PencilIcon, SparklesIcon, TriangleAlertIcon, UndoIcon, UsersIcon } from
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { AssistantLabel, Card, CurrencyInput, DateInput, NumberInput, Select, SourceQuote, ToggleChip } from '@/components/shared'
+import { AiOffNote, AssistantLabel, Card, CurrencyInput, DateInput, NumberInput, Select, SourceQuote, ToggleChip } from '@/components/shared'
 import { YesNo } from '@/components/urla/parts'
 import { CONTRACT_FIELDS, type ContactRole, type ContractFieldKey } from '../../../supabase/functions/assistant/contract'
+import { useAiStatus } from '@/lib/api/assistant'
 import { useApplyReading, useDiscardReading, useLatestReading, useReadContract, type ContractReadingRecord } from '@/lib/api/contract'
 import type { LoanProfile } from '@/lib/api/types'
 import type { Application } from '@/lib/api/urla'
@@ -181,9 +182,16 @@ function Review({ loan, app, reading, now }: { loan: LoanProfile; app: Applicati
 export function ContractReadingCard({ loan, app, now, hasDocuments }: { loan: LoanProfile; app: Application; now: FileNow; hasDocuments: boolean }) {
   const latest = useLatestReading(loan.id)
   const read = useReadContract(loan.id)
+  const ai = useAiStatus()
   const reading = latest.data
 
   if (reading?.status === 'pending_review') return <Review key={reading.id} loan={loan} app={app} reading={reading} now={now} />
+  if (ai.data?.ready === false)
+    return (
+      <Card title="Read the contract with the assistant" action={<AssistantLabel />}>
+        <AiOffNote what="Reading contracts" reason={ai.data.reason} instead="Until then, type the terms into the Contract section on this tab; the checks and deadline tasks work the same." />
+      </Card>
+    )
 
   const start = () =>
     read.mutate(undefined, {

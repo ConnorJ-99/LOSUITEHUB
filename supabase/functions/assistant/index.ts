@@ -208,6 +208,8 @@ Deno.serve(async (request) => {
   const body = await request.json().catch(() => null)
   try {
     const task = (body as { task?: unknown } | null)?.task
+    // The app asks this once to know whether AI features can run (the key check above answers "not set up" first).
+    if (task === 'status') return reply(200, { ready: true })
     if (task === 'contract_read') return await handleContractRead(db, body, userId, apiKey)
     if (task === 'call_notes_read') return await handleNotesRead(db, body, userId, apiKey)
     if (task === 'matrix_read') return await handleMatrixRead(db, body, userId, apiKey)

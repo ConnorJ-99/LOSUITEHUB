@@ -3,8 +3,9 @@ import { PencilIcon, SparklesIcon, TriangleAlertIcon, UndoIcon } from 'lucide-re
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { AssistantLabel, Card, CurrencyInput, DateInput, Input, NumberInput, PercentInput, SourceQuote, TextArea, ToggleChip } from '@/components/shared'
-import { NoteSavedButNotRead, useDecideNoteReading, useLatestCallNote, usePendingNoteReading, useSaveAndReadNote, type NoteReadingRecord } from '@/lib/api/callNotes'
+import { AiOffNote, AssistantLabel, Card, CurrencyInput, DateInput, Input, NumberInput, PercentInput, SourceQuote, TextArea, ToggleChip } from '@/components/shared'
+import { NoteSavedButNotRead, useDecideNoteReading, useLatestCallNote, usePendingNoteReading, useSaveAndReadNote, useSaveCallNote, type NoteReadingRecord } from '@/lib/api/callNotes'
+import { useAiStatus } from '@/lib/api/assistant'
 import { useCreditEvents } from '@/lib/api/creditEvents'
 import type { LoanProfile } from '@/lib/api/types'
 import type { Application } from '@/lib/api/urla'
@@ -180,6 +181,9 @@ export function CallNotes({ loan, app, draft, onApply }: { loan: LoanProfile; ap
   const latest = useLatestCallNote(primary.contactId)
   const events = useCreditEvents(loan.id, app.borrowers.map((b) => b.contactId))
   const read = useSaveAndReadNote(loan.id, loan.organizationId, primary.contactId)
+  const save = useSaveCallNote(loan.id, loan.organizationId, primary.contactId)
+  const ai = useAiStatus()
+  const aiOff = ai.data?.ready === false
   const [text, setText] = useState('')
 
   const file: NoteReviewFile = {
@@ -205,9 +209,12 @@ export function CallNotes({ loan, app, draft, onApply }: { loan: LoanProfile; ap
       <Card title="Call notes" description="Type or paste your notes from the call. They're saved as a call note; the assistant reads them and you choose what to use." action={<AssistantLabel />}>
         <div className="space-y-2">
           <TextArea label="Notes" value={text} onChange={setText} rows={4} placeholder="e.g. Marcus, landscaping biz 6 yrs, ~$9,800/mo, house worth 467, owes 282, 652 credit, one late on truck 2024" />
+          {aiOff && <AiOffNote what="Reading call notes into the Prequal form" reason={ai.data?.reason} instead="Until then, save the note here and fill in the Prequal form below by hand." />}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">
-              {latest.data && !text.trim() ? (
+              {aiOff ? (
+                'Saved as a call note on the borrower.'
+              ) : latest.data && !text.trim() ? (
                 <button type="button" className="text-primary hover:underline disabled:opacity-50" disabled={read.isPending} onClick={() => start({ noteId: latest.data!.id })}>
                   Read the last call note ({relativeTime(latest.data.created_at)}) again
                 </button>
@@ -215,10 +222,16 @@ export function CallNotes({ loan, app, draft, onApply }: { loan: LoanProfile; ap
                 'The note is sent to Claude (Anthropic) to read. No SSNs or account numbers.'
               )}
             </p>
-            <Button onClick={() => start({ body: text })} disabled={read.isPending || !text.trim()}>
-              <SparklesIcon />
-              {read.isPending ? 'Reading…' : 'Save note and read'}
-            </Button>
+            {aiOff ? (
+              <Button onClick={() => save.mutate(text, { onSuccess: () => (setText(''), toast.success('Call note saved')), onError: (e) => toast.error(e.message) })} disabled={save.isPending || !text.trim()}>
+                {save.isPending ? 'Saving…' : 'Save note'}
+              </Button>
+            ) : (
+              <Button onClick={() => start({ body: text })} disabled={read.isPending || !text.trim()}>
+                <SparklesIcon />
+                {read.isPending ? 'Reading…' : 'Save note and read'}
+              </Button>
+            )}
           </div>
         </div>
       </Card>
