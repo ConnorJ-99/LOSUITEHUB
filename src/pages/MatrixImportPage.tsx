@@ -8,7 +8,7 @@ import { useAuth } from '@/lib/auth/context'
 import { PlusIcon, Trash2Icon } from 'lucide-react'
 import { GridEditor, RuleForm } from '@/components/lenders/MatrixGridEditor'
 import { saveTypedDraft, useApproveImport, useDiscardImport, useExistingPrograms, useMatrixImport, useSignedPdf, type ExistingProgram, type MatrixImport } from '@/lib/api/matrixImports'
-import { cellsFromProgram, changeText, checkProgram, diffCells, matchProgram, type ReviewProgram } from '@/lib/products/matrixImport'
+import { cellsFromProgram, changeText, checkProgram, defaultMode, diffCells, matchProgram, mergedProgram, repairProgram, type ReviewProgram } from '@/lib/products/matrixImport'
 import { DOC_TYPES, FEATURES, LIENS, MATRIX_PURPOSES, PRODUCT_FAMILIES, TERM_OPTIONS, termChoices } from '@/lib/products/taxonomy'
 import { blankGrid, blankProgram, copyGrid, ratioFor, syncGrids } from '@/lib/products/typedMatrix'
 
@@ -35,7 +35,15 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
   const approve = useApproveImport(imp.id, imp.lenderId)
   const discard = useDiscardImport(imp.id, imp.lenderId)
   const pdf = useSignedPdf(imp.storagePath)
-  const [programs, setPrograms] = useState<ReviewProgram[]>(() => imp.reading.programs.map((p) => ({ ...p, include: true, programId: matchProgram(p.name, existing) })))
+  // Readings waiting for review get the common fixes first (no-score rows, Condotel/rural grids, missing income type).
+  const [repaired] = useState(() => imp.reading.programs.map((p) => (imp.status === 'pending_review' ? repairProgram(p) : { program: p, fixes: [] })))
+  const [programs, setPrograms] = useState<ReviewProgram[]>(() =>
+    repaired.map(({ program: p }) => {
+      const programId = matchProgram(p.name, existing, imp.lenderName)
+      return { ...p, include: true, programId, mode: defaultMode(p, existing.find((e) => e.id === programId), imp.documentId) }
+    }),
+  )
+  const fixes = repaired.flatMap((r) => r.fixes)
   const [effectiveDate, setEffectiveDate] = useState<string | null>(imp.reading.effectiveDate)
   const pending = imp.status === 'pending_review'
   const editable = pending && canEdit
@@ -53,7 +61,7 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
     }
     setSaveState('saving')
     const t = setTimeout(() => {
-      const reading = { ...imp.reading, effectiveDate, programs: programs.map(({ include: _i, programId: _p, ...p }) => p) }
+      const reading = { ...imp.reading, effectiveDate, programs: programs.map(({ include: _i, programId: _p, mode: _m, ...p }) => p) }
       saveTypedDraft(imp.id, reading).then(
         () => setSaveState('saved'),
         (e: Error) => {
@@ -72,7 +80,7 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
   const onApprove = async () => {
     if (!(await confirmAction(`Approve ${included.length} program${included.length === 1 ? '' : 's'} (${cells} matrix cells)? They go live in Product Search right away; any earlier matrix for the same program is kept as superseded.`, { confirmLabel: 'Approve' }))) return
     approve.mutate(
-      { programs, effectiveDate },
+      { programs, existing, effectiveDate },
       {
         onSuccess: (r) => {
           toast.success(`Approved: ${r.programs} program${r.programs === 1 ? '' : 's'}, ${r.cells} cells, ${r.rules} rule${r.rules === 1 ? '' : 's'}`)
@@ -115,6 +123,15 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
           )}
         </Card>
       )}
+      {fixes.length > 0 && (
+        <Card title="Fixed automatically" description="Common things in lender matrices that LOSuite handled for you. Undo any of them in the grids below." className="mb-4">
+          <ul className="list-disc space-y-1 pl-5 text-sm">
+            {fixes.map((f, i) => (
+              <li key={i}>{f}</li>
+            ))}
+          </ul>
+        </Card>
+      )}
       <Card className="mb-4">
         <FormGrid>
           <DateInput label="Matrix effective date" value={effectiveDate} onChange={setEffectiveDate} readOnly={!editable} span={2} />
@@ -123,10 +140,10 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
 
       <div className="space-y-6">
         {programs.map((p, i) => (
-          <ProgramReview key={i} program={p} existing={existing} pdfUrl={pdf.data ?? null} editable={editable} onChange={(next) => setProgram(i, next)} onRemove={typed && programs.length > 1 ? async () => (await confirmAction(`Remove ${p.name || 'this program'} from the draft?`, { confirmLabel: 'Remove', destructive: true })) && setPrograms((ps) => ps.filter((_, j) => j !== i)) : undefined} />
+          <ProgramReview key={i} program={p} existing={existing} documentId={imp.documentId} pdfUrl={pdf.data ?? null} editable={editable} onChange={(next) => setProgram(i, next)} onRemove={typed && programs.length > 1 ? async () => (await confirmAction(`Remove ${p.name || 'this program'} from the draft?`, { confirmLabel: 'Remove', destructive: true })) && setPrograms((ps) => ps.filter((_, j) => j !== i)) : undefined} />
         ))}
         {typed && editable && (
-          <Button variant="outline" onClick={() => setPrograms((ps) => [...ps, { ...blankProgram(), include: true, programId: null }])}>
+          <Button variant="outline" onClick={() => setPrograms((ps) => [...ps, { ...blankProgram(), include: true, programId: null, mode: 'replace' }])}>
             <PlusIcon />
             Add another program
           </Button>
@@ -156,7 +173,7 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
   )
 }
 
-function ProgramReview({ program: p, existing, pdfUrl, editable, onChange, onRemove }: { program: ReviewProgram; existing: ExistingProgram[]; pdfUrl: string | null; editable: boolean; onChange: (p: ReviewProgram) => void; onRemove?: () => void }) {
+function ProgramReview({ program: p, existing, documentId, pdfUrl, editable, onChange, onRemove }: { program: ReviewProgram; existing: ExistingProgram[]; documentId: string | null; pdfUrl: string | null; editable: boolean; onChange: (p: ReviewProgram) => void; onRemove?: () => void }) {
   const set = <K extends keyof ReviewProgram>(key: K) => (value: ReviewProgram[K]) => onChange({ ...p, [key]: value })
   const toggle = <K extends 'docTypes' | 'features' | 'purposes'>(key: K, v: ReviewProgram[K][number], on: boolean) => {
     const next = { ...p, [key]: on ? [...p[key], v] : (p[key] as string[]).filter((x) => x !== v) }
@@ -164,20 +181,35 @@ function ProgramReview({ program: p, existing, pdfUrl, editable, onChange, onRem
   }
   const warnings = checkProgram(p)
   const current = existing.find((e) => e.id === p.programId)
-  const changes = current ? diffCells(current.cells, cellsFromProgram(p)) : []
+  const changes = current ? diffCells(current.cells, mergedProgram(p, current).cells) : []
   const [showAll, setShowAll] = useState(false)
 
   return (
     <Card
       title={p.name || 'Unnamed program'}
-      description={current ? `Updates "${current.name}" (now on version ${current.version ?? 'none'}): a new version replaces it.` : 'A new program for this lender.'}
+      description={
+        !current
+          ? 'A new program for this lender.'
+          : p.mode === 'merge'
+            ? `Adds to "${current.name}": its grids and rules from other documents stay, and this document's are added.`
+            : `Replaces "${current.name}" (now on version ${current.version ?? 'none'}): this document becomes its whole matrix.`
+      }
       action={<ToggleChip label={p.include ? 'Approve this program' : 'Skipped'} pressed={p.include} disabled={!editable} onChange={set('include')} />}
       className={cn(!p.include && 'opacity-60')}
     >
       <FormGrid>
         <Input label="Program name" value={p.name} onChange={set('name')} readOnly={!editable} span={2} />
-        <Select label="Updates" value={p.programId} options={existing.map((e) => ({ value: e.id, label: e.name }))} onChange={set('programId')} onClear={() => set('programId')(null)} placeholder="A new program" readOnly={!editable} span={2} />
+        <Select label="Updates" value={p.programId} options={existing.map((e) => ({ value: e.id, label: e.name }))} onChange={(programId) => onChange({ ...p, programId, mode: defaultMode(p, existing.find((e) => e.id === programId), documentId) })} onClear={() => onChange({ ...p, programId: null, mode: 'replace' })} placeholder="A new program" readOnly={!editable} span={2} />
         <Select label="Product family" value={p.family} options={options(PRODUCT_FAMILIES)} onChange={set('family')} readOnly={!editable} />
+        {current && (
+          <div className="sm:col-span-2 lg:col-span-6">
+            <p className="mb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">How this document updates the program</p>
+            <ToggleChipGroup>
+              <ToggleChip label="Add to it (another PDF for the same product)" pressed={p.mode === 'merge'} disabled={!editable} onChange={() => onChange({ ...p, mode: 'merge' })} />
+              <ToggleChip label="Replace it (a newer version of the same PDF)" pressed={p.mode === 'replace'} disabled={!editable} onChange={() => onChange({ ...p, mode: 'replace' })} />
+            </ToggleChipGroup>
+          </div>
+        )}
         <Select label="Lien" value={p.lien} options={options(LIENS)} onChange={(lien) => onChange({ ...p, lien, termOptions: p.termOptions.filter((t) => termChoices(lien).includes(t)), grids: p.grids.map((g) => ({ ...g, ratio: ratioFor(lien) })) })} readOnly={!editable} />
       </FormGrid>
       <div className="mt-3 space-y-2">

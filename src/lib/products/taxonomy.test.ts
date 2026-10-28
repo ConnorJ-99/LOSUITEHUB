@@ -40,6 +40,8 @@ describe('taxonomy', () => {
     expect(dbEnum('product_feature')).toEqual(FEATURES.values)
     expect(dbEnum('matrix_purpose')).toEqual(MATRIX_PURPOSES.values)
     expect(dbEnum('matrix_property_type')).toEqual(MATRIX_PROPERTY_TYPES.values)
+    // Real Non-QM matrices print Condotel and rural SFR grids.
+    expect(MATRIX_PROPERTY_TYPES.values).toEqual(expect.arrayContaining(['condotel', 'rural']))
     expect(dbEnum('lender_status')).toEqual(LENDER_STATUSES.values)
     expect(dbEnum('lender_channel')).toEqual(LENDER_CHANNELS.values)
     expect(dbEnum('rule_field')).toEqual(RULE_FIELDS.values)

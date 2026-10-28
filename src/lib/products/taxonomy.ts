@@ -100,6 +100,16 @@ export function termsSummary(terms: readonly ProgramTerm[]): string {
   return [fixed.length ? `${fixed.join(', ')}-yr fixed` : '', ...arms, ...helocs].filter(Boolean).join(' · ')
 }
 
+/**
+ * A dedicated down payment assistance program ("FHA with DPA", SmartBuy, True
+ * Zero): named for it and tagged DPA. A regular program that only offers a DPA
+ * option (an FHA matrix mentioning DPA) is not one; it stays under its own
+ * product type and shows in every normal search.
+ */
+export function isDpaProgram(p: { name: string; features: readonly Feature[] }): boolean {
+  return p.features.includes('dpa') && /\bdpa\b|down\s*payment|assist|grant|smart\s*buy|true\s*zero|zero\s*down|\bbond\b/i.test(p.name)
+}
+
 /** Features a program must have when the scenario asks for them; DPA programs are also left out unless asked for (plan §4.1). */
 export const OPT_IN_FEATURES: readonly Feature[] = ['dpa']
 
@@ -117,6 +127,8 @@ export const MATRIX_PROPERTY_TYPES = labels([
   ['two_to_four', '2–4 units'],
   ['manufactured', 'Manufactured'],
   ['mixed_use', 'Mixed-use'],
+  ['condotel', 'Condotel'],
+  ['rural', 'Rural SFR'],
 ] as const)
 export type MatrixPropertyType = (typeof MATRIX_PROPERTY_TYPES.values)[number]
 

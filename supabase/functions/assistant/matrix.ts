@@ -12,7 +12,7 @@ export const LIENS = ['first', 'ces', 'heloc'] as const
 export const DOC_TYPES = ['full_doc', 'bank_statement_12', 'bank_statement_24', 'form_1099', 'pnl_only', 'asset_depletion', 'dscr', 'wvoe', 'no_ratio', 'retirement_distribution'] as const
 export const FEATURES = ['dpa', 'itin', 'foreign_national', 'interest_only', 'non_warrantable_condo', 'manufactured', 'buydown', 'recent_credit_event', 'first_time_investor', 'str_income', 'homeready_possible', 'llc_vesting'] as const
 export const PURPOSES = ['purchase', 'rate_term', 'cash_out'] as const
-export const PROPERTY_TYPES = ['sfr_pud', 'condo', 'non_warrantable_condo', 'two_to_four', 'manufactured', 'mixed_use'] as const
+export const PROPERTY_TYPES = ['sfr_pud', 'condo', 'non_warrantable_condo', 'two_to_four', 'manufactured', 'mixed_use', 'condotel', 'rural'] as const
 export const OCCUPANCIES = ['primary', 'second_home', 'investment'] as const
 /** Term options: fixed terms, ARMs, and HELOC draw/repay periods (years). */
 export const TERMS = ['fixed_40', 'fixed_30', 'fixed_25', 'fixed_20', 'fixed_15', 'fixed_10', 'arm_5_6', 'arm_7_6', 'arm_10_6', 'heloc_10_20', 'heloc_10_15', 'heloc_5_25', 'heloc_3_27'] as const
@@ -211,6 +211,8 @@ export const MATRIX_SYSTEM_PROMPT = `You read mortgage lender eligibility matric
 - A blank cell, "—", "N/A", "NA" or "not offered" is null. Never write 0 for a blank.
 - A grid often covers several income types (e.g. one Non-QM grid for bank statement, asset depletion and IRA distribution): list every one in doc_types. Income types the lender names that aren't on the list go in notes.
 - Put what a column changes on the column (a loan-amount tier, an occupancy, units, purposes or property types) and what the whole grid shares on the grid.
+- Rows for borrowers with no credit score ("No FICO", "No score") are not credit bands: leave them out of rows and describe them in notes.
+- A grid for rural properties ("SFR Rural") uses property type rural; a condotel grid uses condotel.
 - Credit bands: "720-739" is 720 to 739; "740+" or "≥740" is 740 to 850; "<620" is 300 to 619.
 - Loan amounts in dollars: "$1,000,001 - $1.5MM" is 1000001 to 1500000; "≤ $1MM" is 0 to 1000000.
 - Use only the words in the schema's lists. If the lender uses another name, pick the matching one; if none fits, leave it out and say so in notes.

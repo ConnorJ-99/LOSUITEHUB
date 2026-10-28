@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as M from '../../../supabase/functions/assistant/matrix'
-import { approvalPayload, cellsFromGrid, cellsFromProgram, changeText, checkProgram, diffCells, matchProgram, parseSquare } from './matrixImport'
+import { approvalPayload, cellsFromGrid, cellsFromProgram, defaultMode, mergedProgram, repairProgram, type ProgramNow, changeText, checkProgram, diffCells, matchProgram, parseSquare } from './matrixImport'
 import { DOC_TYPES, FEATURES, LIENS, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, PRODUCT_FAMILIES, RULE_FIELDS, RULE_OPS } from './taxonomy'
 
 /** A reading shaped like mockup 04's grid (fictional numbers): columns are occupancy, rows are credit bands. */
@@ -124,14 +124,14 @@ describe('automatic checks', () => {
   })
   it('impossible values and a wrong square count are errors', () => {
     const p = base()
-    p.grids[0].values[0][0] = 105
+    p.grids[0].values[0][0] = 155
     p.grids[0].values[1] = [97]
     p.grids[0].rows[2].ficoMin = 900
     const w = checkProgram(p)
     expect(w.filter((x) => x.level === 'error').map((x) => x.message)).toEqual([
       'Purchase & R/T: 5 squares read for 3 rows × 2 columns.',
       'Purchase & R/T: credit band "620-679" isn\'t possible (900–679).',
-      "Purchase & R/T: LTV 105% at 720+ / Primary isn't possible.",
+      "Purchase & R/T: LTV 155% at 720+ / Primary isn't possible.",
     ])
   })
   it('a printed size that differs from what was read is a warning', () => {
@@ -152,11 +152,42 @@ describe('automatic checks', () => {
     ]
     expect(checkProgram(p).map((w) => w.message)).toEqual(['Purchase & R/T, 680–719: $1MM–$1.5MM allows 82%, more than 80% for the smaller ≤$1MM. Check the PDF.'])
   })
-  it('a program with no doc type or no cells is an error', () => {
+  it('no doc type blocks approval; no grid only warns (the program is saved without limits)', () => {
     const p = base()
     p.docTypes = []
     p.grids = []
-    expect(checkProgram(p).map((w) => w.message)).toEqual(['Pick at least one doc type for the program.', 'The program has no matrix cells with a limit.'])
+    const w = checkProgram(p)
+    expect(w.filter((x) => x.level === 'error').map((x) => x.message)).toEqual(['Pick at least one doc type for the program.'])
+    expect(w.filter((x) => x.level === 'warning').map((x) => x.message)[0]).toContain('No matrix grid')
+  })
+  it('limits over 100% (FHA streamline 110%) are allowed; over 150% is a misread', () => {
+    const p = base()
+    p.grids[0].values[0][0] = 110
+    expect(checkProgram(p).some((w) => w.level === 'error')).toBe(false)
+    p.grids[0].values[0][0] = 160
+    expect(checkProgram(p).some((w) => w.level === 'error')).toBe(true)
+  })
+})
+
+describe('fixing what real matrices trip on', () => {
+  const base = () => (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0]
+  it('leaves out "No FICO" rows, names Condotel and rural grids, and fills a missing income type', () => {
+    const p = base()
+    const g = p.grids[0]
+    const noFico = { ...g, title: 'DSCR - Investment / Condotel', propertyTypes: [], rows: [...g.rows, { label: 'No FICO', ficoMin: 0, ficoMax: 0 }], values: [...g.values, g.values[0].map(() => 70)] }
+    const rural = { ...g, title: 'Prime / SFR Rural', propertyTypes: [] }
+    const { program, fixes } = repairProgram({ ...p, docTypes: [], grids: [noFico, rural] })
+    expect(program.grids[0].rows.map((r: M.GridRow) => r.label)).toEqual(g.rows.map((r: M.GridRow) => r.label))
+    expect(program.grids[0].values).toHaveLength(g.rows.length)
+    expect(program.grids[0].propertyTypes).toEqual(['condotel'])
+    expect(program.grids[1].propertyTypes).toEqual(['rural'])
+    expect(program.docTypes).toEqual(g.docTypes)
+    expect(fixes).toHaveLength(4)
+    expect(checkProgram(program).filter((w) => w.level === 'error')).toEqual([])
+  })
+  it('leaves a clean reading alone', () => {
+    const p = base()
+    expect(repairProgram(p)).toEqual({ program: p, fixes: [] })
   })
 })
 
@@ -202,7 +233,7 @@ describe('one grid, several income types', () => {
 describe('approval', () => {
   const p = (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0]
   it('only included programs, with every square as a cell and every rule with its quote', () => {
-    const payload = approvalPayload([{ ...p, include: true, programId: 'existing-id' }, { ...p, name: 'Skipped', include: false, programId: null }])
+    const payload = approvalPayload([{ ...p, include: true, programId: 'existing-id', mode: 'replace' }, { ...p, name: 'Skipped', include: false, programId: null, mode: 'replace' }])
     expect(payload).toHaveLength(1)
     expect(payload[0]).toMatchObject({ program_id: 'existing-id', name: 'Conventional 30-Year Fixed', doc_types: ['full_doc'] })
     expect(payload[0].cells).toHaveLength(6)
@@ -211,7 +242,7 @@ describe('approval', () => {
   })
   it('saves the term options, with their months for older screens', () => {
     expect(p.termOptions).toEqual(['fixed_30'])
-    const payload = approvalPayload([{ ...p, termOptions: ['fixed_30', 'fixed_15', 'arm_7_6'], include: true, programId: null }])
+    const payload = approvalPayload([{ ...p, termOptions: ['fixed_30', 'fixed_15', 'arm_7_6'], include: true, programId: null, mode: 'replace' }])
     expect(payload[0]).toMatchObject({ term_options: ['fixed_30', 'fixed_15', 'arm_7_6'], terms_months: [360, 180] })
   })
   it('reads term options and drops ones not on the list', () => {
@@ -229,5 +260,47 @@ describe('approval', () => {
     expect(parseSquare('N/A')).toBeNull()
     expect(parseSquare('97%')).toBe(97)
     expect(parseSquare('abc')).toBe('invalid')
+  })
+})
+
+describe('one product, several documents', () => {
+  const p = (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0]
+  const matrixCells = cellsFromProgram(p)
+  const now = (over: Partial<ProgramNow> = {}): ProgramNow => ({ id: 'fha', name: 'FHA', cells: matrixCells, rules: p.rules, docTypes: ['full_doc'], purposes: ['purchase', 'rate_term'], features: [], termOptions: ['fixed_30'], description: null, sourceDocumentId: 'matrix-pdf', ...over })
+  const dti45 = { field: 'dti', op: '<=', value: 45, appliesWhen: null, severity: 'hard', message: 'Max DTI 45%', page: 12, quote: 'Max DTI 45%' } as M.ReadRule
+  it('guidelines without limits add their rules and terms; the matrix limits stay', () => {
+    const guide = { ...p, grids: [], rules: [dti45], termOptions: ['fixed_15'] as M.ReadProgram['termOptions'], include: true, programId: 'fha', mode: 'merge' as const }
+    const m = mergedProgram(guide, now())
+    expect(m.cells).toHaveLength(matrixCells.length)
+    expect(m.rules.map((r) => r.message)).toEqual([...p.rules.map((r) => r.message), 'Max DTI 45%'])
+    expect(m.termOptions).toEqual(['fixed_30', 'fixed_15'])
+  })
+  it("a second matrix PDF adds its grids; boxes it also covers take the new limits", () => {
+    const second = { ...p, grids: [{ ...p.grids[0], purposes: ['cash_out'] as M.ReadGrid['purposes'] }], include: true, programId: 'fha', mode: 'merge' as const }
+    const m = mergedProgram(second, now())
+    expect(m.cells.length).toBeGreaterThan(matrixCells.length)
+    expect(m.cells.some((c) => c.purposes.includes('cash_out'))).toBe(true)
+    expect(m.cells.filter((c) => c.purposes.join() === 'purchase,rate_term')).toHaveLength(matrixCells.filter((c) => c.purposes.join() === 'purchase,rate_term').length)
+    expect(m.purposes).toEqual(['purchase', 'rate_term', 'cash_out'])
+    const same = { ...p, include: true, programId: 'fha', mode: 'merge' as const }
+    expect(mergedProgram(same, now()).cells).toHaveLength(matrixCells.length)
+  })
+  it('replace makes the reading the whole matrix', () => {
+    const r = mergedProgram({ ...p, grids: [], include: true, programId: 'fha', mode: 'replace' }, now())
+    expect(r.cells).toEqual([])
+  })
+  it('adds by default, and replaces only a newer copy of the same document', () => {
+    expect(defaultMode(p, now(), 'other-pdf')).toBe('merge')
+    expect(defaultMode(p, now(), 'matrix-pdf')).toBe('replace')
+    expect(defaultMode({ grids: [] }, now(), 'matrix-pdf')).toBe('merge')
+    expect(defaultMode(p, undefined, 'x')).toBe('replace')
+  })
+  it('matches names across documents, ignoring the lender and filler words, but keeps variants apart', () => {
+    const existing = [{ id: 'fha', name: 'FHA' }, { id: 'stream', name: 'FHA Streamline' }, { id: 'bs', name: 'Bank Statement Advantage' }]
+    expect(matchProgram('AmWest FHA Program', existing, 'AmWest')).toBe('fha')
+    expect(matchProgram('FHA Streamline Matrix', existing, 'AmWest')).toBe('stream')
+    expect(matchProgram('AmWest Bank Statement Advantage Program', existing, 'AmWest')).toBe('bs')
+    expect(matchProgram('FHA with DPA', existing, 'AmWest')).toBeNull()
+    expect(matchProgram('Program Matrix', existing, 'AmWest')).toBeNull()
   })
 })

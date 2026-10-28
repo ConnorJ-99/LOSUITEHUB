@@ -3,8 +3,8 @@
 // conventional, 1st-lien or DPA programs, even when their cells would fit.
 
 import { describe, expect, it } from 'vitest'
-import { gate, search } from './engine'
-import { conventionalCatalog, conventionalPurchase, dscrCatalog, dscrSecond } from './testCatalog'
+import { gate, passesGate, search } from './engine'
+import { conventionalCatalog, conventionalPurchase, dscrCatalog, dscrSecond, program, scenario } from './testCatalog'
 
 const names = (programs: { name: string }[]) => programs.map((p) => p.name).sort()
 const shown = (r: ReturnType<typeof search>) => [...r.eligible, ...r.ineligible].map((x) => x.program.name)
@@ -45,5 +45,17 @@ describe('product-type gate', () => {
   it('inactive programs and inactive lenders are never searched', () => {
     const catalog = { ...dscrCatalog, lenders: dscrCatalog.lenders.map((l) => (l.name === 'Summit Wholesale' ? { ...l, status: 'inactive' as const } : l)), programs: dscrCatalog.programs.map((p) => (p.lenderId === 'Keystone Non-QM' ? { ...p, active: false } : p)) }
     expect(shown(search(dscrSecond, catalog))).toEqual(['Investor Equity 2nd (DSCR)'])
+  })
+})
+
+describe('DPA as an option, not the program', () => {
+  it('a regular FHA program with a DPA option shows in a normal search; a dedicated DPA program only when asked', () => {
+    const fha = program('A&D Mortgage', 'FHA', { family: 'fha', features: ['dpa'] })
+    const dpa = program('Click n Close', 'SmartBuy DPA', { family: 'fha', features: ['dpa'] })
+    const lender = new Map([['A&D Mortgage', { id: 'A&D Mortgage', name: 'A&D Mortgage', status: 'approved' as const, states: null }], ['Click n Close', { id: 'Click n Close', name: 'Click n Close', status: 'approved' as const, states: null }]])
+    const s = scenario({ family: 'fha', lien: 'first', docType: 'full_doc' })
+    expect(passesGate(fha, s, lender.get('A&D Mortgage'))).toBe(true)
+    expect(passesGate(dpa, s, lender.get('Click n Close'))).toBe(false)
+    expect(passesGate(dpa, { ...s, features: ['dpa'] }, lender.get('Click n Close'))).toBe(true)
   })
 })

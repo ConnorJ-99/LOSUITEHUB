@@ -14,7 +14,7 @@ export const SCENARIO_DOC_TYPES = ['full_doc', 'bank_statement_12', 'bank_statem
 export const SCENARIO_FEATURES = ['dpa', 'itin', 'foreign_national', 'interest_only', 'non_warrantable_condo', 'manufactured', 'buydown', 'recent_credit_event', 'first_time_investor', 'str_income', 'homeready_possible', 'llc_vesting'] as const
 export const SCENARIO_PURPOSES = ['purchase', 'rate_term', 'cash_out'] as const
 export const SCENARIO_OCCUPANCIES = ['primary', 'second_home', 'investment'] as const
-export const SCENARIO_PROPERTY_TYPES = ['sfr_pud', 'condo', 'non_warrantable_condo', 'two_to_four', 'manufactured', 'mixed_use'] as const
+export const SCENARIO_PROPERTY_TYPES = ['sfr_pud', 'condo', 'non_warrantable_condo', 'two_to_four', 'manufactured', 'mixed_use', 'condotel', 'rural'] as const
 export const SCENARIO_CITIZENSHIPS = ['us_citizen', 'permanent_resident', 'non_permanent_resident', 'itin', 'foreign_national'] as const
 
 type Of<T extends readonly string[]> = T[number]

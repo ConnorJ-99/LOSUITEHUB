@@ -4,7 +4,7 @@
 // ranking. Ratios are compared unrounded; rounding is for display only.
 
 import { formatCurrency, formatPercent } from '@/lib/format'
-import { OCCUPANCIES, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, DOC_TYPES, OPT_IN_FEATURES, type ProductFamily } from './taxonomy'
+import { OCCUPANCIES, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, DOC_TYPES, isDpaProgram, type ProductFamily } from './taxonomy'
 import type { Badge, Catalog, CatalogLender, CatalogProgram, CheckItem, Limit, MatrixCell, ProgramResult, ProgramRule, Reason, Scenario, SearchResult } from './types'
 
 const EPS = 1e-9
@@ -22,8 +22,8 @@ export function passesGate(p: CatalogProgram, s: Scenario, lender: CatalogLender
   if (s.family !== 'any' && p.family !== s.family) return false
   if (!p.docTypes.includes(s.docType)) return false
   if (!s.features.every((f) => p.features.includes(f))) return false
-  // DPA (and any other opt-in feature) only when asked for.
-  if (OPT_IN_FEATURES.some((f) => p.features.includes(f) && !s.features.includes(f))) return false
+  // Dedicated DPA programs only when asked for; a program that merely offers a DPA option always shows.
+  if (isDpaProgram(p) && !s.features.includes('dpa')) return false
   return true
 }
 

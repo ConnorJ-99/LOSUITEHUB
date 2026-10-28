@@ -2,7 +2,7 @@
 // and the difference from the version in use (plan §5.4–5.6). Pure.
 
 import { formatCurrency, formatPercent } from '@/lib/format'
-import type { ReadGrid, ReadProgram } from '../../../supabase/functions/assistant/matrix'
+import type { ReadGrid, ReadProgram, ReadRule } from '../../../supabase/functions/assistant/matrix'
 import { MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, termMonths, type MatrixPropertyType, type MatrixPurpose } from './taxonomy'
 import type { MatrixCell } from './types'
 
@@ -57,13 +57,51 @@ const limitOf = (c: Pick<ImportCell, 'maxLtv' | 'maxCltv'>) => c.maxLtv ?? c.max
 const band = (min: number, max: number) => (max >= 850 ? `${min}+` : `${min}–${max}`)
 const tier = (min: number, max: number | null) => (max == null ? (min > 0 ? `over ${formatCurrency(min - 1)}` : 'any amount') : min > 0 ? `${formatCurrency(min)}–${formatCurrency(max)}` : `≤${formatCurrency(max)}`)
 
+/** Limits above 100% exist (FHA streamline, VA IRRRL); anything over this is a misread. */
+export const MAX_LIMIT = 150
+
+/**
+ * Fixes what real matrices commonly trip on, before review: rows for borrowers
+ * with no credit score (search needs a score, so they're left out and noted),
+ * Condotel and rural grids the reading left without a property type, and a
+ * program with no income type (taken from its grids, else full doc). Returns
+ * what was changed so the review screen can say so.
+ */
+export function repairProgram(p: ReadProgram): { program: ReadProgram; fixes: string[] } {
+  const fixes: string[] = []
+  const grids = p.grids.map((g) => {
+    const where = g.title || 'a grid'
+    const keep = g.rows.map((r) => !(r.ficoMin < 300 || r.ficoMax < 300 || /no\s*(fico|score|credit)/i.test(r.label)))
+    let next = g
+    if (keep.some((k) => !k)) {
+      fixes.push(`${where}: left out the "no credit score" row (Product Search needs a score); check the PDF for those limits.`)
+      next = { ...next, rows: next.rows.filter((_, i) => keep[i]), values: next.values.filter((_, i) => keep[i]), printedRows: next.rows.filter((_, i) => keep[i]).length }
+    }
+    if (!next.propertyTypes.length && next.columns.some((c) => !c.propertyTypes?.length)) {
+      const t = /condotel/i.test(where) ? 'condotel' : /rural/i.test(where) ? 'rural' : null
+      if (t) {
+        fixes.push(`${where}: set the property type to ${t === 'condotel' ? 'Condotel' : 'Rural SFR'} from the grid's title.`)
+        next = { ...next, propertyTypes: [t] }
+      }
+    }
+    return next
+  })
+  let docTypes = p.docTypes
+  if (!docTypes.length) {
+    docTypes = [...new Set(grids.flatMap((g) => g.docTypes))]
+    if (!docTypes.length) docTypes = ['full_doc']
+    fixes.push(`${p.name}: no income type was read; set to ${docTypes.length === 1 && docTypes[0] === 'full_doc' ? 'full doc' : 'the grids\' income types'}. Check it.`)
+  }
+  return { program: { ...p, grids, docTypes }, fixes }
+}
+
 /** Errors block approval; warnings are shown for Connor to confirm against the PDF. */
 export function checkProgram(p: ReadProgram): ImportWarning[] {
   const out: ImportWarning[] = []
   if (!p.docTypes.length) out.push({ level: 'error', message: 'Pick at least one doc type for the program.', page: null })
   if (!p.purposes.length) out.push({ level: 'error', message: 'Pick at least one purpose for the program.', page: null })
   const cells = cellsFromProgram(p)
-  if (!cells.some((c) => c.offered)) out.push({ level: 'error', message: 'The program has no matrix cells with a limit.', page: null })
+  if (!cells.some((c) => c.offered)) out.push({ level: 'warning', message: 'No matrix grid: the program is saved with its rules and terms, but it won\'t show in Product Search until a matrix is added.', page: null })
 
   for (const g of p.grids) {
     const where = g.title || (g.page > 0 ? `the grid on page ${g.page}` : 'a grid')
@@ -83,7 +121,7 @@ export function checkProgram(p: ReadProgram): ImportWarning[] {
     })
     g.values.forEach((row, ri) =>
       row.forEach((v, ci) => {
-        if (v != null && (v <= 0 || v > 100)) out.push({ level: 'error', message: `${where}: ${g.ratio.toUpperCase()} ${v}% at ${g.rows[ri]?.label ?? ''} / ${g.columns[ci]?.label ?? ''} isn't possible.`, page: pg })
+        if (v != null && (v <= 0 || v > MAX_LIMIT)) out.push({ level: 'error', message: `${where}: ${g.ratio.toUpperCase()} ${v}% at ${g.rows[ri]?.label ?? ''} / ${g.columns[ci]?.label ?? ''} isn't possible.`, page: pg })
       }),
     )
 
@@ -181,25 +219,83 @@ export interface ReviewProgram extends ReadProgram {
   include: boolean
   /** The lender's existing program this updates, or null for a new program. */
   programId: string | null
+  /**
+   * For an existing program: 'merge' adds this document's grids, rules, terms
+   * and income types to what the program has (a product split across several
+   * PDFs, or guidelines without limits plus a matrix); 'replace' makes this
+   * reading the program's whole matrix (a newer version of the same document).
+   */
+  mode: 'merge' | 'replace'
+}
+
+/** What a program has now, for merging a new document into it. */
+export interface ProgramNow {
+  id: string
+  name: string
+  cells: ImportCell[]
+  rules: ReadRule[]
+  docTypes: ReadProgram['docTypes']
+  purposes: ReadProgram['purposes']
+  features: ReadProgram['features']
+  termOptions: ReadProgram['termOptions']
+  description: string | null
+  /** The document its matrix in use came from. */
+  sourceDocumentId: string | null
+}
+
+/** A newer copy of the program's own document replaces it; any other document (or one with no grid) adds to it. */
+export function defaultMode(p: Pick<ReadProgram, 'grids'>, current: Pick<ProgramNow, 'sourceDocumentId'> | undefined, documentId: string | null): ReviewProgram['mode'] {
+  if (!current) return 'replace'
+  if (p.grids.length === 0) return 'merge'
+  return current.sourceDocumentId && current.sourceDocumentId === documentId ? 'replace' : 'merge'
+}
+
+const ruleKey = (r: Pick<ReadRule, 'field' | 'op' | 'value' | 'appliesWhen'>) => JSON.stringify([r.field, r.op, r.value, r.appliesWhen])
+const union = <T>(a: readonly T[], b: readonly T[]) => [...new Set([...a, ...b])]
+
+/**
+ * What approving saves for a program: its own reading, or (merging into an
+ * existing program) the program's cells this document doesn't cover plus this
+ * document's cells, every rule once, and the income types, purposes, features
+ * and terms of both.
+ */
+export function mergedProgram(p: ReviewProgram, current: ProgramNow | undefined) {
+  const own = { cells: cellsFromProgram(p), rules: p.rules, docTypes: p.docTypes, purposes: p.purposes, features: p.features, termOptions: p.termOptions, description: p.description }
+  if (!current || !p.programId || p.mode === 'replace') return own
+  const covered = new Set(own.cells.map(key))
+  const ruleKeys = new Set(own.rules.map(ruleKey))
+  const cells = [...current.cells.filter((c) => !covered.has(key(c))), ...own.cells]
+  // A grid for another purpose or income type widens what the program offers.
+  return {
+    cells,
+    rules: [...current.rules.filter((r) => !ruleKeys.has(ruleKey(r))), ...own.rules],
+    docTypes: union(union(current.docTypes, own.docTypes), cells.map((c) => c.docType)),
+    purposes: union(union(current.purposes, own.purposes), cells.flatMap((c) => c.purposes)),
+    features: union(current.features, own.features),
+    termOptions: union(current.termOptions, own.termOptions),
+    description: own.description || current.description,
+  }
 }
 
 /** The programs to approve, in the shape approve_matrix_import() takes. */
-export function approvalPayload(programs: ReviewProgram[]) {
+export function approvalPayload(programs: ReviewProgram[], existing: ProgramNow[] = []) {
   return programs
     .filter((p) => p.include)
-    .map((p) => ({
+    .map((p) => {
+      const m = mergedProgram(p, existing.find((e) => e.id === p.programId))
+      return {
       program_id: p.programId,
       name: p.name.trim(),
       family: p.family,
       lien: p.lien,
-      doc_types: p.docTypes,
-      features: p.features,
-      purposes: p.purposes,
-      term_options: p.termOptions,
-      terms_months: [...new Set(p.termOptions.map(termMonths))],
+      doc_types: m.docTypes,
+      features: m.features,
+      purposes: m.purposes,
+      term_options: m.termOptions,
+      terms_months: [...new Set(m.termOptions.map(termMonths))],
       loan_amount_basis: p.loanAmountBasis,
-      description: p.description ?? '',
-      cells: cellsFromProgram(p).map((c) => ({
+      description: m.description ?? '',
+      cells: m.cells.map((c) => ({
         occupancy: c.occupancy,
         property_types: c.propertyTypes,
         purposes: c.purposes,
@@ -216,14 +312,26 @@ export function approvalPayload(programs: ReviewProgram[]) {
         notes: c.notes,
         source_page: c.sourcePage,
       })),
-      rules: p.rules.map((r) => ({ field: r.field, op: r.op, value: r.value, applies_when: r.appliesWhen, severity: r.severity, message: r.message, source_page: r.page, source_quote: r.quote })),
-    }))
+      rules: m.rules.map((r) => ({ field: r.field, op: r.op, value: r.value, applies_when: r.appliesWhen, severity: r.severity, message: r.message, source_page: r.page, source_quote: r.quote })),
+      }
+    })
 }
 
-/** The lender's existing program with the same name (ignoring case and spacing), so a newer matrix updates it instead of duplicating it. */
-export function matchProgram(name: string, existing: { id: string; name: string }[]): string | null {
-  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
-  return existing.find((e) => norm(e.name) === norm(name))?.id ?? null
+/** Words that don't tell programs apart ("AmWest FHA Program" is the same product as "FHA"). */
+const FILLER = new Set(['program', 'programs', 'product', 'products', 'matrix', 'matrices', 'guide', 'guidelines', 'guideline', 'loan', 'loans', 'the', 'and', 'overview', 'profile', 'eligibility', 'wholesale', 'tpo'])
+
+/**
+ * The lender's existing program with the same name, ignoring case, spacing,
+ * the lender's own name and filler words, so a second document for the same
+ * product (or a newer matrix) adds to it instead of creating a duplicate.
+ * "FHA" and "FHA Streamline" stay different programs.
+ */
+export function matchProgram(name: string, existing: { id: string; name: string }[], lenderName = ''): string | null {
+  const lenderWords = new Set(lenderName.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))
+  const norm = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !FILLER.has(w) && !lenderWords.has(w)).join(' ')
+  const target = norm(name)
+  if (!target) return null
+  return existing.find((e) => norm(e.name) === target)?.id ?? null
 }
 
 /** A typed square: blank, "—", "N/A" or "NA" means not offered; otherwise a percent. */

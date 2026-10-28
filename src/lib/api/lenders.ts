@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
 import { pdfPages, sha256Hex } from '@/lib/documents/pdfText'
-import { guessDocument, type DocGuess } from '@/lib/products/docGuess'
+import { guessDocument, matchPrograms, type DocGuess } from '@/lib/products/docGuess'
 import type { LenderLoan } from '@/lib/products/lenderSummary'
 import { splitIntoPassages, type ExtractedPassage } from '@/lib/products/passages'
 import { termMonths, type DocType, type Feature, type LenderChannel, type LenderStatus, type Lien, type MatrixPurpose, type ProductFamily, type ProgramTerm } from '@/lib/products/taxonomy'
@@ -275,6 +275,29 @@ export async function prepareGuidelineFile(lenderId: string, file: File): Promis
   const same = unwrap<{ title: string }[]>(await db().from('guideline_documents').select('title').eq('lender_id', lenderId).eq('sha256', sha256))
   const pages = await pdfPages(await file.arrayBuffer())
   return { file, sha256, pageCount: pages.length, passages: splitIntoPassages(pages), guess: guessDocument({ fileName: file.name, pages }), duplicateOf: same[0]?.title ?? null }
+}
+
+/**
+ * Links each of the lender's current documents that no program covers yet to
+ * the programs it's about, guessed from its title and first pages (no AI): an
+ * "FHA Overlay Guidelines" PDF joins the FHA program once that program exists.
+ * Returns how many documents were linked.
+ */
+export async function linkUnlinkedDocuments(lenderId: string): Promise<number> {
+  const docs = unwrap<{ id: string; title: string; organization_id: string; guideline_document_programs: { program_id: string }[] }[]>(
+    await db().from('guideline_documents').select('id, title, organization_id, guideline_document_programs(program_id)').eq('lender_id', lenderId).eq('current', true),
+  ).filter((d) => d.guideline_document_programs.length === 0)
+  if (!docs.length) return 0
+  const programs = unwrap<{ id: string; name: string; product_family: ProductFamily; lien: Lien; doc_types: DocType[]; features: Feature[] }[]>(await db().from('programs').select('id, name, product_family, lien, doc_types, features').eq('lender_id', lenderId).eq('active', true)).map((p) => ({ id: p.id, name: p.name, family: p.product_family, lien: p.lien, docTypes: p.doc_types, features: p.features }))
+  if (!programs.length) return 0
+  let linked = 0
+  for (const d of docs) {
+    const ids = matchPrograms((await guessStoredDocument(d)).product, programs)
+    if (!ids.length) continue
+    unwrap(await db().from('guideline_document_programs').insert(ids.map((program_id) => ({ document_id: d.id, program_id, organization_id: d.organization_id }))).select('document_id'))
+    linked++
+  }
+  return linked
 }
 
 /** Guesses what an already-uploaded document is from its title and first passages (no AI), to set up its program. */

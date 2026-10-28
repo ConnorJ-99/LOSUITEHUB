@@ -27,6 +27,10 @@ describe('browse all programs', () => {
     expect(names(rows)).not.toContain('Inactive lender program')
     expect(rows).toHaveLength(6)
   })
+  it('an FHA program that only offers a DPA option stays under FHA', () => {
+    expect(browseGroup(program('A&D Mortgage', 'FHA', { family: 'fha', features: ['dpa', 'manufactured', 'buydown'] }))).toBe('fha')
+    expect(browseGroup(program('Click n Close', 'SmartBuy', { family: 'fha', features: ['dpa'] }))).toBe('dpa')
+  })
   it('product groups: Non-QM by doc type; DPA on its own', () => {
     expect(rows.map((r) => [r.program.name, r.group])).toEqual([
       ['Conventional 30-Year Fixed', 'conventional'],

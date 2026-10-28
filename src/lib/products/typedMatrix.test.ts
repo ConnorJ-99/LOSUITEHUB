@@ -142,7 +142,7 @@ describe('grid shape', () => {
     const p = blankProgram('Typed Program')
     expect(p.grids[0].rows).toHaveLength(8)
     expect(p.grids[0].printedRows).toBe(8)
-    expect(checkProgram(p).map((w) => w.message)).toContain('The program has no matrix cells with a limit.')
+    expect(checkProgram(p).some((w) => w.message.startsWith('No matrix grid'))).toBe(true)
   })
   it('adds and removes rows and columns, keeping the squares lined up', () => {
     let g = blankGrid(blankProgram())

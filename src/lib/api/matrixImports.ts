@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { MatrixReading, ReadGrid, ReadProgram } from '../../../supabase/functions/assistant/matrix'
-import type { ReviewProgram } from '@/lib/products/matrixImport'
+import type { MatrixReading, ReadGrid, ReadProgram, ReadRule } from '../../../supabase/functions/assistant/matrix'
+import type { ProgramNow, ReviewProgram } from '@/lib/products/matrixImport'
 import { approvalPayload } from '@/lib/products/matrixImport'
 import { blankProgram } from '@/lib/products/typedMatrix'
 import type { MatrixCell } from '@/lib/products/types'
 import { invokeAssistant } from './assistant'
+import { linkUnlinkedDocuments } from './lenders'
 import { db, keys, num, unwrap } from './client'
 
 export interface MatrixImport {
@@ -79,36 +80,39 @@ export function usePendingImports(lenderId: string) {
   })
 }
 
-export interface ExistingProgram {
-  id: string
-  name: string
-  /** The approved version's cells (for the "what changes" list). */
-  cells: Pick<MatrixCell, 'occupancy' | 'propertyTypes' | 'purposes' | 'docType' | 'unitsMin' | 'unitsMax' | 'ficoMin' | 'ficoMax' | 'loanAmountMin' | 'loanAmountMax' | 'maxLtv' | 'maxCltv' | 'offered'>[]
+export interface ExistingProgram extends ProgramNow {
+  /** The approved matrix version in use, if any. */
   version: number | null
 }
 
-/** The lender's programs and the cells of the matrix each one uses now. */
+/** The lender's programs with what each has now (matrix cells, rules, terms, income types), to compare against or merge into. */
 export function useExistingPrograms(lenderId: string) {
   return useQuery({
     queryKey: keys.lenderPrograms(`${lenderId}:cells`),
     queryFn: async (): Promise<ExistingProgram[]> => {
-      const programs = unwrap<{ id: string; name: string; matrix_versions: { id: string; version: number; status: string }[] }[]>(await db().from('programs').select('id, name, matrix_versions(id, version, status)').eq('lender_id', lenderId))
-      const approved = programs.flatMap((p) => p.matrix_versions.filter((v) => v.status === 'approved').map((v) => ({ programId: p.id, versionId: v.id, version: v.version })))
-      const cells = approved.length
-        ? unwrap<Record<string, unknown>[]>(
-            await db()
-              .from('program_matrix_cells')
-              .select('matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, max_ltv, max_cltv, offered')
-              .in('matrix_version_id', approved.map((a) => a.versionId))
-              .limit(10000),
-          )
-        : []
-      return programs.map((p) => {
-        const v = approved.find((a) => a.programId === p.id)
+      const programs = unwrap<
+        { id: string; name: string; doc_types: ProgramNow['docTypes']; purposes: ProgramNow['purposes']; features: ProgramNow['features']; term_options: ProgramNow['termOptions'] | null; description: string | null; matrix_versions: { id: string; version: number; status: string; source_document_id: string | null }[] }[]
+      >(await db().from('programs').select('id, name, doc_types, purposes, features, term_options, description, matrix_versions(id, version, status, source_document_id)').eq('lender_id', lenderId))
+      const approved = programs.flatMap((p) => p.matrix_versions.filter((v) => v.status === 'approved').map((v) => ({ programId: p.id, versionId: v.id, version: v.version, sourceDocumentId: v.source_document_id })))
+      const ids = approved.map((a) => a.versionId)
+      const [cells, rules] = ids.length
+        ? await Promise.all([
+            unwrap<Record<string, unknown>[]>(await db().from('program_matrix_cells').select('matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, max_ltv, max_cltv, offered, notes, source_page').in('matrix_version_id', ids).limit(20000)),
+            unwrap<Record<string, unknown>[]>(await db().from('program_rules').select('matrix_version_id, field, op, value, applies_when, severity, message, source_page, source_quote').in('matrix_version_id', ids)),
+          ])
+        : [[], []]
+      return programs.map((p): ExistingProgram => {
+        const v = approved.find((x) => x.programId === p.id)
         return {
           id: p.id,
           name: p.name,
           version: v?.version ?? null,
+          sourceDocumentId: v?.sourceDocumentId ?? null,
+          docTypes: p.doc_types,
+          purposes: p.purposes,
+          features: p.features,
+          termOptions: p.term_options ?? [],
+          description: p.description,
           cells: cells
             .filter((c) => c.matrix_version_id === v?.versionId)
             .map((c) => ({
@@ -125,7 +129,12 @@ export function useExistingPrograms(lenderId: string) {
               maxLtv: num(c.max_ltv),
               maxCltv: num(c.max_cltv),
               offered: c.offered as boolean,
+              notes: (c.notes as string | null) ?? null,
+              sourcePage: (c.source_page as number | null) ?? null,
             })),
+          rules: rules
+            .filter((r) => r.matrix_version_id === v?.versionId)
+            .map((r) => ({ field: r.field, op: r.op, value: r.value, appliesWhen: r.applies_when ?? null, severity: r.severity, message: r.message, page: r.source_page ?? null, quote: r.source_quote ?? '' }) as ReadRule),
         }
       })
     },
@@ -135,10 +144,12 @@ export function useExistingPrograms(lenderId: string) {
 export function useApproveImport(importId: string, lenderId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ programs, effectiveDate }: { programs: ReviewProgram[]; effectiveDate: string | null }) =>
-      unwrap<{ programs: number; cells: number; rules: number }>(await db().rpc('approve_matrix_import', { p_import_id: importId, p_programs: approvalPayload(programs), p_effective_date: effectiveDate })),
-    onSuccess: () => {
-      for (const key of [keys.matrixImport(importId), keys.lenderImports(lenderId), keys.lenderPrograms(lenderId), keys.lenderPrograms(`${lenderId}:cells`), keys.lenderDocuments(lenderId), keys.lenders, keys.catalog]) queryClient.invalidateQueries({ queryKey: key })
+    mutationFn: async ({ programs, existing, effectiveDate }: { programs: ReviewProgram[]; existing: ProgramNow[]; effectiveDate: string | null }) =>
+      unwrap<{ programs: number; cells: number; rules: number }>(await db().rpc('approve_matrix_import', { p_import_id: importId, p_programs: approvalPayload(programs, existing), p_effective_date: effectiveDate })),
+    onSuccess: async () => {
+      // Guideline and overlay PDFs no program covers yet join the programs they're about.
+      await linkUnlinkedDocuments(lenderId).catch(() => 0)
+      for (const key of [keys.matrixImport(importId), keys.lenderImports(lenderId), keys.lenderPrograms(lenderId), keys.lenderPrograms(`${lenderId}:cells`), keys.lenderDocuments(lenderId), keys.lenders, keys.catalog, ['programGuidelines']]) queryClient.invalidateQueries({ queryKey: key })
     },
   })
 }

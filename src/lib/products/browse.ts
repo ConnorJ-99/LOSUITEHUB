@@ -2,7 +2,7 @@
 // scenario needed. Product groups, each program's headline numbers from its
 // approved matrix, filters with counts, and sorting. Pure.
 
-import type { Lien, LenderStatus } from './taxonomy'
+import { isDpaProgram, type Lien, type LenderStatus } from './taxonomy'
 import type { Catalog, CatalogLender, CatalogProgram, ProgramResult } from './types'
 
 /** The product groups in the left filter, in order. Non-QM is split by doc type; DPA is its own group. */
@@ -21,7 +21,7 @@ export type BrowseGroup = (typeof BROWSE_GROUPS)[number][0]
 export const BROWSE_GROUP_LABEL = Object.fromEntries(BROWSE_GROUPS) as Record<BrowseGroup, string>
 
 export function browseGroup(p: CatalogProgram): BrowseGroup {
-  if (p.features.includes('dpa')) return 'dpa'
+  if (isDpaProgram(p)) return 'dpa'
   if (p.family !== 'non_qm') return p.family
   if (p.docTypes.includes('dscr')) return 'non_qm_dscr'
   if (p.docTypes.some((d) => d === 'bank_statement_12' || d === 'bank_statement_24')) return 'non_qm_bank_statement'
