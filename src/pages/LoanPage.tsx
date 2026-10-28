@@ -13,6 +13,7 @@ import {
   PencilIcon,
   ReceiptIcon,
   SearchXIcon,
+  StarIcon,
   TriangleAlertIcon,
   UserCheckIcon,
   WorkflowIcon,
@@ -41,7 +42,7 @@ import { LoanPricingTab } from '@/components/pricing/LoanPricingTab'
 import { PricingTab } from '@/components/pricing/PricingTab'
 import { LettersTab } from '@/components/letters/LettersTab'
 import { usePreapprovalLetters } from '@/lib/api/preapproval'
-import { useLoan, useOrgMembers } from '@/lib/api/loans'
+import { useLoan, useOrgMembers, useSetPriority } from '@/lib/api/loans'
 import { useProperties } from '@/lib/api/properties'
 import { useOrganization, useProfile } from '@/lib/api/settings'
 import type { LoanProfile } from '@/lib/api/types'
@@ -101,6 +102,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const app = useApplication(loan.id)
   const properties = useProperties(loan.id)
+  const setPriority = useSetPriority(loan.id)
   const letters = usePreapprovalLetters(loan.id, loan.purpose === 'purchase')
   const organization = useOrganization()
   const originator = useProfile(loan.assignedLo?.id)
@@ -198,6 +200,17 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
         onToggleDetails={() => setDetailsOpen((o) => !o)}
         actions={
           <>
+            <Button
+              size="sm"
+              variant="outline"
+              aria-pressed={loan.priority}
+              disabled={setPriority.isPending}
+              onClick={() => setPriority.mutate(!loan.priority, { onError: (e) => toast.error(e.message) })}
+              title={loan.priority ? 'Remove from Priority Leads' : 'Add to Priority Leads'}
+            >
+              <StarIcon className={loan.priority ? 'fill-amber-400 text-amber-500' : undefined} />
+              {loan.priority ? 'Priority' : 'Star'}
+            </Button>
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
               <PencilIcon />
               Edit

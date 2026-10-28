@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { KanbanIcon, ListIcon, PlusIcon, SearchXIcon, TriangleAlertIcon, UsersIcon } from 'lucide-react'
+import { Link, Navigate, useParams } from 'react-router'
+import { ArrowLeftIcon, KanbanIcon, ListIcon, PlusIcon, SearchXIcon, TriangleAlertIcon, UsersIcon } from 'lucide-react'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, PageHeader, SearchInput, Select } from '@/components/shared'
@@ -9,6 +10,7 @@ import { PipelineList } from '@/components/pipeline/PipelineList'
 import { useStageChanger } from '@/components/pipeline/useStageChanger'
 import { useOrgMembers, usePipeline } from '@/lib/api/loans'
 import { emptyFilters, isOnBoard, matchesFilters, type PipelineFilters } from '@/lib/pipeline/helpers'
+import { pipelineFor, PIPELINES, type PipelineId } from '@/lib/pipeline/pipelines'
 import { PURPOSES, STAGES } from '@/lib/pipeline/stages'
 
 type View = 'board' | 'list'
@@ -47,11 +49,20 @@ function ViewToggle({ view, onChange }: { view: View; onChange: (view: View) => 
   )
 }
 
+/** One pipeline's board or list (/pipeline/purchase), or every loan (/pipeline/all). */
 export function PipelinePage() {
+  const { pipelineId } = useParams()
+  const info = PIPELINES.find((p) => p.id === pipelineId) ?? null
+  if (!info && pipelineId !== 'all') return <Navigate to="/pipeline" replace />
+  return <PipelineView key={pipelineId} pipeline={info?.id ?? null} />
+}
+
+function PipelineView({ pipeline: only }: { pipeline: PipelineId | null }) {
   const pipeline = usePipeline()
   const members = useOrgMembers()
   const { openNewLead } = useNewLead()
   const { requestChange, dialog } = useStageChanger()
+  const info = only ? PIPELINES.find((p) => p.id === only)! : null
   const [view, setView] = useState<View>(initialView)
   const [filters, setFilters] = useState<PipelineFilters>(emptyFilters)
 
@@ -70,7 +81,8 @@ export function PipelinePage() {
   const allLoans = pipeline.data ?? []
   const visible = allLoans.filter((loan) => {
     const searchable = { ...loan, assignedLoId: loan.assignedLo?.id ?? null }
-    if (view === 'board') return isOnBoard(loan.stage, loan.stageChangedAt) && matchesFilters(searchable, { ...filters, stage: 'all' })
+    if (only && pipelineFor(loan) !== only) return false
+    if (view === 'board') return (only !== null || isOnBoard(loan.stage, loan.stageChangedAt)) && matchesFilters(searchable, { ...filters, stage: 'all' })
     return matchesFilters(searchable, filters)
   })
 
@@ -79,9 +91,13 @@ export function PipelinePage() {
 
   return (
     <>
+      <Link to="/pipeline" className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeftIcon className="size-4" />
+        Leads
+      </Link>
       <PageHeader
-        title="Pipeline"
-        description={pipeline.data ? `${active} active ${active === 1 ? 'loan' : 'loans'}` : undefined}
+        title={info?.label ?? 'All loans'}
+        description={info ? info.description : pipeline.data ? `${active} active ${active === 1 ? 'loan' : 'loans'}` : undefined}
         action={
           <div className="flex items-center gap-2">
             <ViewToggle view={view} onChange={changeView} />
@@ -152,7 +168,7 @@ export function PipelinePage() {
           </div>
 
           {view === 'board' ? (
-            <PipelineBoard loans={visible} showLo={showLo} onRequestChange={requestChange} />
+            <PipelineBoard loans={visible} showLo={showLo} onRequestChange={requestChange} stages={info ? [...new Set(info.columns.flatMap((c) => c.stages))] : undefined} />
           ) : visible.length === 0 ? (
             <Card>
               <EmptyState icon={SearchXIcon} title="No loans match" description="Try a different search or clear the filters." />

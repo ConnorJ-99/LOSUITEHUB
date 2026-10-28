@@ -24,6 +24,8 @@ interface BoardProps {
   loans: PipelineLoan[]
   showLo: boolean
   onRequestChange: RequestChange
+  /** Only these stages get a column (a pipeline's own stages); all stages when omitted. */
+  stages?: PipelineStage[]
 }
 
 function DraggableCard({ loan, showLo, onRequestChange }: { loan: PipelineLoan; showLo: boolean; onRequestChange: RequestChange }) {
@@ -71,7 +73,7 @@ function Column({ stage, loans, showLo, onRequestChange }: { stage: StageInfo; l
 }
 
 /** Kanban board: one column per stage. Drag a card, or use its ⋯ menu, to move it. */
-export function PipelineBoard({ loans, showLo, onRequestChange }: BoardProps) {
+export function PipelineBoard({ loans, showLo, onRequestChange, stages }: BoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -99,7 +101,7 @@ export function PipelineBoard({ loans, showLo, onRequestChange }: BoardProps) {
       onDragCancel={() => setActiveId(null)}
     >
       <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-4 md:-mx-6 md:px-6">
-        {STAGES.map((stage) => (
+        {STAGES.filter((s) => !stages || stages.includes(s.value)).map((stage) => (
           <Column key={stage.value} stage={stage} loans={byStage.get(stage.value) ?? []} showLo={showLo} onRequestChange={onRequestChange} />
         ))}
       </div>

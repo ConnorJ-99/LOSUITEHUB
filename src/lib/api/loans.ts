@@ -25,12 +25,18 @@ interface LoanRow {
   stage_changed_at: string
   created_at: string
   prior_loan_id: string | null
+  priority: boolean
+  status_detail: string | null
+  card_timeline: string | null
+  card_loan_amount: unknown
+  card_purchase_price: unknown
   assigned_lo: { id: string; full_name: string | null; email: string } | null
   borrowers: { role: 'primary' | 'co_borrower'; contact: ContactRow | null }[]
 }
 
 const LOAN_SELECT = `
   id, purpose, stage, lost_reason, referral_source, stage_changed_at, created_at, prior_loan_id,
+  priority, status_detail, card_timeline:timeline, card_loan_amount:loan_amount, card_purchase_price:purchase_price,
   assigned_lo:profiles!loans_assigned_lo_id_fkey ( id, full_name, email ),
   borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, email, phone ) )
 `
@@ -120,6 +126,11 @@ function toLoan(row: LoanRow): PipelineLoan {
     stageChangedAt: row.stage_changed_at,
     createdAt: row.created_at,
     priorLoanId: row.prior_loan_id,
+    priority: row.priority,
+    statusDetail: row.status_detail,
+    timeline: row.card_timeline,
+    loanAmount: num(row.card_loan_amount),
+    purchasePrice: num(row.card_purchase_price),
     assignedLo: row.assigned_lo
       ? { id: row.assigned_lo.id, name: row.assigned_lo.full_name || row.assigned_lo.email }
       : null,
@@ -397,6 +408,20 @@ export async function saveLoanDetails(loanId: string, changes: Partial<LoanDetai
   if (Object.keys(row).length === 0) return
   const rows = unwrap<{ id: string }[]>(await db().from('loans').update(row).eq('id', loanId).select('id'))
   if (rows.length === 0) throw new Error('You do not have permission to edit this loan.')
+}
+
+/** Stars or un-stars a file (Priority Leads). */
+export function useSetPriority(loanId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (priority: boolean) => {
+      unwrap(await db().from('loans').update({ priority }).eq('id', loanId).select('id'))
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.loan(loanId) })
+      queryClient.invalidateQueries({ queryKey: keys.pipeline })
+    },
+  })
 }
 
 export function useUpdateLoanDetails(loanId: string) {

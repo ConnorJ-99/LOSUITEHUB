@@ -17,6 +17,7 @@ import { LoanPage } from '@/pages/LoanPage'
 import { MatrixImportPage } from '@/pages/MatrixImportPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { PipelinePage } from '@/pages/PipelinePage'
+import { LeadsHomePage } from '@/pages/LeadsHomePage'
 import { ProductSearchPage } from '@/pages/ProductSearchPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
@@ -35,7 +36,8 @@ const router = createBrowserRouter([
     element: <AuthGate />,
     children: [
       { index: true, element: <TodayPage /> },
-      { path: 'pipeline', element: <PipelinePage /> },
+      { path: 'pipeline', element: <LeadsHomePage /> },
+      { path: 'pipeline/:pipelineId', element: <PipelinePage /> },
       { path: 'contacts', element: <ContactsPage /> },
       { path: 'loans/:loanId', element: <LoanPage /> },
       { path: 'product-search', element: <ProductSearchPage /> },

@@ -24,6 +24,14 @@ export interface PipelineLoan {
   stageChangedAt: string
   createdAt: string
   priorLoanId: string | null
+  /** The star: shows in Priority Leads. */
+  priority: boolean
+  /** Where the file is inside its stage (cleared when the stage changes). */
+  statusDetail: string | null
+  timeline: string | null
+  /** For the card and its column total (the same values as the loan's details). */
+  loanAmount: number | null
+  purchasePrice: number | null
   assignedLo: MemberRef | null
   /** The primary borrower. */
   borrower: Contact | null
