@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MatrixReading, ReadGrid, ReadProgram, ReadRule } from '../../../supabase/functions/assistant/matrix'
 import type { ProgramNow, ReviewProgram } from '@/lib/products/matrixImport'
 import { approvalPayload } from '@/lib/products/matrixImport'
-import { blankProgram } from '@/lib/products/typedMatrix'
+import { blankProgram, gridsFromCells } from '@/lib/products/typedMatrix'
 import type { MatrixCell } from '@/lib/products/types'
 import { invokeAssistant } from './assistant'
 import { linkUnlinkedDocuments } from './lenders'
@@ -53,8 +53,8 @@ export async function readMatrix(documentId: string): Promise<string> {
 export function useStartTypedMatrix(lenderId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ organizationId, documentId, program }: { organizationId: string; documentId: string | null; program?: ReadProgram }) => {
-      const reading: MatrixReading = { programs: [program ?? blankProgram()], effectiveDate: null, notes: null, dropped: [] }
+    mutationFn: async ({ organizationId, documentId, program, editOf }: { organizationId: string; documentId: string | null; program?: ReadProgram; editOf?: string }) => {
+      const reading: MatrixReading = { programs: [program ?? blankProgram()], effectiveDate: null, notes: null, dropped: [], ...(editOf && { editOf }) }
       const row = unwrap<{ id: string }>(await db().from('matrix_imports').insert({ organization_id: organizationId, lender_id: lenderId, document_id: documentId, source: 'manual', reading }).select('id').single())
       return row.id
     },
@@ -66,6 +66,47 @@ export function useStartTypedMatrix(lenderId: string) {
 export async function saveTypedDraft(importId: string, reading: MatrixReading) {
   const rows = unwrap<{ id: string }[]>(await db().from('matrix_imports').update({ reading }).eq('id', importId).eq('status', 'pending_review').eq('source', 'manual').select('id'))
   if (rows.length === 0) throw new Error('This draft was already approved or discarded, or only owners and admins can edit it.')
+}
+
+const CELL_COLUMNS = 'matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, max_ltv, max_cltv, offered, notes, source_page'
+const RULE_COLUMNS = 'matrix_version_id, field, op, value, applies_when, severity, message, source_page, source_quote'
+
+const toImportCell = (c: Record<string, unknown>) => ({
+  occupancy: c.occupancy as MatrixCell['occupancy'],
+  propertyTypes: c.property_types as MatrixCell['propertyTypes'],
+  purposes: c.purposes as MatrixCell['purposes'],
+  docType: c.doc_type as MatrixCell['docType'],
+  unitsMin: c.units_min as number,
+  unitsMax: c.units_max as number,
+  ficoMin: c.fico_min as number,
+  ficoMax: c.fico_max as number,
+  loanAmountMin: num(c.loan_amount_min) ?? 0,
+  loanAmountMax: num(c.loan_amount_max),
+  maxLtv: num(c.max_ltv),
+  maxCltv: num(c.max_cltv),
+  offered: c.offered as boolean,
+  notes: (c.notes as string | null) ?? null,
+  sourcePage: (c.source_page as number | null) ?? null,
+})
+
+const toReadRule = (r: Record<string, unknown>) => ({ field: r.field, op: r.op, value: r.value, appliesWhen: r.applies_when ?? null, severity: r.severity, message: r.message, page: r.source_page ?? null, quote: r.source_quote ?? '' }) as ReadRule
+
+/** A program's matrix in use as an editable reading ("Edit limits"), with the document it came from. */
+export async function programAsReading(programId: string): Promise<{ program: ReadProgram; documentId: string | null }> {
+  const p = unwrap<{ name: string; product_family: ReadProgram['family']; lien: ReadProgram['lien']; doc_types: ReadProgram['docTypes']; features: ReadProgram['features']; purposes: ReadProgram['purposes']; term_options: ReadProgram['termOptions'] | null; loan_amount_basis: ReadProgram['loanAmountBasis']; description: string | null; matrix_versions: { id: string; status: string; source_document_id: string | null }[] }>(
+    await db().from('programs').select('name, product_family, lien, doc_types, features, purposes, term_options, loan_amount_basis, description, matrix_versions(id, status, source_document_id)').eq('id', programId).single(),
+  )
+  const v = p.matrix_versions.find((x) => x.status === 'approved')
+  const [cells, rules] = v
+    ? await Promise.all([
+        unwrap<Record<string, unknown>[]>(await db().from('program_matrix_cells').select(CELL_COLUMNS).eq('matrix_version_id', v.id).limit(20000)),
+        unwrap<Record<string, unknown>[]>(await db().from('program_rules').select(RULE_COLUMNS).eq('matrix_version_id', v.id)),
+      ])
+    : [[], []]
+  return {
+    documentId: v?.source_document_id ?? null,
+    program: { name: p.name, family: p.product_family, lien: p.lien, docTypes: p.doc_types, features: p.features, purposes: p.purposes, termOptions: p.term_options ?? [], loanAmountBasis: p.loan_amount_basis, description: p.description, grids: gridsFromCells(cells.map(toImportCell), p.lien), rules: rules.map(toReadRule) },
+  }
 }
 
 export function useMatrixImport(id: string) {
@@ -99,8 +140,8 @@ export function useExistingPrograms(lenderId: string) {
       const ids = approved.map((a) => a.versionId)
       const [cells, rules] = ids.length
         ? await Promise.all([
-            unwrap<Record<string, unknown>[]>(await db().from('program_matrix_cells').select('matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, max_ltv, max_cltv, offered, notes, source_page').in('matrix_version_id', ids).limit(20000)),
-            unwrap<Record<string, unknown>[]>(await db().from('program_rules').select('matrix_version_id, field, op, value, applies_when, severity, message, source_page, source_quote').in('matrix_version_id', ids)),
+            unwrap<Record<string, unknown>[]>(await db().from('program_matrix_cells').select(CELL_COLUMNS).in('matrix_version_id', ids).limit(20000)),
+            unwrap<Record<string, unknown>[]>(await db().from('program_rules').select(RULE_COLUMNS).in('matrix_version_id', ids)),
           ])
         : [[], []]
       return programs.map((p): ExistingProgram => {
@@ -117,28 +158,10 @@ export function useExistingPrograms(lenderId: string) {
           features: p.features,
           termOptions: p.term_options ?? [],
           description: p.description,
-          cells: cells
-            .filter((c) => c.matrix_version_id === v?.versionId)
-            .map((c) => ({
-              occupancy: c.occupancy as MatrixCell['occupancy'],
-              propertyTypes: c.property_types as MatrixCell['propertyTypes'],
-              purposes: c.purposes as MatrixCell['purposes'],
-              docType: c.doc_type as MatrixCell['docType'],
-              unitsMin: c.units_min as number,
-              unitsMax: c.units_max as number,
-              ficoMin: c.fico_min as number,
-              ficoMax: c.fico_max as number,
-              loanAmountMin: num(c.loan_amount_min) ?? 0,
-              loanAmountMax: num(c.loan_amount_max),
-              maxLtv: num(c.max_ltv),
-              maxCltv: num(c.max_cltv),
-              offered: c.offered as boolean,
-              notes: (c.notes as string | null) ?? null,
-              sourcePage: (c.source_page as number | null) ?? null,
-            })),
+          cells: cells.filter((c) => c.matrix_version_id === v?.versionId).map(toImportCell),
           rules: rules
             .filter((r) => r.matrix_version_id === v?.versionId)
-            .map((r) => ({ field: r.field, op: r.op, value: r.value, appliesWhen: r.applies_when ?? null, severity: r.severity, message: r.message, page: r.source_page ?? null, quote: r.source_quote ?? '' }) as ReadRule),
+            .map(toReadRule),
         }
       })
     },

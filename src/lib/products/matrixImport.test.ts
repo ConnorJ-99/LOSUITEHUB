@@ -353,3 +353,21 @@ describe('stacked "580+ / 620+ / 640+" rows', () => {
     expect(fixes[0]).toContain('580+, 620+, 640+ read as 580–619, 620–639, 640+')
   })
 })
+
+describe('loan amount columns read from $0', () => {
+  it('"≤ $750K, ≤ $1M, ≤ $1.5M" become tiers', () => {
+    const p = (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0]
+    const col = (label: string, max: number) => ({ label, loanAmountMin: 0, loanAmountMax: max, occupancy: null, unitsMin: null, unitsMax: null, purposes: null, propertyTypes: null })
+    const g = { ...p.grids[0], columns: [col('≤ $750,000', 750000), col('≤ $1,000,000', 1000000), col('≤ $1,500,000', 1500000)], values: p.grids[0].rows.map(() => [80, 75, 70]) }
+    const { program, fixes } = repairProgram({ ...p, grids: [g] })
+    expect(program.grids[0].columns.map((c) => [c.loanAmountMin, c.loanAmountMax])).toEqual([[0, 750000], [750001, 1000000], [1000001, 1500000]])
+    expect(fixes.some((f) => f.includes('read as tiers'))).toBe(true)
+  })
+  it('columns that differ by occupancy are left alone', () => {
+    const p = (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0]
+    expect(repairProgram(p).program.grids[0].columns).toEqual(p.grids[0].columns)
+  })
+  it('"Refi Now" and "RefiNow" are the same program', () => {
+    expect(matchProgram('Refi Now', [{ id: 'r', name: 'RefiNow', family: 'conventional', lien: 'first' }], 'A&D', { family: 'conventional', lien: 'first' })).toBe('r')
+  })
+})

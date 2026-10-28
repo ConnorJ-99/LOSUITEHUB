@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { cellsFromGrid, checkProgram } from './matrixImport'
 import type { MatrixPurpose } from './taxonomy'
-import { addColumn, addRow, applyPaste, blankGrid, blankProgram, closeBands, closeTiers, copyGrid, parseBand, parseColumn, parsePaste, programFromGuess, removeColumn, removeRow, ruleFromInput, setColumnHeader, setRowBand, syncGrids, unitsFor } from './typedMatrix'
+import { evaluateProgram } from './engine'
+import { cell, program, rule, scenario } from './testCatalog'
+import { addColumn, addRow, applyPaste, blankGrid, blankProgram, closeBands, closeTiers, copyGrid, gridsFromCells, parseBand, parseColumn, parsePaste, programFromGuess, removeColumn, removeRow, ruleFromInput, setColumnHeader, setRowBand, syncGrids, unitsFor } from './typedMatrix'
 
 /** The Equity Flex CLTV grid from the Product Search mockup, as copied from Excel (tabs between squares). */
 const EXCEL = [
@@ -223,5 +225,43 @@ describe('typed rules', () => {
     expect(ruleFromInput({ preset: 'loan_amount', min: 500000, max: 100000 })).toHaveProperty('error')
     expect(ruleFromInput({ preset: 'states', list: ['Texas'] })).toHaveProperty('error')
     expect(ruleFromInput({ preset: 'citizenship', list: [] })).toHaveProperty('error')
+  })
+})
+
+describe('Edit limits: the matrix in use back as grids', () => {
+  it('turns saved boxes back into the same grid, and saving it again gives the same boxes', () => {
+    const g = applyPaste(blankGrid({ lien: 'ces', purposes: ['cash_out'], docTypes: ['bank_statement_12', 'asset_depletion'] }), parsePaste(EXCEL))
+    if ('error' in g) throw new Error(g.error)
+    const saved = cellsFromGrid({ ...g, docTypes: ['bank_statement_12', 'asset_depletion'] })
+    const back = gridsFromCells(saved, 'ces')
+    expect(back).toHaveLength(1)
+    expect(back[0]).toMatchObject({ ratio: 'cltv', docTypes: ['bank_statement_12', 'asset_depletion'], purposes: ['cash_out'] })
+    expect(back[0].rows.map((r) => r.label)).toEqual(['760+', '740–759', '720–739', '700–719', '680–699', '660–679', '640–659', '620–639'])
+    expect(back[0].values[6]).toEqual([80, 75, null, null])
+    const key = (c: ReturnType<typeof cellsFromGrid>[number]) => [c.docType, c.ficoMin, c.ficoMax, c.loanAmountMin, c.loanAmountMax, c.maxCltv, c.offered].join('|')
+    expect(cellsFromGrid(back[0]).map(key).sort()).toEqual(saved.map(key).sort())
+  })
+  it('keeps separate grids apart (purchase vs cash-out)', () => {
+    const base = blankGrid({ lien: 'first', purposes: ['purchase'], docTypes: ['full_doc'] })
+    base.values[0][0] = 97
+    const cash = { ...base, purposes: ['cash_out'] as MatrixPurpose[], values: base.values.map((r) => r.map(() => 80)) }
+    expect(gridsFromCells([...cellsFromGrid(base), ...cellsFromGrid(cash)], 'first').map((x) => x.purposes)).toEqual([['purchase'], ['cash_out']])
+  })
+})
+
+describe('97% for first-time buyers, 95% for everyone else', () => {
+  it('builds the rule from the form', () => {
+    expect(ruleFromInput({ preset: 'fthb_above', number: 95, page: 2 })).toEqual({ field: 'first_time_buyer', op: 'required', value: null, appliesWhen: { ltv_above: 95 }, severity: 'hard', message: 'Above 95% LTV, first-time buyers only', page: 2, quote: '' })
+    expect(ruleFromInput({ preset: 'fthb_above', number: null })).toHaveProperty('error')
+  })
+  it('in a search: a first-time buyer at 96% fits; anyone else gets "lower the loan to 95%"', () => {
+    const p = program('Lender', 'Conventional', { cells: [cell({ ficoMin: 620, ficoMax: 850, maxLtv: 97, loanAmountMax: 806500 })], rules: [rule({ field: 'first_time_buyer', op: 'required', appliesWhen: { ltv_above: 95 }, message: 'Above 95% LTV, first-time buyers only' })] })
+    const lender = { id: 'Lender', name: 'Lender', status: 'approved' as const, states: null }
+    const s = scenario({ purchasePrice: 400000, value: 400000, loanAmount: 384000, fico: 700 })
+    expect(evaluateProgram(p, lender, { ...s, firstTimeBuyer: true }).eligible).toBe(true)
+    const repeat = evaluateProgram(p, lender, { ...s, firstTimeBuyer: false })
+    expect(repeat.eligible).toBe(false)
+    expect(repeat.reasons[0].fix).toMatchObject({ loanAmount: 380000, text: 'Fits with 5% down ($20,000)' })
+    expect(evaluateProgram(p, lender, { ...s, loanAmount: 380000, firstTimeBuyer: false }).eligible).toBe(true)
   })
 })

@@ -96,6 +96,8 @@ export interface MatrixReading {
   notes: string | null
   /** Things the assistant returned that didn't fit the lists; shown so nothing is silently lost. */
   dropped: string[]
+  /** A draft opened from "Edit limits": the program whose matrix in use it copies (approving replaces it). */
+  editOf?: string
 }
 
 const enumOf = (values: readonly string[], description?: string) => ({ type: 'string', enum: [...values], ...(description ? { description } : {}) })
@@ -215,12 +217,14 @@ export const MATRIX_SYSTEM_PROMPT = `You read mortgage lender eligibility matric
 - A grid for rural properties ("SFR Rural") uses property type rural; a condotel grid uses condotel.
 - Credit bands: "720-739" is 720 to 739; "740+" or "≥740" is 740 to 850; "<620" is 300 to 619.
 - Loan amounts in dollars: "$1,000,001 - $1.5MM" is 1000001 to 1500000; "≤ $1MM" is 0 to 1000000.
+- Loan-amount columns printed as "≤ $750K | ≤ $1MM | ≤ $1.5MM" are tiers: each column starts one dollar above the column before (750001 to 1000000), never all from 0.
 - Use only the words in the schema's lists. If the lender uses another name, pick the matching one; if none fits, leave it out and say so in notes.
 - A program is a loan product ("Conventional", "FHA", "Equity Advantage HELOC"), not a term: list its terms in term_options. Split a product into two programs only when the lender prints separate grids or rules for them.
 - If the document is a guideline with no grids, still return each program it covers with its terms, doc types, purposes, rules and description, and an empty grids list.
 - Some matrices list "special circumstances" (cash-out, manufactured home, second home, investment, manual underwrite, streamline) each with a credit score and max LTV instead of a grid. Turn each into cells on the matching column dimension: a purpose (cash-out, rate/term), a property type (manufactured, condo), an occupancy (second home, investment) or units. The row with no circumstance covers everything else.
 - Never return two cells that cover the same occupancy, property type, purpose, income type, units, credit band and loan amount with different limits. Where circumstances overlap ("when multiple circumstances apply the lowest LTV is used"), put the lowest limit in the overlapping cell.
 - A circumstance that is really another product (FHA Streamline, Simple Refinance, VA IRRRL, 203(k)) is a separate program with its own grid. A circumstance with no matching dimension (manual underwrite, non-occupant co-borrower, high balance) goes in rules (e.g. field ltv, op <=) with its quote, not in cells.
+- A limit that is higher only for first-time buyers (e.g. 97% first-time buyer, 95% otherwise): put the higher limit in the cell and add a rule field first_time_buyer, op required, applies_ltv_above = the limit for everyone else (95), message "Above 95% LTV, first-time buyers only". Do the same for any "higher LTV only if" condition the rule fields can express.
 - Rule values: states as two-letter codes (TX); "all states" means no state rule. Citizenship as us_citizen, permanent_resident, non_permanent_resident, itin, foreign_national.
 - Program-wide requirements that are not grid cells go in rules, each with the exact quote and page.
 - Do not calculate, average or fill gaps. Report what is printed.`

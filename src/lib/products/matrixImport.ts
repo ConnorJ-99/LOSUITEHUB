@@ -77,6 +77,28 @@ export function repairProgram(p: ReadProgram): { program: ReadProgram; fixes: st
       fixes.push(`${where}: left out the "no credit score" row (Product Search needs a score); check the PDF for those limits.`)
       next = { ...next, rows: next.rows.filter((_, i) => keep[i]), values: next.values.filter((_, i) => keep[i]), printedRows: next.rows.filter((_, i) => keep[i]).length }
     }
+    // Columns "≤ $750,000", "≤ $1,000,000", "≤ $1,500,000" (each read from $0) are tiers: each starts a dollar after the one before.
+    const signature = (c: ReadGrid['columns'][number]) => JSON.stringify([c.occupancy, c.purposes, c.propertyTypes, c.unitsMin, c.unitsMax])
+    const sigs = [...new Set(next.columns.map(signature))]
+    let tiered = false
+    const columns = next.columns.map((c) => ({ ...c }))
+    for (const sig of sigs) {
+      const same = columns.filter((c) => signature(c) === sig && c.loanAmountMax != null)
+      const fromZero = same.filter((c) => c.loanAmountMin === 0)
+      if (fromZero.length < 2 || new Set(fromZero.map((c) => c.loanAmountMax)).size !== fromZero.length) continue
+      const maxes = fromZero.map((c) => c.loanAmountMax!).sort((a, b) => a - b)
+      for (const c of fromZero) {
+        const below = maxes.filter((m) => m < c.loanAmountMax!)
+        if (below.length) {
+          c.loanAmountMin = Math.max(...below) + 1
+          tiered = true
+        }
+      }
+    }
+    if (tiered) {
+      next = { ...next, columns }
+      fixes.push(`${where}: loan amount columns ${columns.map((c) => c.label).join(', ')} read as tiers, each starting where the one before ends.`)
+    }
     // "580+", "620+", "640+" stacked as rows mean 580–619, 620–639 and 640+: each row's limits apply from its score up to the next row's.
     const open = next.rows.filter((r) => r.ficoMax >= 850)
     if (open.length > 1 && new Set(open.map((r) => r.ficoMin)).size === open.length) {
@@ -353,7 +375,8 @@ export function matchProgram(name: string, existing: { id: string; name: string;
   if (!target.length) return null
   // A program of another lien or loan type is never the same product, whatever its name.
   const sameKind = (e: (typeof existing)[number]) => !reading || e.family == null || (e.family === reading.family && e.lien === reading.lien)
-  const exact = existing.find((e) => sameKind(e) && words(e.name).join(' ') === target.join(' '))
+  // "Refi Now" and "RefiNow" are the same name.
+  const exact = existing.find((e) => sameKind(e) && words(e.name).join('') === target.join(''))
   if (exact || !reading) return exact?.id ?? null
   // Same loan type and lien, every word of the existing name in this one ("FHA" in "FHA 203(b) Standard"),
   // and no product-defining word on one side only ("FHA" is not "FHA Streamline" or "FHA with DPA").

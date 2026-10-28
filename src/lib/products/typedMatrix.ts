@@ -4,8 +4,8 @@
 
 import type { GridColumn, GridRow, ReadGrid, ReadProgram, ReadRule } from '../../../supabase/functions/assistant/matrix'
 import { formatCurrency, formatNumber } from '@/lib/format'
-import { parseSquare } from './matrixImport'
-import { CITIZENSHIPS, MATRIX_PURPOSES, type Citizenship, type DocType, type Lien, type MatrixPropertyType, type MatrixPurpose } from './taxonomy'
+import { parseSquare, type ImportCell } from './matrixImport'
+import { CITIZENSHIPS, DOC_TYPES, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, type Citizenship, type DocType, type Lien, type MatrixPropertyType, type MatrixPurpose } from './taxonomy'
 
 type Occupancy = ReadGrid['occupancy']
 
@@ -279,6 +279,50 @@ export function syncGrids<P extends Pick<ReadProgram, 'purposes' | 'docTypes' | 
   }
 }
 
+/**
+ * Turns a matrix in use (its saved cells) back into editable grids: one grid
+ * per occupancy, property types, purposes and units, credit bands down the
+ * side, loan amount tiers across, a column per income type set when the
+ * same boxes were saved for several income types.
+ */
+export function gridsFromCells(cells: ImportCell[], lien: Lien): ReadGrid[] {
+  const groups = new Map<string, ImportCell[]>()
+  const keyOf = (c: ImportCell) => [c.occupancy, [...c.propertyTypes].sort().join('+'), [...c.purposes].sort().join('+'), c.unitsMin, c.unitsMax].join('|')
+  for (const c of cells) groups.set(keyOf(c), [...(groups.get(keyOf(c)) ?? []), c])
+  return [...groups.values()].map((group) => {
+    const first = group[0]
+    // Boxes saved once per income type come back as one grid covering all of them.
+    const docTypes = [...new Set(group.map((c) => c.docType))]
+    const one = group.filter((c) => c.docType === docTypes[0])
+    const bands = [...new Map(one.map((c) => [`${c.ficoMin}-${c.ficoMax}`, c])).values()].sort((a, b) => b.ficoMin - a.ficoMin)
+    const tiers = [...new Map(one.map((c) => [`${c.loanAmountMin}-${c.loanAmountMax}`, c])).values()].sort((a, b) => a.loanAmountMin - b.loanAmountMin || (a.loanAmountMax ?? Infinity) - (b.loanAmountMax ?? Infinity))
+    const rows: GridRow[] = bands.map((b) => toRow({ ficoMin: b.ficoMin, ficoMax: b.ficoMax }))
+    const columns: GridColumn[] = tiers.map((t) => toColumn(tierLabel(t.loanAmountMin, t.loanAmountMax), { loanAmountMin: t.loanAmountMin, loanAmountMax: t.loanAmountMax, occupancy: null, purposes: null }))
+    const values = rows.map((r) => columns.map((col) => {
+      const c = one.find((x) => x.ficoMin === r.ficoMin && x.ficoMax === r.ficoMax && x.loanAmountMin === col.loanAmountMin && x.loanAmountMax === col.loanAmountMax)
+      return c?.offered ? (c.maxLtv ?? c.maxCltv) : null
+    }))
+    const title = [OCCUPANCIES.label[first.occupancy], first.propertyTypes.map((t) => MATRIX_PROPERTY_TYPES.label[t]).join(', '), first.purposes.map((p) => MATRIX_PURPOSES.label[p]).join(', '), docTypes.map((d) => DOC_TYPES.label[d]).join(', ')].join(' · ')
+    return withCounts({
+      page: first.sourcePage ?? 0,
+      title,
+      ratio: one.some((c) => c.maxCltv != null && c.maxLtv == null) || lien !== 'first' ? 'cltv' : 'ltv',
+      occupancy: first.occupancy,
+      propertyTypes: [...first.propertyTypes],
+      purposes: [...first.purposes],
+      docTypes,
+      unitsMin: first.unitsMin,
+      unitsMax: first.unitsMax,
+      rows,
+      columns,
+      values,
+      printedRows: 0,
+      printedColumns: 0,
+      notes: first.notes,
+    })
+  })
+}
+
 /** A copy to start the next grid from (e.g. Second Home from Primary). */
 export const copyGrid = (g: ReadGrid): ReadGrid => ({ ...g, title: `${g.title || 'Grid'} (copy)`, rows: g.rows.map((r) => ({ ...r })), columns: g.columns.map((c) => ({ ...c })), values: g.values.map((r) => [...r]) })
 
@@ -320,7 +364,7 @@ export function setColumnHeader(g: ReadGrid, i: number, text: string): ReadGrid 
 // Program rules typed by hand
 // ---------------------------------------------------------------------------
 
-export type RulePresetId = 'max_dti' | 'min_reserves' | 'max_lates_12' | 'max_lates_24' | 'bk_seasoning' | 'fc_seasoning' | 'min_fico' | 'loan_amount' | 'min_dscr' | 'self_employed' | 'states' | 'citizenship'
+export type RulePresetId = 'max_dti' | 'min_reserves' | 'max_lates_12' | 'max_lates_24' | 'bk_seasoning' | 'fc_seasoning' | 'min_fico' | 'loan_amount' | 'min_dscr' | 'self_employed' | 'fthb_above' | 'states' | 'citizenship'
 
 export interface RulePreset {
   id: RulePresetId
@@ -342,6 +386,7 @@ export const RULE_PRESETS: RulePreset[] = [
   { id: 'loan_amount', label: 'Loan amount range', field: 'loan_amount', op: 'between', input: 'range' },
   { id: 'min_dscr', label: 'Min DSCR', field: 'dscr', op: '>=', input: 'number' },
   { id: 'self_employed', label: 'Years self-employed', field: 'self_employed_years', op: '>=', input: 'number', unit: 'years' },
+  { id: 'fthb_above', label: 'First-time buyers only above an LTV (e.g. 97% FTHB, 95% others)', field: 'first_time_buyer', op: 'required', input: 'number', unit: '% LTV' },
   { id: 'states', label: 'States allowed', field: 'state', op: 'in', input: 'states' },
   { id: 'citizenship', label: 'Citizenship allowed', field: 'citizenship', op: 'in', input: 'citizenship' },
 ]
@@ -372,6 +417,7 @@ export function ruleFromInput(input: RuleInput): ReadRule | { error: string } {
     if (n == null || !Number.isFinite(n) || n < 0) return { error: `Enter a number for ${preset.label.toLowerCase()}.` }
     if (preset.field === 'dti' && (n <= 0 || n > 100)) return { error: 'Max DTI is a percent between 1 and 100.' }
     if (preset.field === 'fico' && (n < 300 || n > 850)) return { error: 'A credit score is between 300 and 850.' }
+    if (preset.id === 'fthb_above' && (n <= 0 || n >= 150)) return { error: 'Enter the LTV other buyers are held to, like 95.' }
     value = n
     message = {
       max_dti: `Max DTI ${formatNumber(n)}%`,
@@ -383,6 +429,7 @@ export function ruleFromInput(input: RuleInput): ReadRule | { error: string } {
       min_fico: `Min credit score ${formatNumber(n, 0)}`,
       min_dscr: `Min DSCR ${n.toFixed(2)}`,
       self_employed: `Self-employed ${plural(n, 'year')}`,
+      fthb_above: `Above ${formatNumber(n)}% LTV, first-time buyers only`,
     }[preset.id as Exclude<RulePresetId, 'loan_amount' | 'states' | 'citizenship'>]
   } else if (preset.input === 'range') {
     const min = input.min ?? 0
@@ -405,5 +452,7 @@ export function ruleFromInput(input: RuleInput): ReadRule | { error: string } {
   }
   const purposes = input.purposes?.length && input.purposes.length < MATRIX_PURPOSES.values.length ? input.purposes : null
   if (purposes) message += ` (${purposes.map((p) => MATRIX_PURPOSES.label[p]).join(', ')} only)`
+  // The first-time-buyer rule only applies above the LTV everyone else is held to: the box keeps the higher limit.
+  if (preset.id === 'fthb_above') return { field: preset.field, op: preset.op, value: null, appliesWhen: { ...(purposes && { purposes }), ltv_above: input.number! }, severity: input.severity ?? 'hard', message, page: input.page ?? null, quote: '' }
   return { field: preset.field, op: preset.op, value, appliesWhen: purposes ? { purposes } : null, severity: input.severity ?? 'hard', message, page: input.page ?? null, quote: '' }
 }

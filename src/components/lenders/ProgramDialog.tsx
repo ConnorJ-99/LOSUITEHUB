@@ -3,7 +3,10 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FormGrid, Input, Select, ToggleChip, ToggleChipGroup } from '@/components/shared'
+import { useNavigate } from 'react-router'
 import { useEditProgram, useSetProgramActive, type LenderProgram, type ProgramEdit } from '@/lib/api/lenders'
+import { programAsReading, useStartTypedMatrix } from '@/lib/api/matrixImports'
+import { useAuth } from '@/lib/auth/context'
 import { DOC_TYPES, FEATURES, LIENS, MATRIX_PURPOSES, PRODUCT_FAMILIES, TERM_OPTIONS, termChoices } from '@/lib/products/taxonomy'
 
 const options = <T extends string>(l: { values: readonly T[]; label: Record<T, string> }) => l.values.map((v) => ({ value: v, label: l.label[v] }))
@@ -26,6 +29,23 @@ export function ChipPicker<T extends string>({ label, values, labels, picked, di
 export function ProgramDialog({ lenderId, program, onClose }: { lenderId: string; program: LenderProgram; onClose: () => void }) {
   const save = useEditProgram(lenderId)
   const setActive = useSetProgramActive(lenderId)
+  const startDraft = useStartTypedMatrix(lenderId)
+  const navigate = useNavigate()
+  const { state } = useAuth()
+  const [opening, setOpening] = useState(false)
+  /** Opens the matrix in use as a draft (beside its PDF) to change limits; approving replaces it, keeping the old version. */
+  const editLimits = async () => {
+    if (state.status !== 'signedIn' || !state.user.organizationId) return
+    setOpening(true)
+    try {
+      const { program: reading, documentId } = await programAsReading(program.id)
+      const id = await startDraft.mutateAsync({ organizationId: state.user.organizationId, documentId, program: reading, editOf: program.id })
+      navigate(`/admin/lenders/imports/${id}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+      setOpening(false)
+    }
+  }
   const [p, setP] = useState<ProgramEdit>({ id: program.id, name: program.name, family: program.family, lien: program.lien, docTypes: program.docTypes, features: program.features, purposes: program.purposes, termOptions: program.termOptions })
   const set = <K extends keyof ProgramEdit>(key: K) => (value: ProgramEdit[K]) => setP((x) => ({ ...x, [key]: value }))
   const choices = termChoices(p.lien)
@@ -48,6 +68,9 @@ export function ProgramDialog({ lenderId, program, onClose }: { lenderId: string
           <ChipPicker label="Features" values={FEATURES.values} labels={FEATURES.label} picked={p.features} onChange={set('features')} />
         </div>
         <DialogFooter>
+          <Button variant="outline" disabled={opening} onClick={editLimits} title="Opens the matrix in use as a draft beside its PDF; approving it replaces the matrix and keeps the old version">
+            {opening ? 'Opening…' : 'Edit limits'}
+          </Button>
           <Button
             variant="ghost"
             className="sm:mr-auto"
