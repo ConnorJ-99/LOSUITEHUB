@@ -100,5 +100,5 @@ export const properties: Property[] = [
   property({ id: 'prop-looking', addressLine: '1 Maybe St', status: 'interested' }),
 ]
 
-export const organization: Organization = { id: 'org-1', name: 'MPS Mortgage LLC', nmls: '2501110', addressLine: null, city: null, state: 'TX', zip: null, phone: null }
-export const originator: Profile = { id: 'lo-1', email: 'lo@example.com', fullName: 'Test Originator', nmls: '1234567', phone: null, stateLicense: null }
+export const organization: Organization = { id: 'org-1', name: 'MPS Mortgage LLC', nmls: '2501110', addressLine: null, city: null, state: 'TX', zip: null, phone: null, logoPath: null }
+export const originator: Profile = { id: 'lo-1', email: 'lo@example.com', fullName: 'Test Originator', nmls: '1234567', phone: null, stateLicense: null, signaturePath: null }

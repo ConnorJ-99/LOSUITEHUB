@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { keys } from '@/lib/api/client'
 import { saveGeneratedPdf, type GeneratedPdf } from '@/lib/api/documents'
 import { useOrganization, useProfile } from '@/lib/api/settings'
+import { useBrandImage } from '@/lib/api/brandFiles'
 import type { LoanProfile } from '@/lib/api/types'
 import { useAuth } from '@/lib/auth/context'
 import { brandProblems, docBrand, type DocBrand } from '@/lib/documents/brand'
@@ -24,12 +25,16 @@ export function useSavePdf(loan: LoanProfile) {
   const me = state.status === 'signedIn' ? state.user.id : null
   const org = useOrganization()
   const lo = useProfile(loan.assignedLo?.id ?? me)
+  // The uploaded logo and the LO's signature (Settings), drawn into the PDF.
+  const logo = useBrandImage(org.data?.logoPath)
+  const signature = useBrandImage(lo.data?.signaturePath)
+  const brandNow = () => docBrand(org.data ?? null, lo.data ?? null, { logo: logo.data, signature: signature.data })
   const queryClient = useQueryClient()
   const [saving, setSaving] = useState(false)
 
   /** Returns the saved document's id, or null when it wasn't saved (the reason is shown). */
   const save = async ({ render, tooLong, ...doc }: PdfRequest): Promise<string | null> => {
-    const brand = docBrand(org.data ?? null, lo.data ?? null)
+    const brand = brandNow()
     const missing = brandProblems(brand)
     if (missing.length) {
       toast.error(`Add ${missing.join(' and ')} first. Every borrower document shows them.`)
@@ -56,8 +61,8 @@ export function useSavePdf(loan: LoanProfile) {
   }
   /** Renders without saving, for a live preview: a link to the PDF, or why it can't be made. */
   const preview = async (render: PdfRequest['render']): Promise<{ url: string } | { error: string }> => {
-    const fit = await render(await import('./render'), docBrand(org.data ?? null, lo.data ?? null))
+    const fit = await render(await import('./render'), brandNow())
     return fit.ok ? { url: URL.createObjectURL(fit.file) } : { error: `Too long for one page even at 82% (${fit.pages} pages). Shorten the conditions or what was reviewed.` }
   }
-  return { save, preview, saving, ready: org.isSuccess && (lo.isSuccess || !lo.isEnabled) }
+  return { save, preview, saving, ready: org.isSuccess && (lo.isSuccess || !lo.isEnabled) && !logo.isLoading && !signature.isLoading }
 }

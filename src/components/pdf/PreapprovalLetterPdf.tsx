@@ -1,4 +1,4 @@
-import { Document, Page, Text, View } from '@react-pdf/renderer'
+import { Document, Image, Page, Text, View } from '@react-pdf/renderer'
 import type { LetterView } from '@/lib/documents/preapproval'
 import { COLORS, EhoFooter, FactGrid, Letterhead, pdfStyles, TitleRow, type DocBrand } from './blocks'
 
@@ -53,7 +53,7 @@ export function PreapprovalLetterPdf({ letter: l, brand, scale = 1 }: { letter: 
 
         <View wrap={false} style={{ marginTop: z(4) }}>
           <Text>Sincerely,</Text>
-          <View style={{ height: z(30) }} />
+          {lo.signature ? <Image src={lo.signature} style={{ height: z(36), maxWidth: z(200), objectFit: 'contain', objectPosition: 'left', marginVertical: z(3) }} /> : <View style={{ height: z(30) }} />}
           <Text style={{ fontFamily: 'Helvetica-Bold' }}>{lo.name}</Text>
           <Text style={{ fontSize: z(8), color: COLORS.muted }}>
             Loan Officer · NMLS #{lo.nmls ?? '—'} · {company.legalName}, NMLS #{company.nmls ?? '—'}

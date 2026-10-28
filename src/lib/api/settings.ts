@@ -11,6 +11,8 @@ export interface Organization {
   state: string | null
   zip: string | null
   phone: string | null
+  /** The company logo in the brand-files bucket (null = the built-in MPS logo). */
+  logoPath: string | null
 }
 
 export interface Profile {
@@ -20,6 +22,8 @@ export interface Profile {
   nmls: string | null
   phone: string | null
   stateLicense: string | null
+  /** Signature image for letters, in the brand-files bucket. */
+  signaturePath: string | null
 }
 
 interface OrgRow {
@@ -31,6 +35,7 @@ interface OrgRow {
   state: string | null
   zip: string | null
   phone: string | null
+  logo_path: string | null
 }
 
 interface ProfileRow {
@@ -40,6 +45,7 @@ interface ProfileRow {
   nmls: string | null
   phone: string | null
   state_license: string | null
+  signature_path: string | null
 }
 
 const toProfile = (r: ProfileRow): Profile => ({
@@ -49,6 +55,7 @@ const toProfile = (r: ProfileRow): Profile => ({
   nmls: r.nmls,
   phone: r.phone,
   stateLicense: r.state_license,
+  signaturePath: r.signature_path,
 })
 
 /** The signed-in user's organization (company name, NMLS, address). */
@@ -60,9 +67,9 @@ export function useOrganization() {
     enabled: !!orgId,
     queryFn: async (): Promise<Organization | null> => {
       const r = unwrap<OrgRow | null>(
-        await db().from('organizations').select('id, name, nmls, address_line, city, state, zip, phone').eq('id', orgId!).maybeSingle(),
+        await db().from('organizations').select('id, name, nmls, address_line, city, state, zip, phone, logo_path').eq('id', orgId!).maybeSingle(),
       )
-      return r ? { id: r.id, name: r.name, nmls: r.nmls, addressLine: r.address_line, city: r.city, state: r.state, zip: r.zip, phone: r.phone } : null
+      return r ? { id: r.id, name: r.name, nmls: r.nmls, addressLine: r.address_line, city: r.city, state: r.state, zip: r.zip, phone: r.phone, logoPath: r.logo_path } : null
     },
   })
 }
@@ -99,7 +106,7 @@ export function useProfile(id: string | null | undefined) {
     enabled: !!id,
     queryFn: async (): Promise<Profile | null> => {
       const r = unwrap<ProfileRow | null>(
-        await db().from('profiles').select('id, email, full_name, nmls, phone, state_license').eq('id', id!).maybeSingle(),
+        await db().from('profiles').select('id, email, full_name, nmls, phone, state_license, signature_path').eq('id', id!).maybeSingle(),
       )
       return r ? toProfile(r) : null
     },

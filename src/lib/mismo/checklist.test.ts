@@ -60,8 +60,8 @@ describe('export checklist', () => {
       loan: loan({ loanAmount: 300000, noteRate: 6, termMonths: 360, mortgageType: 'fha', purchasePrice: 320000, subjectPropertyId: 'p' }),
       application: { borrowers: [complete], assets: [], liabilities: [] },
       properties: [{ id: 'p', estimatedValue: 320000 } as never],
-      organization: { id: 'o', name: 'MPS', nmls: '2501110', addressLine: '1 Office', city: null, state: 'TX', zip: null, phone: null },
-      originator: { id: 'u', email: 'x', fullName: 'X', nmls: '123', phone: null, stateLicense: null },
+      organization: { id: 'o', name: 'MPS', nmls: '2501110', addressLine: '1 Office', city: null, state: 'TX', zip: null, phone: null, logoPath: null },
+      originator: { id: 'u', email: 'x', fullName: 'X', nmls: '123', phone: null, stateLicense: null, signaturePath: null },
     })
     expect(items).toEqual([])
   })

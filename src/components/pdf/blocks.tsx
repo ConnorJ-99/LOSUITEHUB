@@ -20,6 +20,8 @@ export function pdfStyles(scale: number) {
     page: { paddingTop: 36, paddingHorizontal: 43, paddingBottom: 40, fontFamily: 'Helvetica', fontSize: z(9), lineHeight: 1.4, color: COLORS.ink },
     letterhead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: z(8), borderBottomWidth: 2, borderBottomColor: COLORS.navy, marginBottom: z(11) },
     logo: { height: z(40), width: z(40 * (775 / 399)), objectFit: 'contain' },
+    /** An uploaded logo: as tall as the built-in one, never wider than the letterhead allows. */
+    customLogo: { height: z(40), maxWidth: z(180), objectFit: 'contain', objectPosition: 'left' },
     sub: { fontSize: z(7.8), color: COLORS.muted, marginTop: z(3) },
     contact: { textAlign: 'right', fontSize: z(8), color: COLORS.muted, lineHeight: 1.5 },
     contactName: { color: COLORS.ink, fontSize: z(8.8), fontFamily: 'Helvetica-Bold' },
@@ -58,7 +60,7 @@ export function Letterhead({ brand, s }: { brand: DocBrand; s: PdfStyles }) {
   return (
     <View style={s.letterhead}>
       <View>
-        <Image src={logo} style={s.logo} />
+        <Image src={company.logo ?? logo} style={company.logo ? s.customLogo : s.logo} />
         <Text style={s.sub}>
           NMLS #{company.nmls ?? '—'}
           {company.address ? ` · ${company.address}` : ''}
