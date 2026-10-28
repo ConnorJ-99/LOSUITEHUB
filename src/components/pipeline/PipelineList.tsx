@@ -26,7 +26,7 @@ export function PipelineList({ loans, showLo, onRequestChange }: { loans: Pipeli
           cell: (l) => (
             <div className="min-w-0">
               <p className="font-medium">{fullName(l.borrower)}</p>
-              <p className="text-xs text-muted-foreground">{formatPhone(l.borrower?.phone) || l.borrower?.email}</p>
+              <p className="font-mono text-xs text-muted-foreground">{formatPhone(l.borrower?.phone) || l.borrower?.email}</p>
             </div>
           ),
         },

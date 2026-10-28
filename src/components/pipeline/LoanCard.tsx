@@ -9,6 +9,7 @@ import { useToggleTask } from '@/lib/api/tasks'
 import type { PipelineLoan, Task } from '@/lib/api/types'
 import { todayIso } from '@/lib/dates'
 import { cardTasks } from '@/lib/pipeline/cardTasks'
+import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
 import { formatCurrency } from '@/lib/format'
 import { daysSince, fullName } from '@/lib/pipeline/helpers'
 import { cardAmount, stageLabelFor } from '@/lib/pipeline/pipelines'
@@ -69,7 +70,7 @@ export function LoanCard({ loan, showLo, dragging, onStageSelect, onOpen, tasks 
   return (
     <div
       onClick={onOpen}
-      className={cn('group cursor-pointer rounded-xl border bg-card p-3 text-sm shadow-xs transition-shadow select-none hover:shadow-sm', dragging && 'rotate-1 shadow-lg ring-2 ring-primary/30', className)}
+      className={cn('group cursor-pointer rounded-xl bg-card p-3 text-sm shadow-soft transition-shadow select-none hover:shadow-md', toneBorder(priorityTone(tasks.map((t) => t.dueOn), loan.stage, todayIso())), dragging && 'rotate-1 shadow-lg ring-2 ring-primary/30', className)}
       {...props}
     >
       <div className="flex items-start gap-2.5">
@@ -99,7 +100,12 @@ export function LoanCard({ loan, showLo, dragging, onStageSelect, onOpen, tasks 
           </div>
           <p className="truncate text-xs text-muted-foreground">
             {purposeLabel(loan.purpose)}
-            {amount != null && ` · ${formatCurrency(amount)}`}
+            {amount != null && (
+              <>
+                {' · '}
+                <span className="font-mono font-medium text-money">{formatCurrency(amount)}</span>
+              </>
+            )}
             {loan.coBorrowerCount > 0 && (
               <span className="ml-1.5 inline-flex items-center gap-0.5">
                 <UsersIcon className="size-3" />+{loan.coBorrowerCount}

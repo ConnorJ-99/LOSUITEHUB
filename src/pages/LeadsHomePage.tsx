@@ -7,6 +7,10 @@ import { usePipeline } from '@/lib/api/loans'
 import { formatCompactCurrency } from '@/lib/format'
 import { formatPhone, fullName } from '@/lib/pipeline/helpers'
 import { pipelineTiles, priorityLeads } from '@/lib/pipeline/leadsHome'
+import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
+import { useOpenTasks } from '@/lib/api/tasks'
+import { todayIso } from '@/lib/dates'
+import { cn } from 'cn'
 import { pipelineInfo, PIPELINES, type PipelineId } from '@/lib/pipeline/pipelines'
 
 const ICON: Record<PipelineId, LucideIcon> = {
@@ -23,6 +27,8 @@ const ICON: Record<PipelineId, LucideIcon> = {
 /** Leads home (Pipeline v2): Priority Leads, then a tile for each pipeline with its count and dollar total. */
 export function LeadsHomePage() {
   const pipeline = usePipeline()
+  const openTasks = useOpenTasks()
+  const today = todayIso()
   const { openNewLead } = useNewLead()
   const files = pipeline.data ?? []
   const priority = priorityLeads(files)
@@ -31,7 +37,7 @@ export function LeadsHomePage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
+        <h1 className="text-4xl leading-tight">Leads</h1>
         <p className="text-sm text-muted-foreground">Pick the pipeline you want to work.</p>
         <div className="mt-3 flex justify-center gap-2">
           <Button onClick={() => openNewLead()}>
@@ -68,11 +74,11 @@ export function LeadsHomePage() {
               <ul className="space-y-2">
                 {priority.map(({ file, pipeline: where }) => (
                   <li key={file.id}>
-                    <Link to={`/loans/${file.id}`} className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-xs transition-shadow hover:shadow-sm">
+                    <Link to={`/loans/${file.id}`} className={cn('flex items-center gap-3 rounded-xl bg-card px-4 py-3 shadow-soft transition-shadow hover:shadow-md', toneBorder(priorityTone((openTasks.data?.get(file.id) ?? []).map((t) => t.dueOn), file.stage, today)))}>
                       <StarIcon className="size-4 shrink-0 fill-amber-400 text-amber-500" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium">{fullName(file.borrower)}</span>
-                        <span className="text-sm text-muted-foreground">{formatPhone(file.borrower?.phone) || 'No phone'}</span>
+                        <span className="font-mono text-sm text-muted-foreground">{formatPhone(file.borrower?.phone) || 'No phone'}</span>
                       </span>
                       {where && <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">{pipelineInfo(where).label}</span>}
                       <ArrowRightIcon className="size-4 shrink-0 text-muted-foreground" />
@@ -88,18 +94,18 @@ export function LeadsHomePage() {
               const Icon = ICON[p.id]
               const tile = tiles.get(p.id)!
               return (
-                <Link key={p.id} to={`/pipeline/${p.id}`} className="flex flex-col gap-3 rounded-2xl border bg-card p-5 shadow-xs transition-shadow hover:shadow-md">
+                <Link key={p.id} to={`/pipeline/${p.id}`} className="flex flex-col gap-3 rounded-2xl bg-card p-5 shadow-soft transition-shadow hover:shadow-md">
                   <div className="flex items-start justify-between gap-3">
                     <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                       <Icon className="size-5" />
                     </span>
                     <span className="text-right">
                       <span className="block text-2xl font-semibold tabular-nums">{tile.count}</span>
-                      <span className="text-xs text-muted-foreground tabular-nums">{formatCompactCurrency(tile.total)}</span>
+                      <span className="text-xs font-medium text-money tabular-nums">{formatCompactCurrency(tile.total)}</span>
                     </span>
                   </div>
                   <span>
-                    <span className="block text-lg font-medium">{p.label}</span>
+                    <span className="block font-heading text-xl">{p.label}</span>
                     <span className="text-sm text-muted-foreground">{p.description}</span>
                   </span>
                 </Link>

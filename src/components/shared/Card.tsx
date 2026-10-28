@@ -19,10 +19,10 @@ export interface CardProps {
   children: React.ReactNode
 }
 
-/** White card with a thin border and an optional title row. */
+/** White card with a soft shadow and an optional title row. */
 export function Card({ title, description, action, className, contentClassName, children }: CardProps) {
   return (
-    <BaseCard className={cn('shadow-none', className)}>
+    <BaseCard className={cn('shadow-soft ring-0', className)}>
       {(title || action) && (
         <CardHeader className="border-b">
           {title && <CardTitle>{title}</CardTitle>}

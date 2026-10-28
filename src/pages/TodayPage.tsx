@@ -1,4 +1,5 @@
 import { Link } from 'react-router'
+import { cn } from 'cn'
 import { CalendarClockIcon, CheckIcon, InboxIcon, KanbanIcon, ListTodoIcon, PlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -11,6 +12,7 @@ import { useMyOpenTasks, useToggleTask } from '@/lib/api/tasks'
 import { useAuth } from '@/lib/auth/context'
 import { formatIsoDate, todayIso } from '@/lib/dates'
 import { isOnBoard } from '@/lib/pipeline/helpers'
+import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
 import { STAGES } from '@/lib/pipeline/stages'
 import { WebLeadsCard } from '@/components/queue/WebLeadsCard'
 import { buildToday, groupToday, type TodayEntry } from '@/lib/queue/today'
@@ -18,7 +20,7 @@ import { buildToday, groupToday, type TodayEntry } from '@/lib/queue/today'
 function TaskRow({ entry }: { entry: Extract<TodayEntry, { type: 'task' }> }) {
   const toggle = useToggleTask(entry.loanId)
   return (
-    <div className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2">
+    <div className={cn('flex items-center gap-3 rounded-lg bg-card px-3 py-2 shadow-soft', toneBorder(priorityTone([entry.task.dueOn], null, todayIso())))}>
       <ListTodoIcon className="size-4 shrink-0 text-muted-foreground" />
       <Link to={`/loans/${entry.loanId}`} className="min-w-0 flex-1 hover:underline">
         <p className="truncate text-sm">{entry.task.title}</p>
@@ -42,7 +44,7 @@ function TaskRow({ entry }: { entry: Extract<TodayEntry, { type: 'task' }> }) {
 
 function DateRow({ entry }: { entry: Extract<TodayEntry, { type: 'date' }> }) {
   return (
-    <Link to={`/loans/${entry.loanId}`} className="flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 hover:underline">
+    <Link to={`/loans/${entry.loanId}`} className={cn('flex items-center gap-3 rounded-lg bg-card px-3 py-2 shadow-soft hover:underline', toneBorder(priorityTone([entry.date], null, todayIso())))}>
       <CalendarClockIcon className="size-4 shrink-0 text-primary" />
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">

@@ -176,7 +176,7 @@ function LetterRow({ loan, letter: l, documentName, onOpen }: { loan: LoanProfil
           {l.propertyAddress ?? 'Up to, no address'} · {formatCurrency(l.purchasePrice)}
         </p>
         <p className="text-xs text-muted-foreground">
-          #{l.referenceNumber} · issued {formatIsoDate(l.issuedOn)} · {expired ? <span className="text-destructive">expired {formatIsoDate(l.expiresOn)}</span> : `expires ${formatIsoDate(l.expiresOn)}`}
+          <span className="font-mono">#{l.referenceNumber}</span> · issued {formatIsoDate(l.issuedOn)} · {expired ? <span className="text-destructive">expired {formatIsoDate(l.expiresOn)}</span> : `expires ${formatIsoDate(l.expiresOn)}`}
         </p>
       </div>
       {documentName ? (

@@ -39,7 +39,7 @@ export function FileHeader({ borrowerName, fileNumber, statusLabel, nextStep, up
             <ArrowLeftIcon className="size-4" />
             Pipeline
           </Link>
-          <h1 className="text-xl font-semibold tracking-tight">{borrowerName}</h1>
+          <h1 className="text-2xl leading-tight">{borrowerName}</h1>
           {fileNumber && <span className="rounded border px-1.5 py-0.5 font-mono text-[0.7rem] text-muted-foreground">{fileNumber}</span>}
           <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium">{statusLabel}</span>
           {nextStep && <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{nextStep}</span>}

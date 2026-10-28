@@ -97,7 +97,7 @@ The borrower profile adapts to the loan purpose. Shared core, with purpose-speci
 - Forms: responsive grid of up to 6 columns, compact inputs, required fields marked `*`, calculated fields read-only and greyed out.
 - Boolean flags are toggle chips, not checkboxes.
 - Long forms get a sticky bottom summary bar with the key figures and one primary action.
-- White cards on a light grey background, one accent color, thin borders, generous whitespace.
+- **Editorial theme (Connor, 2026-10-27):** background #F3EFE9, white cards with soft shadows (`shadow-soft`), text #1A1A1A, muted #8A8580, navy #1F2A5C for buttons and links. Headlines (page titles, card titles, board columns) in Anton, uppercase. Body in Inter. Numbers, phone numbers and IDs in JetBrains Mono (`tabular-nums` uses it; `font-mono` for phones and IDs). Priority colors: `urgent` #E0532F (overdue or due today), `week` #1F2A5C (due in the next 7 days), `nurture` #6E8B6F; `money` #C9A13B for dollar values. List cards get a left border in their priority color (`src/lib/pipeline/priority.ts`: next open task, then Nurture stage). Fonts are bundled (@fontsource), not loaded from Google. Generous whitespace.
 - Build shared components first (Input, Select, CurrencyInput, PercentInput, ToggleChip, Card, SummaryBar, DataTable, Tabs, EmptyState) and use them everywhere.
 - Mobile: pipeline, borrower overview and notes must work well on a phone.
 
@@ -120,6 +120,7 @@ Connor wrote a v3 guide built around an AI assistant whose work lands in an Acti
 ## Must build (requested, not yet scheduled)
 
 - **Phone prequal tool**: built 2026-10-25 as the Prequal tab, with the old app's upgrades (buying power at 43/45/50%, payoff toggle, use-all-for-down, keep/rent/sell for owned homes, savings use-as, depletion income and reserves). See `docs/old-app-comparison.md` for the rest of the old app.
+- **Follow-up build (after the current phases are complete)**: closed loan profile, closed list with CSV import/export and reminders, GHL connection (send/receive texts and email, opt-outs), a daily agent that drafts follow-ups for approval on the home page, and appointment booking, with guardrails before anything sends. Connor's plan, saved as written: `docs/plans/follow-up-agent.md` (2026-10-27). It supersedes the GoHighLevel bridge and automations entries under "Later".
 
 ## Later (not now)
 

@@ -273,7 +273,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
             <dl className="grid gap-4 sm:grid-cols-2">
               <Detail label="Phone">
                 {b?.phone ? (
-                  <a href={`tel:${b.phone}`} className="inline-flex items-center gap-1.5 text-primary hover:underline">
+                  <a href={`tel:${b.phone}`} className="inline-flex items-center gap-1.5 font-mono text-primary hover:underline">
                     <PhoneIcon className="size-3.5" />
                     {formatPhone(b.phone)}
                   </a>

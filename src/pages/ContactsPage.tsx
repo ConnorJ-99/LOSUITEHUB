@@ -63,11 +63,11 @@ export function ContactsPage() {
                   cell: (c) => (
                     <div>
                       <p className="font-medium">{fullName(c)}</p>
-                      <p className="text-xs text-muted-foreground md:hidden">{formatPhone(c.phone) || c.email}</p>
+                      <p className="font-mono text-xs text-muted-foreground md:hidden">{formatPhone(c.phone) || c.email}</p>
                     </div>
                   ),
                 },
-                { key: 'phone', header: 'Phone', cell: (c) => formatPhone(c.phone) || '—', hideOnMobile: true },
+                { key: 'phone', header: 'Phone', cell: (c) => <span className="font-mono">{formatPhone(c.phone) || '—'}</span>, hideOnMobile: true },
                 { key: 'email', header: 'Email', cell: (c) => c.email ?? '—', hideOnMobile: true },
                 { key: 'loans', header: 'Loans', cell: (c) => c.loans.length, align: 'right', hideOnMobile: true },
                 { key: 'latest', header: 'Latest stage', cell: (c) => (c.loans[0] ? <StageBadge stage={c.loans[0].stage} /> : '—') },

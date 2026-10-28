@@ -71,10 +71,10 @@ function Column({ column, loans, showLo, onRequestChange, tasks, onAddLead }: { 
     >
       <header className="px-3 pt-3 pb-2">
         <div className="flex items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold">{column.label}</h2>
+          <h2 className="font-heading text-base">{column.label}</h2>
           <span className="text-sm text-muted-foreground tabular-nums">{loans.length}</span>
         </div>
-        <p className="text-xs text-muted-foreground tabular-nums">{formatCompactCurrency(total)}</p>
+        <p className="text-xs font-medium text-money tabular-nums">{formatCompactCurrency(total)}</p>
       </header>
       <div className="flex min-h-24 flex-1 flex-col gap-2 px-2 pb-2">
         {loans.map((loan) => (

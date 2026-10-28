@@ -1,13 +1,23 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+@import "@fontsource-variable/inter";
+@import "@fontsource/anton";
+@import "@fontsource-variable/jetbrains-mono";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --font-heading: var(--font-sans);
-    --font-sans: 'Geist Variable', sans-serif;
+    /* Editorial theme (Connor, 2026-10-27): Anton headlines, Inter body, JetBrains Mono numbers. */
+    --font-heading: 'Anton', 'Arial Narrow', sans-serif;
+    --font-sans: 'Inter Variable', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+    /* Priority accents: urgent/today, this week, nurture; gold for dollar values. */
+    --color-urgent: var(--urgent);
+    --color-week: var(--week);
+    --color-nurture: var(--nurture);
+    --color-money: var(--money);
+    --shadow-soft: 0 1px 2px rgb(26 26 26 / 0.04), 0 6px 20px rgb(26 26 26 / 0.06);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -49,38 +59,42 @@
 }
 
 :root {
-    --background: oklch(0.97 0.004 250);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.38 0.11 255);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.95 0.02 255);
-    --accent-foreground: oklch(0.32 0.1 255);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.38 0.11 255 / 60%);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(1 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.38 0.11 255);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.95 0.02 255);
-    --sidebar-accent-foreground: oklch(0.32 0.1 255);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --background: #F3EFE9;
+    --foreground: #1A1A1A;
+    --card: #FFFFFF;
+    --card-foreground: #1A1A1A;
+    --popover: #FFFFFF;
+    --popover-foreground: #1A1A1A;
+    --primary: #1F2A5C;
+    --primary-foreground: #FFFFFF;
+    --secondary: #EDE7DE;
+    --secondary-foreground: #1A1A1A;
+    --muted: #EDE7DE;
+    --muted-foreground: #8A8580;
+    --accent: #E7E9F1;
+    --accent-foreground: #1F2A5C;
+    --destructive: #E0532F;
+    --border: #E5DED3;
+    --input: #DCD4C8;
+    --ring: rgb(31 42 92 / 45%);
+    --urgent: #E0532F;
+    --week: #1F2A5C;
+    --nurture: #6E8B6F;
+    --money: #C9A13B;
+    --chart-1: #1F2A5C;
+    --chart-2: #6E8B6F;
+    --chart-3: #C9A13B;
+    --chart-4: #E0532F;
+    --chart-5: #8A8580;
+    --radius: 0.75rem;
+    --sidebar: #FFFFFF;
+    --sidebar-foreground: #1A1A1A;
+    --sidebar-primary: #1F2A5C;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: #E7E9F1;
+    --sidebar-accent-foreground: #1F2A5C;
+    --sidebar-border: #E5DED3;
+    --sidebar-ring: rgb(31 42 92 / 45%);
 }
 
 .dark {
@@ -129,5 +143,16 @@
     }
   html {
     @apply font-sans;
+    }
+  /* Headlines: Anton, uppercase. Anton has one weight, so no bold. */
+  h1, .font-heading {
+    font-family: var(--font-heading);
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    }
+  /* Numbers line up in JetBrains Mono wherever the app marks them as figures. */
+  .tabular-nums {
+    font-family: var(--font-mono);
     }
 }

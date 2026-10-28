@@ -38,6 +38,9 @@ export interface Metric {
 
 const DOT = { green: 'bg-emerald-500', amber: 'bg-amber-500', red: 'bg-red-500' }
 
+/** Figures ("$196,210", "78.48%", "700") use the number font, dollars in gold; words ("Conventional", an address) stay in the body font. */
+const figureClass = (value: string) => (/^[$\d.,%\s—-]+$/.test(value) ? cn('tabular-nums', value.startsWith('$') && 'text-money') : '')
+
 /** Label-over-value cells with thin dividers; scrolls sideways on narrow screens. */
 export function MetricStrip({ metrics }: { metrics: Metric[] }) {
   return (
@@ -46,7 +49,7 @@ export function MetricStrip({ metrics }: { metrics: Metric[] }) {
         {metrics.map((m) => (
           <div key={m.label} className="px-4 py-1 first:pl-0">
             <dt className="text-[0.68rem] font-semibold tracking-wide whitespace-nowrap text-muted-foreground uppercase">{m.label}</dt>
-            <dd className="flex items-center gap-1.5 text-lg font-semibold whitespace-nowrap tabular-nums">
+            <dd className={cn('flex items-center gap-1.5 text-lg font-semibold whitespace-nowrap', figureClass(m.value))}>
               {m.value}
               {m.note && <span className="text-sm font-normal text-muted-foreground">{m.note}</span>}
               {m.tone && <span className={cn('size-2 rounded-full', DOT[m.tone])} aria-label={m.tone} />}
