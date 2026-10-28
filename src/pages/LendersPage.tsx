@@ -1,23 +1,25 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { ArrowLeftIcon, ExternalLinkIcon, KeyboardIcon, PlusIcon, UploadIcon } from 'lucide-react'
+import { ArrowLeftIcon, KeyboardIcon, PlusIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, PageHeader, ToggleChip, ToggleChipGroup, confirmAction } from '@/components/shared'
 import { LenderDialog } from '@/components/lenders/LenderDialog'
+import { ContactsTab, LenderHeader, LenderTabs, LoansTab, OverlaysTab, ProductsTab, SidePanel, useSaveLenderNotes } from '@/components/lenders/LenderDetailParts'
 import { LenderList } from '@/components/lenders/LenderList'
-import { ProgramDialog } from '@/components/lenders/ProgramDialog'
 import { UploadDocumentDialog } from '@/components/lenders/UploadDocumentDialog'
-import { blankLender, guessStoredDocument, useDeleteLenderDocument, useLenderDocuments, useLenderPrograms, useLenders, useSetProgramActive, useUpdateLenderDocument, type Lender, type LenderDocument, type LenderDraft, type LenderProgram } from '@/lib/api/lenders'
+import { blankLender, guessStoredDocument, useDeleteLenderDocument, useLenderDocuments, useLenderPrograms, useLenders, useUpdateLenderDocument, type Lender, type LenderDocument, type LenderDraft, type LenderProgram } from '@/lib/api/lenders'
 import { readMatrix, usePendingImports, useStartTypedMatrix } from '@/lib/api/matrixImports'
 import { useAiStatus } from '@/lib/api/assistant'
-import { openGuidelinePdf, searchPassages, type Passage } from '@/lib/api/products'
+import { useLenderContacts, useLenderFiles, useLenderMatrixVersions, useLenderOverlays } from '@/lib/api/lenderPage'
+import { openGuidelinePdf, searchPassages, useCatalog, type Passage } from '@/lib/api/products'
 import { useAuth } from '@/lib/auth/context'
 import { todayIso } from '@/lib/dates'
 import { daysSince, isStale, oldestVerified, STALE_AFTER_DAYS } from '@/lib/products/stale'
+import { averageDaysToClose, lastMatrixUpdate, productRow } from '@/lib/products/lenderDetail'
+import { loanCounts } from '@/lib/products/lenderSummary'
 import { programFromGuess } from '@/lib/products/typedMatrix'
-import { DOC_TYPES, LENDER_CHANNELS, LENDER_STATUSES, LIENS, PRODUCT_FAMILIES, termsSummary } from '@/lib/products/taxonomy'
 
 const DOC_LABEL: Record<LenderDocument['docType'], string> = { matrix: 'Matrix', guidelines: 'Guidelines', overlay_bulletin: 'Overlay bulletin', rate_sheet: 'Rate sheet' }
 const toDraft = ({ programs: _p, documentCount: _d, ...l }: Lender): LenderDraft => l
@@ -41,19 +43,21 @@ export function LendersPage() {
           Lenders
         </button>
       )}
-      <PageHeader
-        eyebrow="Admin"
-        title={selected ? selected.name : 'Lenders'}
-        description={selected ? undefined : 'Your lenders, what they offer, and the matrices and guidelines Product Search uses.'}
-        action={
-          canEdit && (
-            <Button onClick={() => setEditing(blankLender())}>
-              <PlusIcon />
-              Add lender
-            </Button>
-          )
-        }
-      />
+      {!selected && (
+        <PageHeader
+          eyebrow="Admin"
+          title="Lenders"
+          description="Your lenders, what they offer, and the matrices and guidelines Product Search uses."
+          action={
+            canEdit && (
+              <Button onClick={() => setEditing(blankLender())}>
+                <PlusIcon />
+                Add lender
+              </Button>
+            )
+          }
+        />
+      )}
       {lenders.isLoading ? (
         <p className="py-12 text-center text-sm text-muted-foreground">Loading…</p>
       ) : lenders.error ? (
@@ -70,113 +74,101 @@ export function LendersPage() {
   )
 }
 
+type DetailTab = 'products' | 'documents' | 'overlays' | 'contacts' | 'loans'
+
+/** One lender (mockup 09): header and metrics, tabs for products, documents, overlays and notes, contacts and loans, and a side panel. */
 function LenderDetail({ lender: l, canEdit, onEdit }: { lender: Lender; canEdit: boolean; onEdit: () => void }) {
   const programs = useLenderPrograms(l.id)
   const documents = useLenderDocuments(l.id)
+  const catalog = useCatalog()
+  const files = useLenderFiles(l.id)
+  const versions = useLenderMatrixVersions(l.id)
+  const contacts = useLenderContacts(l.id)
+  const overlays = useLenderOverlays(l.id, l.programs.map((p) => p.id))
+  const saveNotes = useSaveLenderNotes(l)
+  const [tab, setTab] = useState<DetailTab>('products')
   const [uploading, setUploading] = useState(false)
   const today = todayIso()
-  const verified = oldestVerified(l.programs)
+  const year = Number(today.slice(0, 4))
+
+  const catalogPrograms = (catalog.data?.programs ?? []).filter((p) => p.lenderId === l.id)
+  const rows = catalogPrograms.map(productRow)
+  const verifiedOn = catalog.data?.verifiedOn ?? new Map<string, string | null>()
+  const counts = loanCounts(files.data ?? [], year)
+  const update = lastMatrixUpdate(versions.data ?? [])
+  const newestEffective = (versions.data ?? []).map((v) => v.current.approvedAt).filter((d): d is string => !!d).sort().at(-1) ?? null
+  const verified = oldestVerified(l.programs.filter((p) => p.active))
   const stale = l.programs.some((p) => p.active) && isStale(verified, today)
+  const docs = documents.data ?? []
 
   return (
-    <div className="space-y-4">
-      <Card
-        title={l.name}
-        description={`${LENDER_STATUSES.label[l.status]} · ${LENDER_CHANNELS.label[l.channel]}${l.states?.length ? ` · ${l.states.join(', ')}` : ''}`}
-        action={
-          <div className="flex gap-2">
-            {l.portalUrl && (
-              <Button size="sm" variant="outline" asChild>
-                <a href={l.portalUrl} target="_blank" rel="noopener noreferrer">
-                  Lender portal
-                  <ExternalLinkIcon />
-                </a>
-              </Button>
-            )}
-            {canEdit && (
-              <Button size="sm" variant="outline" onClick={onEdit}>
-                Edit
-              </Button>
-            )}
-          </div>
-        }
-      >
-        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-          <Info label="Account executive" value={[l.aeName, l.aePhone, l.aeEmail].filter(Boolean).join(' · ') || '—'} />
-          <Info label="Comp notes" value={l.compNotes ?? '—'} />
-          <Info label="Notes" value={l.notes ?? '—'} />
-        </dl>
-        {l.status === 'not_signed_up' && <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">Not signed up: this lender's programs still show in Product Search, marked so you check with them first.</p>}
-        {stale && <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">Stale matrix: {verified ? `last verified ${daysSince(verified, today)} days ago` : 'a program has never been verified'}. Upload the latest matrix to refresh it (over {STALE_AFTER_DAYS} days counts as stale).</p>}
-      </Card>
+    <>
+      <LenderHeader
+        lender={l}
+        programs={l.programs.filter((p) => p.active).length}
+        matrixDate={newestEffective ? { date: newestEffective, verified } : null}
+        loans={{ closed: counts.closedThisYear, active: counts.active }}
+        avgDays={averageDaysToClose((files.data ?? []).filter((f) => f.stage === 'closed'))}
+        canEdit={canEdit}
+        onEdit={onEdit}
+        onUpload={() => setUploading(true)}
+      />
+      {l.status === 'not_signed_up' && <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">Not signed up: this lender's programs still show in Product Search, marked so you check with them first.</p>}
+      {stale && <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">Stale matrix: {verified ? `last verified ${daysSince(verified, today)} days ago` : 'a program has never been verified'}. Upload the latest matrix to refresh it (over {STALE_AFTER_DAYS} days counts as stale).</p>}
 
-      <PendingImports lenderId={l.id} />
-
-      <Card
-        title="Programs"
-        description="A program's matrix becomes searchable once you approve it on the review screen. Type or paste it yourself, or have the assistant read a matrix PDF below."
-        action={canEdit && <TypeMatrixButton lenderId={l.id} documentId={null} label="Type a matrix" />}
-      >
-        {programs.isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : <ProgramList lenderId={l.id} programs={programs.data ?? []} canEdit={canEdit} />}
-      </Card>
-
-      <Card
-        title="Documents"
-        description="The lender's PDFs, stored privately. Their text is searchable by section, with page numbers."
-        action={
-          canEdit && (
-            <Button size="sm" variant="outline" onClick={() => setUploading(true)}>
-              <UploadIcon />
-              Upload PDF
-            </Button>
-          )
-        }
-      >
-        {documents.isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : <DocumentList lenderId={l.id} documents={documents.data ?? []} programs={programs.data ?? []} canEdit={canEdit} />}
-      </Card>
-
-      {(documents.data ?? []).some((d) => d.current && d.passageCount > 0) && <LenderSearch documents={documents.data!.filter((d) => d.current)} />}
-      {uploading && <UploadDocumentDialog lenderId={l.id} programs={programs.data ?? []} documents={documents.data ?? []} onClose={() => setUploading(false)} />}
-    </div>
-  )
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</dt>
-      <dd className="whitespace-pre-line">{value}</dd>
-    </div>
-  )
-}
-
-function ProgramList({ lenderId, programs, canEdit }: { lenderId: string; programs: LenderProgram[]; canEdit: boolean }) {
-  const setActive = useSetProgramActive(lenderId)
-  const [editing, setEditing] = useState<LenderProgram | null>(null)
-  if (programs.length === 0) return <p className="text-sm text-muted-foreground">No programs yet. Use Type a matrix to add one, or have the assistant read a matrix PDF; it appears here once you approve it.</p>
-  return (
-    <ul className="divide-y">
-      {programs.map((p) => (
-        <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
-          <div className={cn('min-w-0 flex-1', !p.active && 'text-muted-foreground')}>
-            <p className="text-sm font-medium">{p.name}</p>
-            <p className="text-xs text-muted-foreground">
-              {PRODUCT_FAMILIES.label[p.family]} · {LIENS.label[p.lien]} · {p.docTypes.map((d) => DOC_TYPES.label[d]).join(', ')}
-              {p.termOptions.length > 0 ? ` · ${termsSummary(p.termOptions)}` : ' · no terms listed'}
-              {p.lastVerifiedOn && ` · verified ${new Date(`${p.lastVerifiedOn}T12:00:00`).toLocaleDateString('en-US')}`}
-              {!p.hasApprovedMatrix && ' · no approved matrix yet'}
-            </p>
-          </div>
-          {canEdit && (
-            <Button size="sm" variant="ghost" onClick={() => setEditing(p)}>
-              Edit
-            </Button>
+      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0 space-y-4">
+          <LenderTabs<DetailTab>
+            value={tab}
+            onChange={setTab}
+            tabs={[
+              { id: 'products', label: 'Products', count: rows.filter((r) => r.program.active).length },
+              { id: 'documents', label: 'Documents', count: docs.length },
+              { id: 'overlays', label: 'Overlays & notes' },
+              { id: 'contacts', label: 'Contacts', count: 1 + (contacts.data?.length ?? 0) },
+              { id: 'loans', label: 'Loans', count: files.data?.length ?? 0 },
+            ]}
+          />
+          {tab === 'products' && (
+            <>
+              {catalog.isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              ) : (
+                <ProductsTab rows={rows.filter((r) => r.program.active)} retired={rows.filter((r) => !r.program.active)} catalogLender={catalog.data?.lenders.find((x) => x.id === l.id) ?? null} lenderPrograms={programs.data ?? []} verifiedOn={verifiedOn} canEdit={canEdit} lenderId={l.id} />
+              )}
+              {docs.some((d) => d.current && d.passageCount > 0) && <LenderSearch documents={docs.filter((d) => d.current)} />}
+            </>
           )}
-          <ToggleChip label={p.active ? 'In searches' : 'Retired'} pressed={p.active} disabled={!canEdit || setActive.isPending} onChange={(active) => setActive.mutate({ id: p.id, active }, { onError: (e) => toast.error(e.message) })} />
-        </li>
-      ))}
-      {editing && <ProgramDialog lenderId={lenderId} program={editing} onClose={() => setEditing(null)} />}
-    </ul>
+          {tab === 'documents' && (
+            <>
+              <PendingImports lenderId={l.id} />
+              <Card
+                title="Documents"
+                description="The lender's PDFs, stored privately. Their text is searchable by section, with page numbers."
+                action={
+                  canEdit && (
+                    <div className="flex gap-2">
+                      <TypeMatrixButton lenderId={l.id} documentId={null} label="Type a matrix" />
+                      <Button size="sm" variant="outline" onClick={() => setUploading(true)}>
+                        <UploadIcon />
+                        Upload PDFs
+                      </Button>
+                    </div>
+                  )
+                }
+              >
+                {documents.isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : <DocumentList lenderId={l.id} documents={docs} programs={programs.data ?? []} canEdit={canEdit} />}
+              </Card>
+            </>
+          )}
+          {tab === 'overlays' && <OverlaysTab lender={l} overlays={overlays.data ?? []} programs={l.programs} canEdit={canEdit} onSaveNotes={saveNotes} />}
+          {tab === 'contacts' && <ContactsTab lender={l} canEdit={canEdit} onEditLender={onEdit} />}
+          {tab === 'loans' && <LoansTab files={files.data ?? []} />}
+        </div>
+        <SidePanel lender={l} documents={docs} update={update} onAllDocuments={() => setTab('documents')} onNotes={() => setTab('overlays')} onContacts={() => setTab('contacts')} />
+      </div>
+      {uploading && <UploadDocumentDialog lenderId={l.id} programs={programs.data ?? []} documents={docs} onClose={() => setUploading(false)} />}
+    </>
   )
 }
 

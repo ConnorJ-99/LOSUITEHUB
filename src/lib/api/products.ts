@@ -75,7 +75,7 @@ export interface VersionRow {
   program_id: string
 }
 
-const toCell = (c: CellRow): MatrixCell => ({
+export const toCell = (c: CellRow): MatrixCell => ({
   id: c.id,
   occupancy: c.occupancy,
   propertyTypes: c.property_types,
@@ -171,7 +171,7 @@ export function toCatalog(rows: CatalogRows): Catalog & { verifiedOn: Map<string
 const PAGE = 1000
 
 /** Reads every row of a query, a page at a time (Supabase returns at most 1,000 per request). */
-async function readAll<T>(query: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>): Promise<T[]> {
+export async function readAll<T>(query: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>): Promise<T[]> {
   const all: T[] = []
   for (let from = 0; ; from += PAGE) {
     const page = unwrap<T[]>(await query(from, from + PAGE - 1))
