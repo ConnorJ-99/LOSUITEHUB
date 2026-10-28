@@ -84,3 +84,31 @@ Build in small steps and commit after each one. Show me each step before moving 
 ## Notes for whoever builds it (Claude Code, 2026-10-27)
 - Two colors here differ from the restyle already in the app: muted text `#6B6560` (app uses `#8A8580`) and primary action `#C8441F` (app's urgent color is `#E0532F`). Ask Connor which to keep app-wide before building, so the app has one palette.
 - "Send estimate" needs a way to send email; LOSuite has none yet (drafts go to the Action Queue). Until the GHL connection exists, the likely path is a draft in the Action Queue to copy, unless Connor wants a separate email setup.
+
+## Review of the existing Prequal tab (Claude Code, 2026-10-27, before building)
+
+**Already built** (Prequal tab on each borrower file, saved into the 1003 records):
+- Quick entry: loan type, price or value, down payment, rate, term; each borrower's income (jobs, other income); debts by account; savings; homes they own; credit events; call notes.
+- Live results: max purchase price at the loan type's max DTI (to the nearest $1,000), buying power at 43/45/50% DTI, payment breakdown at a chosen price (MI included), cash to close (3% default costs), quick checks (credit, down payment, DTI, cash), readiness (Ready / Needs documents / Manual review / Not ready → Nurture) with reasons, Mark Pre-Qualified, next-step and document-request drafts.
+- The full 1003 and the income calculator are their own tabs; Save writes the prequal into the 1003.
+
+**Missing against the plan:**
+1. Mode tabs (Phone Pre-Qual / Full 1003 / Playground / Present), autosave with "Saved X min ago".
+2. The five numbered sections in call order; debts as four category totals; income type and time at job; 20-point score bands; gift funds; county picker.
+3. County taxes: LOSuite has no county table (the old app did); taxes are a rate % (2.2% default).
+4. Results: the 9-outcome status chip (today: 4 readiness levels), comfortable search range and payment range, funds left after closing, ratio bars, assumptions line.
+5. Actions: Send estimate (no email sending or estimate template in LOSuite yet), Save to Playground, Start full 1003.
+6. Ask next panel (rule-based).
+7. Playground: saved scenarios (needs a new table), side-by-side compare, PDF export, load back.
+8. Present mode.
+9. Logging sends and status changes to the borrower's timeline.
+
+**The sample numbers don't match LOSuite's math.** At $10,900 income, $755 debts, FHA 5% down, 6.75%, 30 years, $175/mo insurance:
+- LOSuite at 45% DTI gives about $467K (2.2% taxes) or $486K (1.8% taxes); the payment at $511,464 is about $4,350 (1.8%), not $4,153.
+- $511,464 is reproduced only if FHA's monthly mortgage insurance (about $200/mo at that price) is left out, with taxes near 1.8%. The decisions log says MI counts in every payment.
+- The sample also uses 45% max DTI for FHA; LOSuite's FHA default is 50% (which gives about $531K).
+- The comfortable range ($430K–$470K, $3,489–$3,814) sits at about 39–42% total DTI.
+
+**Decisions needed before building:** MI in or out (and Tarrant's tax rate); FHA max DTI for the pre-qual; what "comfortable" means (a DTI band); the 14 counties and tax rates; one palette; Send estimate before GHL (Action Queue draft to copy); debts by category or by account.
+
+**Proposed steps** (each tested, shown and committed): 1) math and rules (county taxes, comfortable range, 9 outcomes, ask next, the sample test); 2) Phone Pre-Qual screen with mode tabs and autosave; 3) Present mode; 4) Playground (scenarios table, compare, PDF); 5) Send estimate + timeline log; 6) Start full 1003 handoff.
