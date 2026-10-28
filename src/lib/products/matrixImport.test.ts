@@ -343,3 +343,13 @@ describe('rule values the search can compare', () => {
     expect(M.cleanRule(r)).toBe(r)
   })
 })
+
+describe('stacked "580+ / 620+ / 640+" rows', () => {
+  it('each row runs up to the next, so a 650 score takes the 640+ row', () => {
+    const p = (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0]
+    const g = { ...p.grids[0], rows: [{ label: '580+', ficoMin: 580, ficoMax: 850 }, { label: '620+', ficoMin: 620, ficoMax: 850 }, { label: '640+', ficoMin: 640, ficoMax: 850 }] }
+    const { program, fixes } = repairProgram({ ...p, grids: [g] })
+    expect(program.grids[0].rows.map((r) => [r.ficoMin, r.ficoMax])).toEqual([[580, 619], [620, 639], [640, 850]])
+    expect(fixes[0]).toContain('580+, 620+, 640+ read as 580–619, 620–639, 640+')
+  })
+})

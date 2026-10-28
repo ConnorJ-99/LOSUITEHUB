@@ -77,6 +77,20 @@ export function repairProgram(p: ReadProgram): { program: ReadProgram; fixes: st
       fixes.push(`${where}: left out the "no credit score" row (Product Search needs a score); check the PDF for those limits.`)
       next = { ...next, rows: next.rows.filter((_, i) => keep[i]), values: next.values.filter((_, i) => keep[i]), printedRows: next.rows.filter((_, i) => keep[i]).length }
     }
+    // "580+", "620+", "640+" stacked as rows mean 580–619, 620–639 and 640+: each row's limits apply from its score up to the next row's.
+    const open = next.rows.filter((r) => r.ficoMax >= 850)
+    if (open.length > 1 && new Set(open.map((r) => r.ficoMin)).size === open.length) {
+      const mins = next.rows.map((r) => r.ficoMin)
+      next = {
+        ...next,
+        rows: next.rows.map((r) => {
+          if (r.ficoMax < 850) return r
+          const above = mins.filter((m) => m > r.ficoMin)
+          return above.length ? { ...r, ficoMax: Math.min(...above) - 1, label: `${r.ficoMin}–${Math.min(...above) - 1}` } : r
+        }),
+      }
+      fixes.push(`${where}: credit rows ${open.map((r) => r.label).join(', ')} read as ${next.rows.map((r) => r.label).join(', ')} (each row up to the next).`)
+    }
     if (!next.propertyTypes.length && next.columns.some((c) => !c.propertyTypes?.length)) {
       const t = /condotel/i.test(where) ? 'condotel' : /rural/i.test(where) ? 'rural' : null
       if (t) {
