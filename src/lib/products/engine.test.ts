@@ -171,6 +171,14 @@ describe('edges', () => {
     expect(evaluateProgram(one, edge, { ...s, loanAmount: 160000 }).eligible).toBe(true)
     expect(evaluateProgram(one, edge, { ...s, loanAmount: 160001 }).eligible).toBe(false)
   })
+  it('grids by DSCR level: the highest level the DSCR reaches governs; unknown DSCR takes the lower limit', () => {
+    const byDscr = program('Edge Bank', 'DSCR', { cells: [cell({ occupancy: 'investment', docType: 'dscr', dscrMin: 1, maxLtv: 80 }), cell({ occupancy: 'investment', docType: 'dscr', dscrMin: 0.75, maxLtv: 70 })] })
+    const inv = { ...s, occupancy: 'investment' as const, docType: 'dscr' as const, loanAmount: 140000 }
+    expect(evaluateProgram(byDscr, edge, { ...inv, dscr: 1.2 }).limit?.max).toBe(80)
+    expect(evaluateProgram(byDscr, edge, { ...inv, dscr: 0.8 }).limit?.max).toBe(70)
+    expect(evaluateProgram(byDscr, edge, { ...inv, dscr: 0.6 }).eligible).toBe(false)
+    expect(evaluateProgram(byDscr, edge, { ...inv, dscr: null }).limit?.max).toBe(70)
+  })
   it('overlapping cells: the lower limit wins', () => {
     const overlap = program('Edge Bank', 'Overlap', { cells: [cell({ maxLtv: 85 }), cell({ ficoMin: 700, maxLtv: 80 })] })
     expect(evaluateProgram(overlap, edge, { ...s, fico: 720, loanAmount: 165000 }).limit?.max).toBe(80)

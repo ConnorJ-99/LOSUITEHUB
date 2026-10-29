@@ -53,6 +53,8 @@ export interface ReadGrid {
   docTypes: Of<typeof DOC_TYPES>[]
   unitsMin: number
   unitsMax: number
+  /** The lowest DSCR the grid applies to (1 for "DSCR 1.00+", 0.75 for "0.75-0.99"); null when the grid doesn't depend on DSCR. */
+  dscrMin?: number | null
   rows: GridRow[]
   columns: GridColumn[]
   /** values[row][column]: the limit as a percent, or null for a blank ("—", "N/A"). */
@@ -139,6 +141,7 @@ export const MATRIX_SCHEMA = {
                 doc_types: arrayOf(DOC_TYPES, 'Every income type this grid applies to. When one grid covers several (bank statement, asset depletion, IRA distribution...), list them all; never pick one or split the grid.'),
                 units_min: { type: 'integer' },
                 units_max: { type: 'integer' },
+                dscr_min: nullable({ type: 'number' }, 'Lowest DSCR the grid applies to: 1 for "DSCR >= 1.00", 0.75 for "0.75 - 0.99", 0 for "< 0.75" or no ratio. Null when the grid does not depend on DSCR.'),
                 rows: {
                   type: 'array',
                   description: 'Credit score bands, top to bottom, as printed.',
@@ -168,7 +171,7 @@ export const MATRIX_SCHEMA = {
                 printed_columns: { type: 'integer', description: 'How many value columns the printed grid has.' },
                 notes: { type: 'string', description: 'Footnotes under the grid, as printed. Empty if none.' },
               },
-              required: ['page', 'title', 'ratio', 'occupancy', 'property_types', 'purposes', 'doc_types', 'units_min', 'units_max', 'rows', 'columns', 'values', 'printed_rows', 'printed_columns', 'notes'],
+              required: ['page', 'title', 'ratio', 'occupancy', 'property_types', 'purposes', 'doc_types', 'units_min', 'units_max', 'dscr_min', 'rows', 'columns', 'values', 'printed_rows', 'printed_columns', 'notes'],
               additionalProperties: false,
             },
           },
@@ -217,6 +220,7 @@ export const MATRIX_SYSTEM_PROMPT = `You read mortgage lender eligibility matric
 - A grid for rural properties ("SFR Rural") uses property type rural; a condotel grid uses condotel.
 - Credit bands: "720-739" is 720 to 739; "740+" or "≥740" is 740 to 850; "<620" is 300 to 619.
 - Loan amounts in dollars: "$1,000,001 - $1.5MM" is 1000001 to 1500000; "≤ $1MM" is 0 to 1000000.
+- DSCR matrices often print one grid per DSCR level ("DSCR >= 1.00", "0.75 - 0.99", "No ratio / < 0.75"): give each grid its dscr_min (1, 0.75, 0). If DSCR levels are columns, split them into one grid per level.
 - Loan-amount columns printed as "≤ $750K | ≤ $1MM | ≤ $1.5MM" are tiers: each column starts one dollar above the column before (750001 to 1000000), never all from 0.
 - Use only the words in the schema's lists. If the lender uses another name, pick the matching one; if none fits, leave it out and say so in notes.
 - A program is a loan product ("Conventional", "FHA", "Equity Advantage HELOC"), not a term: list its terms in term_options. Split a product into two programs only when the lender prints separate grids or rules for them.
@@ -267,6 +271,12 @@ const pickAll = <T extends readonly string[]>(values: T, v: unknown, dropped: st
   return [...new Set(out)]
 }
 
+/** A DSCR from 0 to 5 ("1.25" or 1.25), else null. */
+const dscrOf = (v: unknown) => {
+  const n = numOrNull(v)
+  return n != null && n >= 0 && n <= 5 ? n : null
+}
+
 function normalizeGrid(g: Record<string, unknown>, program: string, dropped: string[]): ReadGrid | null {
   const where = `${program}, grid "${str(g.title)}"`
   const occupancy = pick(OCCUPANCIES, g.occupancy)
@@ -300,6 +310,7 @@ function normalizeGrid(g: Record<string, unknown>, program: string, dropped: str
     docTypes,
     unitsMin: int(g.units_min) ?? 1,
     unitsMax: int(g.units_max) ?? 4,
+    dscrMin: dscrOf(g.dscr_min),
     rows,
     columns,
     values,

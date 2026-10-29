@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as M from '../../../supabase/functions/assistant/matrix'
+import * as M2 from './matrixImport'
 import { approvalPayload, cellsFromGrid, cellsFromProgram, defaultMode, mergedProgram, repairProgram, type ProgramNow, changeText, checkProgram, diffCells, matchProgram, parseSquare } from './matrixImport'
 import { DOC_TYPES, FEATURES, LIENS, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, PRODUCT_FAMILIES, RULE_FIELDS, RULE_OPS } from './taxonomy'
 
@@ -200,6 +201,23 @@ describe('fixing what real matrices trip on', () => {
     // Even a grid of only "No FICO" rows keeps them rather than vanishing (the checks flag it instead).
     const onlyNoFico = { ...g, rows: [{ label: 'No FICO', ficoMin: 0, ficoMax: 0 }], values: [g.values[0]] }
     expect(repairProgram({ ...p, grids: [onlyNoFico] }).program.grids[0].rows).toHaveLength(1)
+  })
+  it("reads a grid's DSCR level from its title when grids differ by DSCR", () => {
+    expect(M2.dscrFromTitle('Investment Properties: Max LTV/CLTV | DSCR > 1')).toBe(1)
+    expect(M2.dscrFromTitle('DSCR ≥ 1.25 Max LTV')).toBe(1.25)
+    expect(M2.dscrFromTitle('DSCR 1.00+')).toBe(1)
+    expect(M2.dscrFromTitle('.75 - .99² Max LTV / CLTV')).toBe(0.75)
+    expect(M2.dscrFromTitle('DSCR < 0.75 / No Ratio')).toBe(0)
+    expect(M2.dscrFromTitle('Primary · Purchase')).toBeNull()
+    const p = base()
+    const g = { ...p.grids[0], occupancy: 'investment' as const }
+    const two = { ...p, grids: [{ ...g, title: 'Investment Properties: Max LTV/CLTV | DSCR > 1' }, { ...g, title: '.75 - .99² Max LTV / CLTV' }] }
+    expect(checkProgram(two).some((w) => w.level === 'error')).toBe(true)
+    const { program, fixes } = repairProgram(two)
+    expect(program.grids.map((x: M.ReadGrid) => x.dscrMin)).toEqual([1, 0.75])
+    expect(fixes.filter((f) => f.includes('DSCR'))).toHaveLength(2)
+    expect(checkProgram(program).filter((w) => w.level === 'error')).toEqual([])
+    expect(new Set(cellsFromProgram(program).map((c) => c.dscrMin))).toEqual(new Set([1, 0.75]))
   })
   it('leaves a clean reading alone', () => {
     const p = base()

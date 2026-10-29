@@ -287,7 +287,7 @@ export function syncGrids<P extends Pick<ReadProgram, 'purposes' | 'docTypes' | 
  */
 export function gridsFromCells(cells: ImportCell[], lien: Lien): ReadGrid[] {
   const groups = new Map<string, ImportCell[]>()
-  const keyOf = (c: ImportCell) => [c.occupancy, [...c.propertyTypes].sort().join('+'), [...c.purposes].sort().join('+'), c.unitsMin, c.unitsMax].join('|')
+  const keyOf = (c: ImportCell) => [c.occupancy, [...c.propertyTypes].sort().join('+'), [...c.purposes].sort().join('+'), c.unitsMin, c.unitsMax, c.dscrMin ?? ''].join('|')
   for (const c of cells) groups.set(keyOf(c), [...(groups.get(keyOf(c)) ?? []), c])
   return [...groups.values()].map((group) => {
     const first = group[0]
@@ -302,7 +302,7 @@ export function gridsFromCells(cells: ImportCell[], lien: Lien): ReadGrid[] {
       const c = one.find((x) => x.ficoMin === r.ficoMin && x.ficoMax === r.ficoMax && x.loanAmountMin === col.loanAmountMin && x.loanAmountMax === col.loanAmountMax)
       return c?.offered ? (c.maxLtv ?? c.maxCltv) : null
     }))
-    const title = [OCCUPANCIES.label[first.occupancy], first.propertyTypes.map((t) => MATRIX_PROPERTY_TYPES.label[t]).join(', '), first.purposes.map((p) => MATRIX_PURPOSES.label[p]).join(', '), docTypes.map((d) => DOC_TYPES.label[d]).join(', ')].join(' · ')
+    const title = [OCCUPANCIES.label[first.occupancy], first.propertyTypes.map((t) => MATRIX_PROPERTY_TYPES.label[t]).join(', '), first.purposes.map((p) => MATRIX_PURPOSES.label[p]).join(', '), docTypes.map((d) => DOC_TYPES.label[d]).join(', '), ...(first.dscrMin != null ? [`DSCR ${first.dscrMin.toFixed(2)}+`] : [])].join(' · ')
     return withCounts({
       page: first.sourcePage ?? 0,
       title,
@@ -313,6 +313,7 @@ export function gridsFromCells(cells: ImportCell[], lien: Lien): ReadGrid[] {
       docTypes,
       unitsMin: first.unitsMin,
       unitsMax: first.unitsMax,
+      dscrMin: first.dscrMin,
       rows,
       columns,
       values,

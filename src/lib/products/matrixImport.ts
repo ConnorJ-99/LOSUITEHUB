@@ -7,7 +7,7 @@ import { MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, termMonths, type M
 import type { MatrixCell } from './types'
 
 /** A cell ready to save (no id yet). */
-export type ImportCell = Omit<MatrixCell, 'id' | 'dscrMin' | 'citizenship' | 'maxDti' | 'reservesMonths'>
+export type ImportCell = Omit<MatrixCell, 'id' | 'citizenship' | 'maxDti' | 'reservesMonths'>
 
 /** Every square of every grid as a cell; a blank square is "not offered", never 0. */
 export function cellsFromProgram(p: ReadProgram): ImportCell[] {
@@ -51,6 +51,7 @@ export function cellsFromGrid(g: ReadGrid): ImportCell[] {
         ficoMax: row.ficoMax,
         loanAmountMin: col.loanAmountMin,
         loanAmountMax: col.loanAmountMax,
+        dscrMin: g.dscrMin ?? null,
         offered: v != null,
         maxLtv: v != null && g.ratio === 'ltv' ? v : null,
         maxCltv: v != null && g.ratio === 'cltv' ? v : null,
@@ -156,7 +157,26 @@ export function repairProgram(p: ReadProgram): { program: ReadProgram; fixes: st
     if (!docTypes.length) docTypes = ['full_doc']
     fixes.push(`${p.name}: no income type was read; set to ${docTypes.length === 1 && docTypes[0] === 'full_doc' ? 'full doc' : 'the grids\' income types'}. Check it.`)
   }
+  // Grids by DSCR level read before grids had one: the level comes from the title ("DSCR > 1", ".75 - .99").
+  const levels = grids.map((g) => (g.dscrMin == null ? dscrFromTitle(g.title) : null))
+  if (new Set(levels.filter((l) => l != null)).size > 1) {
+    grids.forEach((g, i) => {
+      if (levels[i] == null) return
+      grids[i] = { ...g, dscrMin: levels[i] }
+      fixes.push(`${g.title || 'a grid'}: applies from DSCR ${levels[i]!.toFixed(2)}, as its title says.`)
+    })
+  }
   return { program: { ...p, grids, docTypes, rules }, fixes }
+}
+
+/** The DSCR level in a grid title: "DSCR > 1" or "DSCR 1.00+" is 1, ".75 - .99" is 0.75, "DSCR < .75" or "No ratio" is 0. */
+export function dscrFromTitle(title: string): number | null {
+  const n = (x: string) => Number(x.startsWith('.') ? `0${x}` : x)
+  const m = /DSCR\s*(?:≥|>=|=>|>)\s*(\d*\.\d+|\d+)/i.exec(title) ?? /DSCR\s*(\d*\.\d+|\d+)\s*\+/i.exec(title)
+  if (m) return n(m[1])
+  if (/DSCR\s*<|no[\s-]*ratio/i.test(title)) return 0
+  const range = /(?:^|[^\d.])(\d?\.\d+)\s*[-–]\s*\d?\.\d+/.exec(title)
+  return range ? n(range[1]) : null
 }
 
 /** Errors block approval; warnings are shown for Connor to confirm against the PDF. */
@@ -237,14 +257,14 @@ export function checkProgram(p: ReadProgram): ImportWarning[] {
 // Difference from the version in use (plan §5.6)
 // ---------------------------------------------------------------------------
 
-type CellKeyed = Pick<ImportCell, 'occupancy' | 'propertyTypes' | 'purposes' | 'docType' | 'unitsMin' | 'unitsMax' | 'ficoMin' | 'ficoMax' | 'loanAmountMin' | 'loanAmountMax' | 'maxLtv' | 'maxCltv' | 'offered'>
+type CellKeyed = Pick<ImportCell, 'occupancy' | 'propertyTypes' | 'purposes' | 'docType' | 'unitsMin' | 'unitsMax' | 'ficoMin' | 'ficoMax' | 'loanAmountMin' | 'loanAmountMax' | 'maxLtv' | 'maxCltv' | 'offered'> & { dscrMin?: number | null }
 
-const key = (c: CellKeyed) => [c.occupancy, [...c.propertyTypes].sort().join('+'), [...c.purposes].sort().join('+'), c.docType, c.unitsMin, c.unitsMax, c.ficoMin, c.ficoMax, c.loanAmountMin, c.loanAmountMax ?? ''].join('|')
+const key = (c: CellKeyed) => [c.occupancy, [...c.propertyTypes].sort().join('+'), [...c.purposes].sort().join('+'), c.docType, c.unitsMin, c.unitsMax, c.ficoMin, c.ficoMax, c.loanAmountMin, c.loanAmountMax ?? '', c.dscrMin ?? ''].join('|')
 
 /** "Primary · SFR/PUD · Purchase · 680–699 · ≤$1,000,000". */
 export function cellLabel(c: CellKeyed): string {
   const units = c.unitsMin === 1 && c.unitsMax === 1 ? '' : c.unitsMin === c.unitsMax ? ` · ${c.unitsMin} units` : ` · ${c.unitsMin}–${c.unitsMax} units`
-  return `${OCCUPANCIES.label[c.occupancy]} · ${c.propertyTypes.map((t: MatrixPropertyType) => MATRIX_PROPERTY_TYPES.label[t]).join(', ')} · ${c.purposes.map((p: MatrixPurpose) => MATRIX_PURPOSES.label[p]).join(', ')}${units} · ${band(c.ficoMin, c.ficoMax)} · ${tier(c.loanAmountMin, c.loanAmountMax)}`
+  return `${OCCUPANCIES.label[c.occupancy]} · ${c.propertyTypes.map((t: MatrixPropertyType) => MATRIX_PROPERTY_TYPES.label[t]).join(', ')} · ${c.purposes.map((p: MatrixPurpose) => MATRIX_PURPOSES.label[p]).join(', ')}${units} · ${band(c.ficoMin, c.ficoMax)} · ${tier(c.loanAmountMin, c.loanAmountMax)}${c.dscrMin != null ? ` · DSCR ${c.dscrMin.toFixed(2)}+` : ''}`
 }
 
 export interface CellChange {
@@ -406,6 +426,7 @@ export function approvalPayload(programs: ReviewProgram[], existing: ProgramNow[
         fico_max: c.ficoMax,
         loan_amount_min: c.loanAmountMin,
         loan_amount_max: c.loanAmountMax,
+        dscr_min: c.dscrMin,
         offered: c.offered,
         max_ltv: c.maxLtv,
         max_cltv: c.maxCltv,

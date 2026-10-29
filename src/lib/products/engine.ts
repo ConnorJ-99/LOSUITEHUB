@@ -105,8 +105,12 @@ const scenarioCells = (p: CatalogProgram, s: Scenario) => {
 /** The governing cell at a credit score and loan amount: overlapping cells → the lower limit wins; a blank cell wins over any limit. */
 function cellAt(p: CatalogProgram, s: Scenario, cells: MatrixCell[], fico: number, loan: number): MatrixCell | null {
   const amount = tierAmount(p, s, loan)
-  const hits = cells.filter((c) => inBand(c, fico) && inTier(c, amount))
+  let hits = cells.filter((c) => inBand(c, fico) && inTier(c, amount))
   if (hits.length === 0) return null
+  // Grids by DSCR level ("1.00+", "0.75–0.99"): the highest level the borrower's DSCR reaches governs.
+  // With the DSCR unknown, every level applies and the lowest limit wins.
+  const levels = s.dscr == null ? [] : hits.flatMap((c) => (c.dscrMin != null ? [c.dscrMin] : []))
+  if (levels.length) hits = hits.filter((c) => c.dscrMin == null || c.dscrMin === Math.max(...levels))
   const blank = hits.find((c) => !c.offered)
   if (blank) return blank
   const kind = ratioKind(p)

@@ -129,7 +129,7 @@ export async function saveTypedDraft(importId: string, reading: MatrixReading) {
   if (rows.length === 0) throw new Error('This draft was already approved or discarded, or only owners and admins can edit it.')
 }
 
-const CELL_COLUMNS = 'matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, max_ltv, max_cltv, offered, notes, source_page'
+const CELL_COLUMNS = 'matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, dscr_min, max_ltv, max_cltv, offered, notes, source_page'
 const RULE_COLUMNS = 'matrix_version_id, field, op, value, applies_when, severity, message, source_page, source_quote'
 
 const toImportCell = (c: Record<string, unknown>) => ({
@@ -143,6 +143,7 @@ const toImportCell = (c: Record<string, unknown>) => ({
   ficoMax: c.fico_max as number,
   loanAmountMin: num(c.loan_amount_min) ?? 0,
   loanAmountMax: num(c.loan_amount_max),
+  dscrMin: num(c.dscr_min),
   maxLtv: num(c.max_ltv),
   maxCltv: num(c.max_cltv),
   offered: c.offered as boolean,
