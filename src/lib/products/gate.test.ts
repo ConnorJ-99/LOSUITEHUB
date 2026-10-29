@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { gate, passesGate, search } from './engine'
+import { isDpaProgram } from './taxonomy'
 import { conventionalCatalog, conventionalPurchase, dscrCatalog, dscrSecond, program, scenario } from './testCatalog'
 
 const names = (programs: { name: string }[]) => programs.map((p) => p.name).sort()
@@ -57,5 +58,12 @@ describe('DPA as an option, not the program', () => {
     expect(passesGate(fha, s, lender.get('A&D Mortgage'))).toBe(true)
     expect(passesGate(dpa, s, lender.get('Click n Close'))).toBe(false)
     expect(passesGate(dpa, { ...s, features: ['dpa'] }, lender.get('Click n Close'))).toBe(true)
+  })
+  it('DPA products named without "DPA" (MaxONE, Home Sweet Texas, 3.5% Forgivable) are still DPA programs', () => {
+    for (const name of ['MaxONE', 'MaxONE Plus', 'Home Sweet Texas - FHA', '3.5% Forgivable', '3.5% Repayable', 'TDHCA HFA'])
+      expect(isDpaProgram({ name, features: ['dpa'] }), name).toBe(true)
+    // Without the DPA feature, a name alone doesn't make one.
+    expect(isDpaProgram({ name: 'MaxONE', features: [] })).toBe(false)
+    expect(isDpaProgram({ name: 'FHA', features: ['dpa'] })).toBe(false)
   })
 })

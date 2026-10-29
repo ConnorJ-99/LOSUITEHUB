@@ -107,7 +107,7 @@ export function termsSummary(terms: readonly ProgramTerm[]): string {
  * product type and shows in every normal search.
  */
 export function isDpaProgram(p: { name: string; features: readonly Feature[] }): boolean {
-  return p.features.includes('dpa') && /\bdpa\b|down\s*payment|assist|grant|smart\s*buy|true\s*zero|zero\s*down|\bbond\b/i.test(p.name)
+  return p.features.includes('dpa') && /\bdpa\b|down\s*payment|assist|grant|smart\s*buy|true\s*zero|zero\s*down|\bbond\b|max\s*one|forgivable|repayable|home\s*sweet|\bhfa\b|chenoa|homebuyers?\s*fund/i.test(p.name)
 }
 
 /** Features a program must have when the scenario asks for them; DPA programs are also left out unless asked for (plan §4.1). */
