@@ -237,6 +237,34 @@ async function failRun(db: SupabaseClient, runId: string, usage: Usage, e: unkno
   return reply(e instanceof UserError ? 422 : 502, { error: message, runId })
 }
 
+/** The API's answer when a structured-output form is too big to enforce. */
+const FORM_TOO_LARGE = /compiled grammar is too large|too complex for compilation/i
+
+interface JsonParams {
+  system: string
+  output_config: { effort: string; format: { type: string; schema: unknown } }
+  [param: string]: unknown
+}
+
+/**
+ * Asks Claude for JSON in a structured-output form. If the API says the form is
+ * too large to enforce, asks once more with the form written into the
+ * instructions instead (as matrix reading does) and notes that on the run. The
+ * caller checks every field of the reply either way (parse it with parseJsonReply).
+ */
+async function createForJson(anthropic: Anthropic, params: JsonParams, db: SupabaseClient, runId: string) {
+  try {
+    return await anthropic.beta.messages.create(params as never)
+  } catch (e) {
+    if (!(e instanceof Anthropic.BadRequestError) || !FORM_TOO_LARGE.test(e.message)) throw e
+    const { format, ...outputConfig } = params.output_config
+    const run = await db.from('ai_runs').select('input_ref').eq('id', runId).maybeSingle()
+    await db.from('ai_runs').update({ input_ref: { ...((run.data?.input_ref as object | null) ?? {}), formInPrompt: true } }).eq('id', runId)
+    const system = `${params.system}\n\nReply with one JSON object and nothing else (no Markdown, no commentary). It must match this JSON Schema exactly; use only the listed words where a list is given:\n${JSON.stringify(format.schema)}`
+    return await anthropic.beta.messages.create({ ...params, system, output_config: outputConfig } as never)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Draft a follow-up
 // ---------------------------------------------------------------------------
@@ -352,19 +380,14 @@ async function handleContractRead(db: SupabaseClient, body: unknown, userId: str
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
     }
-    const res = await new Anthropic({ apiKey }).beta.messages.create(params as never)
+    const res = await createForJson(new Anthropic({ apiKey }), params, db, runId)
     usage.input += res.usage.input_tokens
     usage.output += res.usage.output_tokens
     usage.model = res.model
     if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read these documents.')
     if (res.stop_reason === 'max_tokens') throw new UserError('The reading came back cut off. Try again.')
-    const text = res.content.flatMap((b: { type: string; text?: string }) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
-    let raw: unknown
-    try {
-      raw = JSON.parse(text)
-    } catch {
-      throw new UserError('The assistant returned something unreadable. Try again.')
-    }
+    const raw = parseJsonReply(replyText(res))
+    if (raw == null) throw new UserError('The assistant returned something unreadable. Try again.')
     const reading = normalizeReading(raw)
     if ('error' in reading) throw new UserError(reading.error)
 
@@ -449,19 +472,14 @@ ${noteText}
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
     }
-    const res = await new Anthropic({ apiKey }).beta.messages.create(params as never)
+    const res = await createForJson(new Anthropic({ apiKey }), params, db, runId)
     usage.input += res.usage.input_tokens
     usage.output += res.usage.output_tokens
     usage.model = res.model
     if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read this note.')
     if (res.stop_reason === 'max_tokens') throw new UserError('The reading came back cut off. Try again.')
-    const text = res.content.flatMap((b: { type: string; text?: string }) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
-    let raw: unknown
-    try {
-      raw = JSON.parse(text)
-    } catch {
-      throw new UserError('The assistant returned something unreadable. Try again.')
-    }
+    const raw = parseJsonReply(replyText(res))
+    if (raw == null) throw new UserError('The assistant returned something unreadable. Try again.')
     const reading = normalizeNotes(raw, noteText)
     if ('error' in reading) throw new UserError(reading.error)
 
@@ -759,18 +777,14 @@ async function handleScenarioRead(db: SupabaseClient, body: unknown, userId: str
       messages: [{ role: 'user', content: `<scenario>\n${sentence.trim()}\n</scenario>` }],
       output_config: { effort: 'low', format: { type: 'json_schema', schema: SCENARIO_SCHEMA } },
     }
-    const res = await new Anthropic({ apiKey }).messages.create(params as never)
+    const res = await createForJson(new Anthropic({ apiKey }), params, db, runId)
     usage.input += res.usage.input_tokens
     usage.output += res.usage.output_tokens
     usage.model = res.model
     if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read this.')
     if (res.stop_reason === 'max_tokens') throw new UserError('The reading came back cut off. Try a shorter sentence.')
-    let raw: unknown
-    try {
-      raw = JSON.parse(replyText(res))
-    } catch {
-      throw new UserError('The assistant returned something unreadable. Try again.')
-    }
+    const raw = parseJsonReply(replyText(res))
+    if (raw == null) throw new UserError('The assistant returned something unreadable. Try again.')
     const reading = normalizeScenarioRead(raw, sentence)
     if ('error' in reading) throw new UserError(reading.error)
     await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)

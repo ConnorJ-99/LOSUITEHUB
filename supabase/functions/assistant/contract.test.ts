@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { CONTRACT_FIELDS, CONTRACT_SCHEMA, normalizeReading, parseFieldValue } from './contract'
+import { CONTRACT_FIELDS, CONTRACT_SCHEMA, CONTRACT_USER_PROMPT, normalizeReading, parseFieldValue } from './contract'
 
 const def = (key: string) => CONTRACT_FIELDS.find((f) => f.key === key)!
-const notFound = { found: false, value: '', quote: '', page: 0, confidence: 'high' }
-const allMissing = Object.fromEntries(CONTRACT_FIELDS.map((f) => [f.key, notFound]))
+const allMissing = CONTRACT_FIELDS.map((f) => ({ key: f.key, found: false, value: '', quote: '', page: 0, confidence: 'high' }))
 
 describe('parseFieldValue', () => {
   it('reads money', () => {
@@ -29,20 +28,25 @@ describe('parseFieldValue', () => {
 })
 
 describe('CONTRACT_SCHEMA', () => {
-  it('asks for every field', () => {
-    expect(CONTRACT_SCHEMA.properties.fields.required).toHaveLength(CONTRACT_FIELDS.length)
+  it('asks for every field, with one shared term shape', () => {
+    expect(CONTRACT_SCHEMA.properties.fields.items.properties.key.enum).toEqual(CONTRACT_FIELDS.map((f) => f.key))
+    for (const f of CONTRACT_FIELDS) expect(CONTRACT_USER_PROMPT).toContain(`- ${f.key} (${f.label}): ${f.hint}`)
+    expect(CONTRACT_USER_PROMPT).toContain('(one of: conventional, fha, va, usda_rural, other)')
   })
 })
 
 describe('normalizeReading', () => {
   it('keeps found terms, lists unreadable ones and checks contacts', () => {
     const r = normalizeReading({
-      fields: {
+      fields: [
         ...allMissing,
-        sales_price: { found: true, value: '307000', quote: 'Sales Price (Sum of A and B) $307,000', page: 1, confidence: 'high' },
-        closing_date: { found: true, value: 'Nov 7', quote: 'on or before November 7', page: 4, confidence: 'medium' },
-        option_fee: { found: true, value: '200', quote: '', page: 0, confidence: 'high' },
-      },
+        { key: 'option_fee', found: true, value: '200', quote: '', page: 0, confidence: 'high' },
+        { key: 'closing_date', found: true, value: 'Nov 7', quote: 'on or before November 7', page: 4, confidence: 'medium' },
+        { key: 'sales_price', found: true, value: '307000', quote: 'Sales Price (Sum of A and B) $307,000', page: 1, confidence: 'high' },
+        // Listed twice: the first found entry wins. Keys off the list are ignored.
+        { key: 'sales_price', found: true, value: '1', quote: 'x', page: 2, confidence: 'low' },
+        { key: 'lender_name', found: true, value: 'Sample Bank', quote: 'Sample Bank', page: 1, confidence: 'high' },
+      ],
       contacts: [
         { role: 'listing_agent', name: 'Sample Agent', company: 'Sample Realty', email: '', phone: '555-555-0101', quote: 'Listing Associate: Sample Agent', page: 9 },
         { role: 'landlord', name: 'X', company: '', email: '', phone: '', quote: '', page: 1 },
@@ -64,5 +68,7 @@ describe('normalizeReading', () => {
   it('explains when nothing was found', () => {
     expect(normalizeReading({ fields: allMissing, contacts: [], notes: '' })).toHaveProperty('error')
     expect(normalizeReading('nope')).toHaveProperty('error')
+    // The old shape (one object per term) is not accepted.
+    expect(normalizeReading({ fields: { sales_price: { found: true, value: '1' } }, contacts: [], notes: '' })).toHaveProperty('error')
   })
 })

@@ -71,28 +71,31 @@ export interface ContractReading {
   unreadable: { key: ContractFieldKey; text: string }[]
 }
 
-const fieldSchema = {
-  type: 'object',
-  properties: {
-    found: { type: 'boolean', description: 'False when the contract does not state this term.' },
-    value: { type: 'string', description: 'Money as digits (305000 or 305000.50), dates as YYYY-MM-DD, days as a whole number, choices and yes/no exactly as listed. Empty when not found.' },
-    quote: { type: 'string', description: 'The words on the page this came from, copied exactly. Empty when not found.' },
-    page: { type: 'integer', description: 'Page number in the documents as given (1 = first page). 0 when not found.' },
-    confidence: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Low for handwriting, strike-throughs, blanks or anything ambiguous.' },
-  },
-  required: ['found', 'value', 'quote', 'page', 'confidence'],
-  additionalProperties: false,
-} as const
-
-/** The JSON shape Claude must return (enforced by structured outputs, then checked again here). */
+/**
+ * The JSON shape Claude must return (enforced by structured outputs, then checked again here).
+ * Terms are a list of one shared shape, keyed by `key`, not one object per term:
+ * fifteen copies of the term shape made the compiled grammar too large for the API.
+ * The terms themselves are listed in the prompt (CONTRACT_USER_PROMPT).
+ */
 export const CONTRACT_SCHEMA = {
   type: 'object',
   properties: {
     fields: {
-      type: 'object',
-      properties: Object.fromEntries(CONTRACT_FIELDS.map((f) => [f.key, { ...fieldSchema, description: `${f.label}: ${f.hint}${'choices' in f ? ` (one of: ${f.choices.join(', ')})` : f.kind === 'yes_no' ? ' (yes or no)' : ''}` }])),
-      required: CONTRACT_FIELDS.map((f) => f.key),
-      additionalProperties: false,
+      type: 'array',
+      description: 'One entry per term listed in the instructions, in that order, each term once.',
+      items: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', enum: CONTRACT_FIELDS.map((f) => f.key) },
+          found: { type: 'boolean', description: 'False when the contract does not state this term.' },
+          value: { type: 'string', description: 'Money as digits (305000 or 305000.50), dates as YYYY-MM-DD, days as a whole number, choices and yes/no exactly as listed. Empty when not found.' },
+          quote: { type: 'string', description: 'The words on the page this came from, copied exactly. Empty when not found.' },
+          page: { type: 'integer', description: 'Page number in the documents as given (1 = first page). 0 when not found.' },
+          confidence: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Low for handwriting, strike-throughs, blanks or anything ambiguous.' },
+        },
+        required: ['key', 'found', 'value', 'quote', 'page', 'confidence'],
+        additionalProperties: false,
+      },
     },
     contacts: {
       type: 'array',
@@ -128,7 +131,9 @@ Your reading is reviewed by Connor field by field before anything is saved, so a
 - When a later addendum or amendment changes a term, use the changed value and quote the change.
 - Mention in notes anything unusual: handwritten changes, special provisions, missing signatures or initials, or addenda that are referenced but not included.`
 
-export const CONTRACT_USER_PROMPT = 'Read these contract documents and return every term listed in the schema, with quotes and pages, and the people named in them.'
+const termLine = (f: ContractFieldDef) => `- ${f.key} (${f.label}): ${f.hint}${f.choices ? ` (one of: ${f.choices.join(', ')})` : f.kind === 'yes_no' ? ' (yes or no)' : ''}`
+
+export const CONTRACT_USER_PROMPT = `Read these contract documents and return each of these terms once, with quotes and pages, and the people named in them:\n${CONTRACT_FIELDS.map(termLine).join('\n')}`
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
@@ -162,12 +167,14 @@ export function parseFieldValue(def: ContractFieldDef, text: string): number | s
 
 /** Checks Claude's reading. Unreadable values are listed, never guessed. */
 export function normalizeReading(raw: unknown): ContractReading | { error: string } {
-  if (!isObject(raw) || !isObject(raw.fields)) return { error: 'The assistant returned something unreadable.' }
+  if (!isObject(raw) || !Array.isArray(raw.fields)) return { error: 'The assistant returned something unreadable.' }
+  // A term listed twice: the first entry that says it was found wins.
+  const entries = raw.fields.filter(isObject)
   const fields: ExtractedField[] = []
   const unreadable: ContractReading['unreadable'] = []
   for (const def of CONTRACT_FIELDS) {
-    const f = raw.fields[def.key]
-    if (!isObject(f) || f.found !== true) continue
+    const f = entries.find((e) => e.key === def.key && e.found === true)
+    if (!f) continue
     const text = str(f.value)
     const value = parseFieldValue(def, text)
     if (value === null) {
