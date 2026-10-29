@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
 import { cn } from 'cn'
-import { CalculatorIcon, CalendarClockIcon, CheckIcon, FilePlus2Icon, InboxIcon, KanbanIcon, ListTodoIcon, PlusIcon } from 'lucide-react'
+import { CalculatorIcon, CalendarClockIcon, CalendarDaysIcon, CheckIcon, FilePlus2Icon, InboxIcon, KanbanIcon, ListTodoIcon, PlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, HeroBand, PageHeader, QuickAction, SectionTitle } from '@/components/shared'
@@ -9,12 +9,16 @@ import { ActionEntry } from '@/components/queue/ActionEntry'
 import { usePipeline } from '@/lib/api/loans'
 import { useTodayData, type FileInfo } from '@/lib/api/queue'
 import { useMyOpenTasks, useToggleTask } from '@/lib/api/tasks'
+import type { PipelineLoan } from '@/lib/api/types'
 import { useAuth } from '@/lib/auth/context'
 import { formatIsoDate, todayIso } from '@/lib/dates'
 import { formatCompactCurrency } from '@/lib/format'
+import { CLOSING_STYLE, closingsGlance, monthLabel, type ClosingStatus } from '@/lib/pipeline/closings'
+import { fullName } from '@/lib/pipeline/helpers'
 import { pipelineTiles } from '@/lib/pipeline/leadsHome'
-import { pipelineInfo } from '@/lib/pipeline/pipelines'
+import { cardAmount, pipelineInfo, stageLabelFor } from '@/lib/pipeline/pipelines'
 import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
+import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 import { WebLeadsCard } from '@/components/queue/WebLeadsCard'
 import { buildToday, groupToday, type TodayEntry } from '@/lib/queue/today'
 
@@ -94,6 +98,75 @@ function PipelineSnapshot() {
   )
 }
 
+type Closing = PipelineLoan & { closingDate: string }
+
+/** One closing in the home page box; a date that went by opens the tab where the date is fixed. */
+function ClosingLine({ closing: c, status }: { closing: Closing; status: ClosingStatus }) {
+  const to = status === 'date_passed' ? `/loans/${c.id}?tab=${c.purpose === 'purchase' ? 'contract' : 'overview'}` : `/loans/${c.id}`
+  return (
+    <li>
+      <Link to={to} className="-mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted">
+        <span className={cn('w-14 shrink-0 rounded-md px-1.5 py-1 text-center text-xs font-semibold tabular-nums', CLOSING_STYLE[status])}>{formatIsoDate(c.closingDate).replace(/, \d{4}$/, '')}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{fullName(c.borrower)}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {purposeLabel(c.purpose)} · {stageLabelFor(c.stage, c.purpose, stageLabel(c.stage))}
+          </span>
+        </span>
+        {cardAmount(c) !== null && <span className="shrink-0 text-xs font-medium text-money tabular-nums">{formatCompactCurrency(cardAmount(c))}</span>}
+      </Link>
+    </li>
+  )
+}
+
+/** This month's closings, dates that went by without closing (red), and the next five; the full calendar is one click away. */
+function ClosingsGlance() {
+  const pipeline = usePipeline()
+  if (pipeline.isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>
+  if (pipeline.isError) return <p className="text-sm text-destructive">{pipeline.error.message}</p>
+  const today = todayIso()
+  const { thisMonth, datePassed, upcoming, noDate } = closingsGlance(pipeline.data ?? [], today)
+  const total = thisMonth.reduce((sum, c) => sum + (cardAmount(c) ?? 0), 0)
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
+        <span className="mr-auto font-medium">{monthLabel(today.slice(0, 7))}</span>
+        <span className="text-muted-foreground tabular-nums">
+          {thisMonth.length} {thisMonth.length === 1 ? 'closing' : 'closings'}
+        </span>
+        <span className="font-medium text-money tabular-nums">{formatCompactCurrency(total)}</span>
+      </div>
+      {datePassed.length > 0 && (
+        <section className="space-y-1">
+          <h3 className="text-xs font-semibold tracking-wide text-urgent uppercase">Date passed ({datePassed.length})</h3>
+          <ul>
+            {datePassed.map((c) => (
+              <ClosingLine key={c.id} closing={c} status="date_passed" />
+            ))}
+          </ul>
+        </section>
+      )}
+      <section className="space-y-1">
+        <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Coming up</h3>
+        {upcoming.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No closings scheduled.</p>
+        ) : (
+          <ul>
+            {upcoming.map((c) => (
+              <ClosingLine key={c.id} closing={c} status="upcoming" />
+            ))}
+          </ul>
+        )}
+      </section>
+      {noDate.length > 0 && (
+        <Link to="/pipeline/closings" className="block rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
+          {noDate.length} {noDate.length === 1 ? 'file needs' : 'files need'} a closing date
+        </Link>
+      )}
+    </div>
+  )
+}
+
 /** Today: every file's queue items, tasks and deadlines in one list, so the day runs from here. */
 export function TodayPage() {
   const { state } = useAuth()
@@ -147,8 +220,15 @@ export function TodayPage() {
         <QuickAction icon={FilePlus2Icon} title="Start a new lead" description="Add a borrower and take the prequal call." onClick={() => openNewLead()} />
         <QuickAction icon={KanbanIcon} title="Open the pipeline" description="Every file by stage, with tasks under each card." to="/pipeline" tone="green" />
       </div>
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
-        <div className="min-w-0 space-y-5">
+      {/* On a phone closings come first, then the day, then the pipeline; on a computer both boxes sit in the right column. */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem] lg:grid-rows-[auto_1fr]">
+        <div className="min-w-0 lg:col-start-2 lg:row-start-1">
+          <SectionTitle eyebrow="Closings" title="Closing" highlight="calendar" />
+          <Card className="border-t-2 border-t-primary" action={<Button variant="ghost" size="sm" asChild><Link to="/pipeline/closings"><CalendarDaysIcon />Open</Link></Button>} title="Closings">
+            <ClosingsGlance />
+          </Card>
+        </div>
+        <div className="min-w-0 space-y-5 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <SectionTitle eyebrow="Today" title="Your day," highlight="at a glance" />
           <WebLeadsCard />
           {loading ? (
@@ -178,7 +258,7 @@ export function TodayPage() {
             )
           )}
         </div>
-        <div>
+        <div className="lg:col-start-2 lg:row-start-2">
           <SectionTitle eyebrow="Pipeline" title="Pipeline" highlight="snapshot" />
           <Card className="border-t-2 border-t-primary" action={<Button variant="ghost" size="sm" asChild><Link to="/pipeline"><KanbanIcon />Open</Link></Button>} title="By pipeline">
             <PipelineSnapshot />

@@ -8,7 +8,7 @@ import type { PipelineLoan } from '@/lib/api/types'
 import { useOrgMembers, usePipeline } from '@/lib/api/loans'
 import { formatIsoDate, todayIso } from '@/lib/dates'
 import { formatCompactCurrency } from '@/lib/format'
-import { calendarClosings, closingStatus, missingClosingDate, monthLabel, monthWeeks, shiftMonth, type ClosingStatus } from '@/lib/pipeline/closings'
+import { calendarClosings, CLOSING_STYLE, closingStatus, missingClosingDate, monthLabel, monthWeeks, shiftMonth, type ClosingStatus } from '@/lib/pipeline/closings'
 import { fullName } from '@/lib/pipeline/helpers'
 import { cardAmount, stageLabelFor } from '@/lib/pipeline/pipelines'
 import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
@@ -16,13 +16,6 @@ import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 type Closing = PipelineLoan & { closingDate: string }
-
-/** How an entry reads on the calendar and in the list. */
-const STATUS_STYLE: Record<ClosingStatus, string> = {
-  upcoming: 'bg-primary/10 text-primary',
-  closed: 'bg-muted text-muted-foreground',
-  date_passed: 'bg-urgent/10 text-urgent',
-}
 
 /** Closing calendar (/pipeline/closings): every file's closing date by month, from the contract (purchases) or the Overview tab (refis). */
 export function ClosingCalendarPage() {
@@ -97,7 +90,7 @@ export function ClosingCalendarPage() {
                     </span>
                     {day.startsWith(month) &&
                       (byDay.get(day) ?? []).map((c) => (
-                        <Link key={c.id} to={`/loans/${c.id}`} title={`${fullName(c.borrower)} · ${purposeLabel(c.purpose)}`} className={cn('block truncate rounded px-1.5 py-0.5 text-xs font-medium hover:underline', STATUS_STYLE[closingStatus(c, today)])}>
+                        <Link key={c.id} to={`/loans/${c.id}`} title={`${fullName(c.borrower)} · ${purposeLabel(c.purpose)}`} className={cn('block truncate rounded px-1.5 py-0.5 text-xs font-medium hover:underline', CLOSING_STYLE[closingStatus(c, today)])}>
                           {fullName(c.borrower)}
                         </Link>
                       ))}
@@ -147,7 +140,7 @@ function ClosingRow({ closing: c, status, showLo }: { closing: Closing; status: 
   return (
     <li>
       <Link to={`/loans/${c.id}`} className="flex items-center gap-3 rounded-xl bg-card px-4 py-3 shadow-soft transition-shadow hover:shadow-md">
-        <span className={cn('w-16 shrink-0 rounded-md px-2 py-1 text-center text-xs font-semibold tabular-nums', STATUS_STYLE[status])}>{formatIsoDate(c.closingDate).replace(/, \d{4}$/, '')}</span>
+        <span className={cn('w-16 shrink-0 rounded-md px-2 py-1 text-center text-xs font-semibold tabular-nums', CLOSING_STYLE[status])}>{formatIsoDate(c.closingDate).replace(/, \d{4}$/, '')}</span>
         <span className="min-w-0 flex-1">
           <span className="block truncate font-medium">{fullName(c.borrower)}</span>
           <span className="block text-xs text-muted-foreground">

@@ -33,6 +33,27 @@ export function missingClosingDate<F extends ClosingFile>(files: F[]): F[] {
   return files.filter((f) => !f.closingDate && NEEDS_DATE.includes(f.stage))
 }
 
+/** How an entry reads on the calendar, its list and the home page: grey when closed, red when the date passed. */
+export const CLOSING_STYLE: Record<ClosingStatus, string> = {
+  upcoming: 'bg-primary/10 text-primary',
+  closed: 'bg-muted text-muted-foreground',
+  date_passed: 'bg-urgent/10 text-urgent',
+}
+
+/**
+ * The home page's closings box: this month's closings (closed ones too), every file whose
+ * date went by without closing (it needs a new date), and the next few still to come.
+ */
+export function closingsGlance<F extends ClosingFile>(files: F[], today: string, upcomingCount = 5) {
+  const closings = calendarClosings(files)
+  return {
+    thisMonth: closings.filter((c) => c.closingDate.startsWith(today.slice(0, 7))),
+    datePassed: closings.filter((c) => closingStatus(c, today) === 'date_passed'),
+    upcoming: closings.filter((c) => closingStatus(c, today) === 'upcoming').slice(0, upcomingCount),
+    noDate: missingClosingDate(files),
+  }
+}
+
 /** "2026-10" → "2026-11" (by = 1) or "2026-09" (by = -1). */
 export function shiftMonth(month: string, by: number): string {
   const [y, m] = month.split('-').map(Number)
