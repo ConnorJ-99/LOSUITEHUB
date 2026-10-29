@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useAuth } from '@/lib/auth/context'
+import { useAuth, type OrgRole } from '@/lib/auth/context'
 import { db, keys, unwrap } from './client'
 
 export interface Organization {
@@ -130,5 +130,53 @@ export function useUpdateMyProfile() {
       queryClient.invalidateQueries({ queryKey: keys.myProfile })
       queryClient.invalidateQueries({ queryKey: keys.orgMembers })
     },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Team: owners and admins add, change and remove members. The database keeps
+// at least one owner and lets only owners manage owners (team_settings script).
+// ---------------------------------------------------------------------------
+
+/** Add a login that already exists in Supabase Auth, by its email. */
+export function useAddMember() {
+  const queryClient = useQueryClient()
+  const { state } = useAuth()
+  const orgId = state.status === 'signedIn' ? state.user.organizationId : null
+  return useMutation({
+    mutationFn: async ({ email, role }: { email: string; role: OrgRole }) => {
+      unwrap(await db().rpc('add_member_by_email', { p_organization_id: orgId, p_email: email, p_role: role }))
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.orgMembers }),
+  })
+}
+
+export function useSetMemberRole() {
+  const queryClient = useQueryClient()
+  const { state } = useAuth()
+  const orgId = state.status === 'signedIn' ? state.user.organizationId : null
+  return useMutation({
+    mutationFn: async ({ userId, role }: { userId: string; role: OrgRole }) => {
+      const rows = unwrap<{ user_id: string }[]>(
+        await db().from('organization_members').update({ role }).eq('organization_id', orgId!).eq('user_id', userId).select('user_id'),
+      )
+      if (rows.length === 0) throw new Error('Only owners and admins can change roles.')
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.orgMembers }),
+  })
+}
+
+export function useRemoveMember() {
+  const queryClient = useQueryClient()
+  const { state } = useAuth()
+  const orgId = state.status === 'signedIn' ? state.user.organizationId : null
+  return useMutation({
+    mutationFn: async (userId: string) => {
+      const rows = unwrap<{ user_id: string }[]>(
+        await db().from('organization_members').delete().eq('organization_id', orgId!).eq('user_id', userId).select('user_id'),
+      )
+      if (rows.length === 0) throw new Error('Only owners and admins can remove people.')
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.orgMembers }),
   })
 }
