@@ -34,12 +34,12 @@ describe('which pipeline a file shows in', () => {
     expect(pipelineFor(file('purchase', 'closed', 30), now)).toBe('in_process')
     expect(pipelineFor(file('purchase', 'closed', 31), now)).toBeNull()
   })
-  it('Nurture and Lost stay in their own pipeline for 6 days, move on day 7', () => {
-    expect(pipelineFor(file('purchase', 'nurture', 6), now)).toBe('purchase')
-    expect(columnFor(file('purchase', 'nurture', 6), 'purchase')?.id).toBe('out')
-    expect(pipelineFor(file('purchase', 'nurture', 7), now)).toBe('nurture')
-    expect(pipelineFor(file('refinance_rate_term', 'lost', 0), now)).toBe('refinance')
-    expect(pipelineFor(file('refinance_rate_term', 'lost', 8), now)).toBe('lost')
+  it('Nurture and Lost go straight to the Nurture or Lost pipeline, not their loan type board', () => {
+    expect(pipelineFor(file('purchase', 'nurture', 0), now)).toBe('nurture')
+    expect(pipelineFor(file('purchase', 'nurture', 30), now)).toBe('nurture')
+    expect(pipelineFor(file('refinance_rate_term', 'lost', 0), now)).toBe('lost')
+    expect(columnFor(file('purchase', 'nurture', 0), 'purchase')).toBeNull()
+    expect(columnFor(file('investment_dscr', 'lost', 0), 'investment')).toBeNull()
   })
   it('every file that shows in a pipeline has exactly one column there', () => {
     for (const p of PURPOSES)
@@ -60,8 +60,8 @@ describe('which pipeline a file shows in', () => {
 
 describe('columns and totals', () => {
   it('Purchase keeps Pre-Approved and adds Home Search; refinances end at Application', () => {
-    expect(PIPELINES.find((p) => p.id === 'purchase')!.columns.map((c) => c.label)).toEqual(['Contacted', 'Pre-Qualified', 'Pre-Approved', 'Home Search', 'Under Contract', 'Nurture / Lost this week'])
-    expect(PIPELINES.find((p) => p.id === 'refinance')!.columns.map((c) => c.label)).toEqual(['Contacted', 'Pre-Qualified', 'Application', 'Nurture / Lost this week'])
+    expect(PIPELINES.find((p) => p.id === 'purchase')!.columns.map((c) => c.label)).toEqual(['Contacted', 'Pre-Qualified', 'Pre-Approved', 'Home Search', 'Under Contract'])
+    expect(PIPELINES.find((p) => p.id === 'refinance')!.columns.map((c) => c.label)).toEqual(['Contacted', 'Pre-Qualified', 'Application'])
     expect(stageLabelFor('under_contract', 'refinance_cash_out', 'Under Contract')).toBe('Application')
     expect(stageLabelFor('under_contract', 'purchase', 'Under Contract')).toBe('Under Contract')
   })

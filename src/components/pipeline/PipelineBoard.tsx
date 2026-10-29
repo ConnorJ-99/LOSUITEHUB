@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import {
   DndContext,
@@ -12,7 +12,9 @@ import {
   useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core'
+import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
 import { cn } from 'cn'
+import { Button } from '@/components/ui/button'
 import type { PipelineLoan, Task } from '@/lib/api/types'
 import { formatCompactCurrency } from '@/lib/format'
 import { fullName } from '@/lib/pipeline/helpers'
@@ -90,6 +92,46 @@ function Column({ column, loans, showLo, onRequestChange, tasks, onAddLead }: { 
   )
 }
 
+/** The columns in a sideways-scrolling row, with left/right buttons above it so you don't have to reach the scrollbar at the bottom. */
+function ScrollRow({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [edges, setEdges] = useState({ left: false, right: false })
+  const update = () => {
+    const el = ref.current
+    if (el) setEdges({ left: el.scrollLeft > 1, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 1 })
+  }
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  // About a screenful at a time, at least one column (w-72 plus the gap).
+  const scroll = (direction: 1 | -1) => {
+    const el = ref.current
+    if (el) el.scrollBy({ left: direction * Math.max(300, el.clientWidth - 300), behavior: 'smooth' })
+  }
+  return (
+    <>
+      {(edges.left || edges.right) && (
+        <div className="mb-2 flex justify-end gap-1">
+          <Button variant="outline" size="icon-sm" aria-label="Scroll left" disabled={!edges.left} onClick={() => scroll(-1)}>
+            <ChevronLeftIcon />
+          </Button>
+          <Button variant="outline" size="icon-sm" aria-label="Scroll right" disabled={!edges.right} onClick={() => scroll(1)}>
+            <ChevronRightIcon />
+          </Button>
+        </div>
+      )}
+      <div ref={ref} onScroll={update} className="-mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-4 md:-mx-6 md:scroll-px-6 md:px-6">
+        {children}
+      </div>
+    </>
+  )
+}
+
 /** A one-column pipeline as a grid of cards with the column's count and dollar total. */
 function SingleList({ column, loans, showLo, onRequestChange, tasks, onAddLead }: { column: PipelineColumn; loans: PipelineLoan[] } & Omit<BoardProps, 'loans' | 'columns'>) {
   const navigate = useNavigate()
@@ -162,11 +204,11 @@ export function PipelineBoard({ loans, showLo, onRequestChange, columns = STAGE_
       onDragEnd={onDragEnd}
       onDragCancel={() => setActiveId(null)}
     >
-      <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-4 md:-mx-6 md:px-6">
+      <ScrollRow>
         {columns.map((column) => (
           <Column key={column.id} column={column} loans={inColumn(column)} showLo={showLo} onRequestChange={onRequestChange} tasks={tasks} onAddLead={onAddLead} />
         ))}
-      </div>
+      </ScrollRow>
       <DragOverlay>{active ? <LoanCard loan={active} showLo={showLo} dragging className="w-60" /> : null}</DragOverlay>
     </DndContext>
   )

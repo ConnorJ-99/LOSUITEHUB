@@ -22,14 +22,10 @@ export interface PipelineInfo {
   columns: PipelineColumn[]
 }
 
-/** Nurture and Lost files stay in their own pipeline this many days, then move to the Nurture or Lost pipeline. */
-export const RECENT_OUT_DAYS = 7
 /** Closed files show in In Process this many days. */
 export const CLOSED_SHOWN_DAYS = 30
 
 const col = (id: string, label: string, stages: PipelineStage[], dropStage: PipelineStage | null = stages[0]): PipelineColumn => ({ id, label, stages, dropStage })
-/** Files marked Nurture or Lost in the last 7 days, at the end of their own pipeline. */
-const recentlyOut = col('out', 'Nurture / Lost this week', ['nurture', 'lost'], null)
 
 export const PIPELINES: readonly PipelineInfo[] = [
   { id: 'new_leads', label: 'New Leads', description: 'Every new lead, waiting to be contacted', columns: [col('lead', 'New', ['lead'])] },
@@ -37,25 +33,25 @@ export const PIPELINES: readonly PipelineInfo[] = [
     id: 'purchase',
     label: 'Purchase',
     description: 'Homebuyers moving toward a purchase',
-    columns: [col('contacted', 'Contacted', ['contacted']), col('pre_qualified', 'Pre-Qualified', ['pre_qualified']), col('pre_approved', 'Pre-Approved', ['pre_approved']), col('home_search', 'Home Search', ['home_search']), col('under_contract', 'Under Contract', ['under_contract']), recentlyOut],
+    columns: [col('contacted', 'Contacted', ['contacted']), col('pre_qualified', 'Pre-Qualified', ['pre_qualified']), col('pre_approved', 'Pre-Approved', ['pre_approved']), col('home_search', 'Home Search', ['home_search']), col('under_contract', 'Under Contract', ['under_contract'])],
   },
   {
     id: 'refinance',
     label: 'Refinance',
     description: 'Rate/term and cash-out refinances',
-    columns: [col('contacted', 'Contacted', ['contacted']), col('pre_qualified', 'Pre-Qualified', ['pre_qualified', 'pre_approved', 'home_search']), col('application', 'Application', ['under_contract']), recentlyOut],
+    columns: [col('contacted', 'Contacted', ['contacted']), col('pre_qualified', 'Pre-Qualified', ['pre_qualified', 'pre_approved', 'home_search']), col('application', 'Application', ['under_contract'])],
   },
   {
     id: 'investment',
     label: 'Investment',
     description: 'Investors buying or refinancing rentals',
-    columns: [col('contacted', 'Contacted', ['contacted']), col('pre_qualified', 'Pre-Qualified', ['pre_qualified', 'pre_approved']), col('home_search', 'Home Search', ['home_search']), col('under_contract', 'Under Contract / Application', ['under_contract']), recentlyOut],
+    columns: [col('contacted', 'Contacted', ['contacted']), col('pre_qualified', 'Pre-Qualified', ['pre_qualified', 'pre_approved']), col('home_search', 'Home Search', ['home_search']), col('under_contract', 'Under Contract / Application', ['under_contract'])],
   },
   {
     id: 'heloc',
     label: 'HELOC / HELOAN',
     description: 'Home equity lines and second liens',
-    columns: [col('contacted', 'Contacted', ['contacted']), col('pre_qualified', 'Pre-Qualified', ['pre_qualified', 'pre_approved', 'home_search']), col('application', 'Application', ['under_contract']), recentlyOut],
+    columns: [col('contacted', 'Contacted', ['contacted']), col('pre_qualified', 'Pre-Qualified', ['pre_qualified', 'pre_approved', 'home_search']), col('application', 'Application', ['under_contract'])],
   },
   {
     id: 'in_process',
@@ -63,8 +59,8 @@ export const PIPELINES: readonly PipelineInfo[] = [
     description: 'Every loan type from submission to closing',
     columns: [col('processing', 'Submitted / Processing', ['processing']), col('clear_to_close', 'Approved / CTC', ['clear_to_close']), col('closed', `Closed (last ${CLOSED_SHOWN_DAYS} days)`, ['closed'])],
   },
-  { id: 'nurture', label: 'Nurture', description: `In nurture longer than ${RECENT_OUT_DAYS} days`, columns: [col('nurture', 'Nurture', ['nurture'])] },
-  { id: 'lost', label: 'Lost', description: `Marked lost longer than ${RECENT_OUT_DAYS} days`, columns: [col('lost', 'Lost', ['lost'])] },
+  { id: 'nurture', label: 'Nurture', description: 'Not ready yet; keep in touch', columns: [col('nurture', 'Nurture', ['nurture'])] },
+  { id: 'lost', label: 'Lost', description: 'Files marked lost, with the reason', columns: [col('lost', 'Lost', ['lost'])] },
 ]
 
 export const pipelineInfo = (id: PipelineId) => PIPELINES.find((p) => p.id === id)!
@@ -86,12 +82,12 @@ export interface PipelineFile {
 const DAY_MS = 24 * 60 * 60 * 1000
 const daysIn = (f: PipelineFile, now: Date) => Math.max(0, Math.floor((now.getTime() - new Date(f.stageChangedAt).getTime()) / DAY_MS))
 
-/** Where a file shows: New Leads, its loan type's pipeline, In Process, Nurture or Lost. Null = nowhere (closed more than 30 days ago). */
+/** Where a file shows: New Leads, its loan type's pipeline, In Process, Nurture or Lost (as soon as it moves there). Null = nowhere (closed more than 30 days ago). */
 export function pipelineFor(f: PipelineFile, now: Date = new Date()): PipelineId | null {
   if (f.stage === 'lead') return 'new_leads'
   if (f.stage === 'processing' || f.stage === 'clear_to_close') return 'in_process'
   if (f.stage === 'closed') return daysIn(f, now) <= CLOSED_SHOWN_DAYS ? 'in_process' : null
-  if ((f.stage === 'nurture' || f.stage === 'lost') && daysIn(f, now) >= RECENT_OUT_DAYS) return f.stage
+  if (f.stage === 'nurture' || f.stage === 'lost') return f.stage
   return purposePipeline(f.purpose)
 }
 
