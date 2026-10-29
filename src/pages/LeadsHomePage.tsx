@@ -1,17 +1,18 @@
 import { Link } from 'react-router'
-import { ArrowRightIcon, CircleXIcon, InboxIcon, KanbanIcon, LandmarkIcon, LeafIcon, PlusIcon, RefreshCwIcon, StarIcon, TrendingUpIcon, TriangleAlertIcon, UsersIcon, WorkflowIcon, type LucideIcon } from 'lucide-react'
+import { ArrowRightIcon, CalendarDaysIcon, CircleXIcon, InboxIcon, KanbanIcon, LandmarkIcon, LeafIcon, PlusIcon, RefreshCwIcon, StarIcon, TrendingUpIcon, TriangleAlertIcon, UsersIcon, WorkflowIcon, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState } from '@/components/shared'
 import { useNewLead } from '@/components/leads/new-lead-context'
 import { usePipeline } from '@/lib/api/loans'
 import { formatCompactCurrency } from '@/lib/format'
 import { formatPhone, fullName } from '@/lib/pipeline/helpers'
+import { calendarClosings } from '@/lib/pipeline/closings'
 import { pipelineTiles, priorityLeads } from '@/lib/pipeline/leadsHome'
 import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
 import { useOpenTasks } from '@/lib/api/tasks'
 import { todayIso } from '@/lib/dates'
 import { cn } from 'cn'
-import { pipelineInfo, PIPELINES, type PipelineId } from '@/lib/pipeline/pipelines'
+import { cardAmount, pipelineInfo, PIPELINES, type PipelineId } from '@/lib/pipeline/pipelines'
 
 const ICON: Record<PipelineId, LucideIcon> = {
   new_leads: InboxIcon,
@@ -33,6 +34,7 @@ export function LeadsHomePage() {
   const files = pipeline.data ?? []
   const priority = priorityLeads(files)
   const tiles = new Map(pipelineTiles(files).map((t) => [t.id, t]))
+  const closingsThisMonth = calendarClosings(files).filter((c) => c.closingDate.startsWith(today.slice(0, 7)))
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -111,6 +113,21 @@ export function LeadsHomePage() {
                 </Link>
               )
             })}
+            <Link to="/pipeline/closings" className="flex flex-col gap-3 rounded-2xl bg-card p-5 shadow-soft transition-shadow hover:shadow-md">
+              <div className="flex items-start justify-between gap-3">
+                <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <CalendarDaysIcon className="size-5" />
+                </span>
+                <span className="text-right">
+                  <span className="block text-2xl font-semibold tabular-nums">{closingsThisMonth.length}</span>
+                  <span className="text-xs font-medium text-money tabular-nums">{formatCompactCurrency(closingsThisMonth.reduce((sum, c) => sum + (cardAmount(c) ?? 0), 0))}</span>
+                </span>
+              </div>
+              <span>
+                <span className="block font-heading text-xl">Closing calendar</span>
+                <span className="text-sm text-muted-foreground">Closings this month, by date</span>
+              </span>
+            </Link>
           </section>
         </>
       )}

@@ -17,6 +17,7 @@ import { LoanPage } from '@/pages/LoanPage'
 import { MatrixImportPage } from '@/pages/MatrixImportPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { PipelinePage } from '@/pages/PipelinePage'
+import { ClosingCalendarPage } from '@/pages/ClosingCalendarPage'
 import { LeadsHomePage } from '@/pages/LeadsHomePage'
 import { ProductSearchPage } from '@/pages/ProductSearchPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -37,6 +38,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <TodayPage /> },
       { path: 'pipeline', element: <LeadsHomePage /> },
+      { path: 'pipeline/closings', element: <ClosingCalendarPage /> },
       { path: 'pipeline/:pipelineId', element: <PipelinePage /> },
       { path: 'contacts', element: <ContactsPage /> },
       { path: 'loans/:loanId', element: <LoanPage /> },

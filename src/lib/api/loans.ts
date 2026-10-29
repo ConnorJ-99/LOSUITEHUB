@@ -30,13 +30,14 @@ interface LoanRow {
   card_timeline: string | null
   card_loan_amount: unknown
   card_purchase_price: unknown
+  card_closing_date: string | null
   assigned_lo: { id: string; full_name: string | null; email: string } | null
   borrowers: { role: 'primary' | 'co_borrower'; contact: ContactRow | null }[]
 }
 
 const LOAN_SELECT = `
   id, purpose, stage, lost_reason, referral_source, stage_changed_at, created_at, prior_loan_id,
-  priority, status_detail, card_timeline:timeline, card_loan_amount:loan_amount, card_purchase_price:purchase_price,
+  priority, status_detail, card_timeline:timeline, card_loan_amount:loan_amount, card_purchase_price:purchase_price, card_closing_date:closing_date,
   assigned_lo:profiles!loans_assigned_lo_id_fkey ( id, full_name, email ),
   borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, email, phone ) )
 `
@@ -134,6 +135,7 @@ function toLoan(row: LoanRow): PipelineLoan {
     timeline: row.card_timeline,
     loanAmount: num(row.card_loan_amount),
     purchasePrice: num(row.card_purchase_price),
+    closingDate: row.card_closing_date,
     assignedLo: row.assigned_lo
       ? { id: row.assigned_lo.id, name: row.assigned_lo.full_name || row.assigned_lo.email }
       : null,

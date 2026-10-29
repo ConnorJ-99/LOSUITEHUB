@@ -32,6 +32,8 @@ export interface PipelineLoan {
   /** For the card and its column total (the same values as the loan's details). */
   loanAmount: number | null
   purchasePrice: number | null
+  /** loans.closing_date: from the contract on a purchase, typed on Overview for a refi (the closing calendar). */
+  closingDate: string | null
   assignedLo: MemberRef | null
   /** The primary borrower. */
   borrower: Contact | null
