@@ -3,7 +3,7 @@ import { PencilIcon, SparklesIcon, TriangleAlertIcon, UndoIcon, UsersIcon } from
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { AiOffNote, AssistantLabel, Card, CurrencyInput, DateInput, NumberInput, Select, SourceQuote, ToggleChip } from '@/components/shared'
+import { AiOffNote, AssistantLabel, Card, CurrencyInput, DateInput, NumberInput, Select, SourceQuote, ToggleChip, confirmAction } from '@/components/shared'
 import { YesNo } from '@/components/urla/parts'
 import { CONTRACT_FIELDS, type ContactRole, type ContractFieldKey } from '../../../supabase/functions/assistant/contract'
 import { useAiStatus } from '@/lib/api/assistant'
@@ -85,7 +85,8 @@ function TermRow({ row, decision, onDecision }: { row: ReviewRow; decision: Deci
                 <PencilIcon />
               </Button>
             )}
-            <ToggleChip label="Use" pressed={use} onChange={(p) => onDecision({ ...decision, use: p })} />
+            {/* The label says what happens, so clicking it to "accept" can't quietly turn it off. */}
+            <ToggleChip label={use ? 'Using' : 'Skipped'} pressed={use} onChange={(p) => onDecision({ ...decision, use: p })} />
           </div>
         )}
       </div>
@@ -113,9 +114,11 @@ function Review({ loan, app, reading, now }: { loan: LoanProfile; app: Applicati
   const rows = buildReview(reading.fields, now, decisions)
   const changes = reviewChanges(rows, decisions)
   const count = Object.keys(changes.details).length + (changes.earnestMoney !== undefined ? 1 : 0)
+  const skipped = rows.filter((r) => r.applicable && !r.same).length - count
   const busy = apply.isPending || discard.isPending
 
-  const submit = () => {
+  const submit = async () => {
+    if (count === 0 && skipped > 0 && !(await confirmAction(`Nothing will be saved to the file: all ${skipped} change${skipped === 1 ? ' is' : 's are'} marked Skipped. Mark this reading reviewed anyway?`, { confirmLabel: 'Mark reviewed' }))) return
     const record = reviewRecord(rows, decisions)
     apply.mutate(
       { reading, app, ...changes, fields: record.fields, outcome: record.outcome },
@@ -126,7 +129,7 @@ function Review({ loan, app, reading, now }: { loan: LoanProfile; app: Applicati
   return (
     <Card
       title="Review the contract reading"
-      description={`Read ${relativeTime(reading.createdAt)}. Nothing changes on the file until you apply it. Check each quote against the contract.`}
+      description={`Read ${relativeTime(reading.createdAt)}. Nothing changes on the file until you apply it. Check each quote against the contract. Terms marked Using are saved when you apply; click one to skip it.`}
       action={<AssistantLabel />}
     >
       <div className="space-y-4">

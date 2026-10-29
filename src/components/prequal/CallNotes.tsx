@@ -94,7 +94,8 @@ function ItemRow({ row, use, onUse, onEdit, onReset }: { row: NoteRow; use: bool
                 <PencilIcon />
               </Button>
             )}
-            <ToggleChip label="Use" pressed={use} onChange={onUse} />
+            {/* The label says what happens, so clicking it to "accept" can't quietly turn it off. */}
+            <ToggleChip label={use ? 'Using' : 'Skipped'} pressed={use} onChange={onUse} />
           </div>
         )}
       </div>
@@ -138,7 +139,7 @@ function NoteReview({ loan, reading, draft, file, onApply }: { loan: LoanProfile
   }
 
   return (
-    <Card title="Review the call notes reading" description={`Read ${relativeTime(reading.createdAt)}. Nothing changes until you apply it. Check each quote against your notes.`} action={<AssistantLabel />}>
+    <Card title="Review the call notes reading" description={`Read ${relativeTime(reading.createdAt)}. Nothing changes until you apply it. Check each quote against your notes. Items marked Using are applied; click one to skip it.`} action={<AssistantLabel />}>
       <div className="space-y-3">
         {reading.notes && (
           <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
