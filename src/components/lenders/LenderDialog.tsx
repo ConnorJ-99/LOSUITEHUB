@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { FormGrid, Input, Select, TextArea } from '@/components/shared'
-import { useSaveLender, type LenderDraft } from '@/lib/api/lenders'
+import { FormGrid, Input, Select, TextArea, confirmAction } from '@/components/shared'
+import { useDeleteLender, useSaveLender, type LenderDraft } from '@/lib/api/lenders'
 import { LENDER_CHANNELS, LENDER_STATUSES } from '@/lib/products/taxonomy'
 
 const options = <T extends string>(l: { values: T[]; label: Record<T, string> }) => l.values.map((v) => ({ value: v, label: l.label[v] }))
@@ -12,6 +12,7 @@ const options = <T extends string>(l: { values: T[]; label: Record<T, string> })
 export function LenderDialog({ initial, onClose, onSaved }: { initial: LenderDraft; onClose: () => void; onSaved?: (id: string) => void }) {
   const [l, setL] = useState(initial)
   const save = useSaveLender()
+  const remove = useDeleteLender()
   const set = <K extends keyof LenderDraft>(key: K) => (value: LenderDraft[K]) => setL((s) => ({ ...s, [key]: value }))
   const text = (key: 'shortName' | 'aeName' | 'aePhone' | 'aeEmail' | 'portalUrl' | 'compNotes' | 'notes') => (v: string) => set(key)(v || null)
 
@@ -36,6 +37,25 @@ export function LenderDialog({ initial, onClose, onSaved }: { initial: LenderDra
           <TextArea label="Notes" value={l.notes ?? ''} onChange={text('notes')} rows={2} span={2} />
         </FormGrid>
         <DialogFooter>
+          {l.id && (
+            <Button
+              variant="ghost"
+              className="mr-auto text-destructive hover:text-destructive"
+              disabled={remove.isPending}
+              onClick={async () => {
+                if (!(await confirmAction(`Delete ${initial.name} with all of its programs, matrices, documents and contacts? This can't be undone. To keep its history, set its status to Inactive instead.`, { confirmLabel: 'Delete lender', destructive: true }))) return
+                remove.mutate(l.id!, {
+                  onSuccess: () => {
+                    toast.success(`${initial.name} deleted`)
+                    onClose()
+                  },
+                  onError: (e) => toast.error(e.message),
+                })
+              }}
+            >
+              Delete lender
+            </Button>
+          )}
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>

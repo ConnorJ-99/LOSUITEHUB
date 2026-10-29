@@ -3,7 +3,7 @@ import { useAuth } from '@/lib/auth/context'
 import type { Milestone, StepMark, StepTemplate } from '@/lib/loanfile/workflow'
 import type { FieldChanges } from '@/lib/loanfile/urla'
 import { db, keys, unwrap } from './client'
-import { saveLoanDetails } from './loans'
+import { reassignLoan, saveLoanDetails } from './loans'
 import { toSnake } from './urla'
 
 export type TeamRole = 'processor' | 'lender_ae' | 'title' | 'escrow_officer' | 'buyer_agent' | 'listing_agent'
@@ -161,8 +161,7 @@ export function useSetLoanOfficer(loanId: string) {
   const invalidate = useInvalidateFile(loanId)
   return useMutation({
     mutationFn: async (profileId: string | null) => {
-      const rows = unwrap<{ id: string }[]>(await db().from('loans').update({ assigned_lo_id: profileId }).eq('id', loanId).select('id'))
-      if (rows.length === 0) throw new Error('You do not have permission to change this loan.')
+      await reassignLoan(loanId, profileId)
     },
     onSettled: invalidate,
   })

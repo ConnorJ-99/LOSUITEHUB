@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, FormGrid, Input, Select, TextArea, ToggleChip, ToggleChipGroup, confirmAction } from '@/components/shared'
 import { ProgramDrawer } from '@/components/products/ProgramDrawer'
 import { LenderMark } from '@/components/products/ProgramCard'
-import { useSaveLender, useSetProgramActive, type Lender, type LenderDocument, type LenderProgram } from '@/lib/api/lenders'
+import { useDeleteProgram, useSaveLender, useSetProgramActive, type Lender, type LenderDocument, type LenderProgram } from '@/lib/api/lenders'
 import { CONTACT_ROLES, useAddOverlay, useDeleteLenderContact, useDeleteOverlay, useLenderContacts, useSaveLenderContact, useSetOverlayActive, type LenderContact, type LenderFile, type LenderOverlay } from '@/lib/api/lenderPage'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { browseResult, programSummary } from '@/lib/products/browse'
@@ -114,10 +114,15 @@ export function ProductsTab({ rows, retired, catalogLender, lenderPrograms, veri
   const [viewing, setViewing] = useState<ProgramResult | null>(null)
   const [editing, setEditing] = useState<LenderProgram | null>(null)
   const setActive = useSetProgramActive(lenderId)
+  const removeProgram = useDeleteProgram(lenderId)
   const all = showRetired ? [...rows, ...retired] : rows
   const shown = all.filter((r) => !tag || r.tags.includes(tag))
   const tags = OFFER_TAGS.filter((t) => rows.some((r) => r.tags.includes(t)))
   const toggle = (id: string, active: boolean) => setActive.mutate({ id, active }, { onError: (e) => toast.error(e.message) })
+  const remove = async (id: string, name: string) => {
+    if (!(await confirmAction(`Delete ${name} with its matrices and rules? This can't be undone. To keep its history, retire it instead.`, { confirmLabel: 'Delete', destructive: true }))) return
+    removeProgram.mutate(id, { onSuccess: () => toast.success(`${name} deleted`), onError: (e) => toast.error(e.message) })
+  }
 
   if (rows.length + retired.length === 0) return <p className="rounded-xl border bg-card py-10 text-center text-sm text-muted-foreground">No programs yet. Upload the lender's matrix or guidelines, or type a matrix in the Documents tab.</p>
   return (
@@ -191,6 +196,11 @@ export function ProductsTab({ rows, retired, catalogLender, lenderPrograms, veri
                         {canEdit && !r.program.active && (
                           <Button size="sm" variant="ghost" disabled={setActive.isPending} onClick={() => toggle(r.program.id, true)}>
                             Put back
+                          </Button>
+                        )}
+                        {canEdit && (
+                          <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={removeProgram.isPending} onClick={() => remove(r.program.id, r.program.name)}>
+                            Delete
                           </Button>
                         )}
                       </span>

@@ -102,6 +102,9 @@ const DETAIL_COLUMNS: Record<keyof LoanDetails, [string, boolean]> = {
   preapprovalMaxPrice: ['preapproval_max_price', true],
   preapprovalMaxLoanAmount: ['preapproval_max_loan_amount', true],
   preapprovalExpiresOn: ['preapproval_expires_on', false],
+  lenderName: ['lender_name', false],
+  programName: ['program_name', false],
+  monthlyPayment: ['monthly_payment', true],
 }
 
 interface LoanProfileRow extends LoanRow {
@@ -380,7 +383,6 @@ export function useUpdateLead() {
           .update({
             purpose: loan.purpose,
             referral_source: loan.referralSource?.trim() || null,
-            assigned_lo_id: loan.assignedLoId,
             ...(loan.ariveLoanNumber !== undefined ? { arive_loan_number: loan.ariveLoanNumber?.trim() || null } : {}),
           })
           .eq('id', loanId)
@@ -389,6 +391,8 @@ export function useUpdateLead() {
       if (contactRows.length === 0 || loanRows.length === 0) {
         throw new Error('You do not have permission to edit this record.')
       }
+      // Last, because handing the file to someone else takes it out of sight.
+      await reassignLoan(loanId, loan.assignedLoId)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.pipeline })
@@ -397,6 +401,11 @@ export function useUpdateLead() {
       queryClient.invalidateQueries({ queryKey: keys.contacts })
     },
   })
+}
+
+/** Hands a file to a loan officer (null = unassigned). The database checks the caller may. */
+export async function reassignLoan(loanId: string, loId: string | null): Promise<void> {
+  unwrap(await db().rpc('reassign_loan', { p_loan_id: loanId, p_lo_id: loId }))
 }
 
 /** Saves any of the loan's deal details. Every screen that edits these values goes through here. */

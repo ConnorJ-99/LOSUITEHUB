@@ -216,6 +216,49 @@ export function useSetProgramActive(lenderId: string) {
   })
 }
 
+/** A program or lender that's on a borrower file can't be deleted (loan_program_options keeps quote history). */
+function onBorrowerFile(error: { code?: string; message: string }, what: string): Error {
+  return error.code === '23503'
+    ? new Error(`${what} is on a borrower file's lender comparison, so it can't be deleted. Retire it (or set the lender to Inactive) instead.`)
+    : new Error(error.message)
+}
+
+/** Deletes a program with its matrices and rules. Owners and admins only. */
+export function useDeleteProgram(lenderId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data, error } = await db().from('programs').delete().eq('id', id).select('id')
+      if (error) throw onBorrowerFile(error, 'This program')
+      if (!data?.length) throw new Error('Only owners and admins can delete programs.')
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.lenderPrograms(lenderId) })
+      queryClient.invalidateQueries({ queryKey: keys.lenders })
+      invalidateCatalog(queryClient)
+    },
+  })
+}
+
+/** Deletes a lender with its programs, matrices, documents and contacts. Owners and admins only. */
+export function useDeleteLender() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const files = unwrap<{ storage_path: string | null }[]>(await db().from('guideline_documents').select('storage_path').eq('lender_id', id))
+      const { data, error } = await db().from('lenders').delete().eq('id', id).select('id')
+      if (error) throw onBorrowerFile(error, 'One of this lender\'s programs')
+      if (!data?.length) throw new Error('Only owners and admins can delete lenders.')
+      const paths = files.map((f) => f.storage_path).filter((p): p is string => !!p)
+      if (paths.length) await db().storage.from('guideline-files').remove(paths)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.lenders })
+      invalidateCatalog(queryClient)
+    },
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Guideline documents
 // ---------------------------------------------------------------------------

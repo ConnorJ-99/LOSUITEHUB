@@ -143,6 +143,10 @@ export interface LoanDetails {
   preapprovalMaxPrice: number | null
   preapprovalMaxLoanAmount: number | null
   preapprovalExpiresOn: string | null
+  /** Closed loan profile: typed lender and program (a chosen Product Search program wins), payment at closing. */
+  lenderName: string | null
+  programName: string | null
+  monthlyPayment: number | null
 }
 
 export type ImpoundWaiver = 'none' | 'taxes' | 'insurance' | 'all'

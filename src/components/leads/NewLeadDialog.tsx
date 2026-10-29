@@ -1,6 +1,7 @@
 import type * as React from 'react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import { UserCheckIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -8,7 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { FormGrid, Input, Select, ToggleChip } from '@/components/shared'
 import { StageBadge } from '@/components/pipeline/StageBadge'
 import { useMatchingContacts } from '@/lib/api/contacts'
-import { useCreateLead, useOrgMembers, useUpdateStage } from '@/lib/api/loans'
+import { keys } from '@/lib/api/client'
+import { reassignLoan, useCreateLead, useOrgMembers, useUpdateStage } from '@/lib/api/loans'
 import type { ContactSummary } from '@/lib/api/types'
 import { useAuth } from '@/lib/auth/context'
 import { formatPhone, fullName } from '@/lib/pipeline/helpers'
@@ -53,6 +55,7 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
   const createLead = useCreateLead()
   const updateStage = useUpdateStage()
   const members = useOrgMembers()
+  const queryClient = useQueryClient()
 
   const [form, setForm] = useState<FormState>(() => blankForm(myId, preset))
   // A different "+ Add lead" column starts the form over with its loan type.
@@ -106,7 +109,8 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
         phone: form.phone,
         purpose: form.purpose,
         referralSource: form.referralSource,
-        assignedLoId: form.assignedLoId,
+        // Made as yours first, so it can be moved to its column; handed over below.
+        assignedLoId: myId,
         existingContactId: existing?.id ?? null,
         priorLoanId: existing?.loans[0]?.id ?? null,
       },
@@ -124,6 +128,19 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
             }
           }
           const where = startStage ? stageLabel(startStage) : 'Lead'
+          // For another loan officer: theirs now, and out of your pipeline unless you're an admin.
+          if (form.assignedLoId !== myId) {
+            try {
+              await reassignLoan(loanId, form.assignedLoId)
+            } catch (e) {
+              toast.error(`${name} was added as your lead, but couldn't be handed over: ${(e as Error).message}`)
+              return
+            }
+            await queryClient.invalidateQueries({ queryKey: keys.pipeline })
+            const owner = members.data?.find((m) => m.id === form.assignedLoId)?.name ?? 'no one yet'
+            toast.success(`${name} added to ${where} for ${owner}`)
+            return
+          }
           if (startPrequal) {
             navigate(`/loans/${loanId}?tab=prequal`)
             toast.success(`${name} added to ${where}`)

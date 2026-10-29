@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   BadgeDollarSignIcon,
   ChevronDownIcon,
@@ -14,13 +14,15 @@ import {
   ReceiptIcon,
   SearchXIcon,
   StarIcon,
+  Trash2Icon,
   TriangleAlertIcon,
   UserCheckIcon,
   WorkflowIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card, EmptyState, FormGrid, Input } from '@/components/shared'
+import { Card, EmptyState, FormGrid, Input, confirmAction } from '@/components/shared'
+import { ClosedLoanCard } from '@/components/closed/ClosedLoanCard'
 import { ContractTab } from '@/components/contract/ContractTab'
 import { DocumentsTab } from '@/components/documents/DocumentsTab'
 import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
@@ -32,6 +34,7 @@ import { StageMenu } from '@/components/pipeline/StageMenu'
 import { useStageChanger } from '@/components/pipeline/useStageChanger'
 import { NotesTab } from '@/components/profile/NotesTab'
 import { OverviewTab } from '@/components/profile/OverviewTab'
+import { TasksCard } from '@/components/profile/TasksCard'
 import { PropertiesTab } from '@/components/profile/PropertiesTab'
 import { IncomeTab } from '@/components/income/IncomeTab'
 import { PrequalTab } from '@/components/prequal/PrequalTab'
@@ -42,6 +45,7 @@ import { LoanPricingTab } from '@/components/pricing/LoanPricingTab'
 import { PricingTab } from '@/components/pricing/PricingTab'
 import { LettersTab } from '@/components/letters/LettersTab'
 import { usePreapprovalLetters } from '@/lib/api/preapproval'
+import { useDeleteLead } from '@/lib/api/closed'
 import { useLoan, useOrgMembers, useSetPriority } from '@/lib/api/loans'
 import { useProperties } from '@/lib/api/properties'
 import { useOrganization, useProfile } from '@/lib/api/settings'
@@ -55,10 +59,13 @@ import { fullName } from '@/lib/pipeline/helpers'
 import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 import { pipelineFor, pipelineInfo } from '@/lib/pipeline/pipelines'
 import { applicationSummary } from '@/lib/urla/summary'
+import { useAuth } from '@/lib/auth/context'
 
 const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'loan', 'properties', 'letters'] as const
 type Section = (typeof SECTIONS)[number]
 const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'loan', 'properties', 'letters']
+/** A closed file's profile: the closed loan (Overview), its 1003, the home, documents and notes. */
+const CLOSED_SECTIONS: Section[] = ['overview', '1003', 'properties', 'documents', 'notes']
 
 /** Team roles shown in the header, in order. The loan officer is the file's Assigned LO. */
 const TEAM: { role: TeamRole | 'loan_officer'; label: string; group: string; purchaseOnly?: boolean; company?: boolean }[] = [
@@ -113,6 +120,11 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const setLo = useSetLoanOfficer(loan.id)
   const saveTeam = useSaveTeamMember(loan.id, loan.organizationId)
   const { requestChange, dialog } = useStageChanger()
+  const { state } = useAuth()
+  const navigate = useNavigate()
+  const deleteLead = useDeleteLead()
+  // Processors work files but don't delete them; the database checks the rest.
+  const canDelete = state.status === 'signedIn' && state.user.role !== null && state.user.role !== 'processor'
   const [editing, setEditing] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(true)
   const [navCollapsed, setNavCollapsed] = useState(false)
@@ -121,7 +133,8 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
 
   const isPurchase = loan.purpose === 'purchase'
   const param = searchParams.get('tab') as Section | null
-  const section: Section = param && READY.includes(param) && ((param !== 'contract' && param !== 'letters') || isPurchase) ? param : 'overview'
+  const closedFile = loan.stage === 'closed'
+  const section: Section = param && READY.includes(param) && ((param !== 'contract' && param !== 'letters') || isPurchase) && (!closedFile || CLOSED_SECTIONS.includes(param)) ? param : 'overview'
   const goTo = (next: string) => setSearchParams(next === 'overview' ? {} : { tab: next }, { replace: true })
 
   const name = fullName(loan.borrower)
@@ -173,7 +186,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     setTeamEdit({ role: t.role, label, name: record?.name ?? '', company: record?.company ?? '', withCompany: !!t.company })
   }
 
-  const nav: FileNavItem[] = [
+  const allNav: FileNavItem[] = [
     { id: 'overview', label: 'Overview', icon: WorkflowIcon },
     { id: 'prequal', label: 'Prequal', icon: UserCheckIcon },
     { id: '1003', label: '1003', icon: FileTextIcon, marker: validation ? (validation.totalMissing ? { type: 'count', value: validation.totalMissing } : { type: 'complete' }) : undefined },
@@ -186,6 +199,9 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     { id: 'properties', label: 'Properties', icon: HomeIcon },
     ...(isPurchase ? [{ id: 'letters', label: 'Letters', icon: MailIcon }] : []),
   ]
+  const nav = closedFile
+    ? CLOSED_SECTIONS.map((id) => allNav.find((n) => n.id === id)!).map((n) => (n.id === 'properties' ? { ...n, label: 'Property' } : { ...n, marker: undefined }))
+    : allNav
 
   // Remount the Overview form after its saved values change, so it shows what was saved.
   const { subjectPropertyId, ...savedDetails } = loan.details
@@ -195,11 +211,11 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     <>
       <FileHeader
         borrowerName={name}
-        backTo={home ? `/pipeline/${home}` : '/pipeline'}
-        backLabel={home ? pipelineInfo(home).label : 'Pipeline'}
+        backTo={closedFile ? '/contacts?tab=closed' : home ? `/pipeline/${home}` : '/pipeline'}
+        backLabel={closedFile ? 'Closed loans' : home ? pipelineInfo(home).label : 'Pipeline'}
         fileNumber={loan.details.ariveLoanNumber}
         statusLabel={`${purposeLabel(loan.purpose)} · ${stageLabel(loan.stage)}`}
-        nextStep={next ? `${next.name} · ${OWNER_LABEL[next.owner]} · ${days}d` : null}
+        nextStep={next && !closedFile ? `${next.name} · ${OWNER_LABEL[next.owner]} · ${days}d` : null}
         updatedLabel={`In ${stageLabel(loan.stage)} since ${formatIsoDate(stageSince)} (${relativeTime(loan.stageChangedAt)})`}
         detailsOpen={detailsOpen}
         onToggleDetails={() => setDetailsOpen((o) => !o)}
@@ -220,6 +236,35 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
               <PencilIcon />
               Edit
             </Button>
+            {canDelete && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                disabled={deleteLead.isPending}
+                title="Delete this file"
+                onClick={async () => {
+                  const ok = await confirmAction(
+                    `Delete ${name}'s ${purposeLabel(loan.purpose)} file, with its tasks, documents and 1003? People on it who have no other file are deleted too, with their notes. This can't be undone.`,
+                    { confirmLabel: 'Delete file', destructive: true },
+                  )
+                  if (!ok) return
+                  deleteLead.mutate(
+                    { loanId: loan.id, organizationId: loan.organizationId },
+                    {
+                      onSuccess: () => {
+                        toast.success(`${name}'s file deleted`)
+                        navigate(home ? `/pipeline/${home}` : '/pipeline')
+                      },
+                      onError: (e) => toast.error(e.message),
+                    },
+                  )
+                }}
+              >
+                <Trash2Icon />
+                Delete
+              </Button>
+            )}
             <StageMenu stage={loan.stage} onSelect={(stage) => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, stage)}>
               <Button size="sm">
                 Change status
@@ -237,7 +282,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
         }
       >
         {summary && <MetricStrip metrics={headerMetrics(loan, summary, creditScore)} />}
-        {file.data && (
+        {file.data && !closedFile && (
           <MilestoneStepper
             milestones={milestoneView(file.data.milestones).map((m) => ({ label: m.label, state: m.state, date: m.date ? formatIsoDate(m.date) : null }))}
             band={loan.stage === 'closed' ? 'Loan closed' : loan.stage === 'lost' ? 'Loan lost' : `Loan open · ${stageLabel(loan.stage)}`}
@@ -251,14 +296,20 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
         <div className="min-w-0 flex-1 space-y-4">
           {section === 'overview' && (
             <>
-              {workflow ? (
+              {closedFile && (
+                <>
+                  <ClosedLoanCard loan={loan} />
+                  <TasksCard loanId={loan.id} organizationId={loan.organizationId} />
+                </>
+              )}
+              {!closedFile && (workflow ? (
                 <WorkflowPanel workflow={workflow} loanId={loan.id} organizationId={loan.organizationId} days={days} onOpenSection={goTo} onCompleteFields={() => setCompleting(true)} />
               ) : templates.isError || file.isError ? (
                 <p className="text-sm text-destructive">{(templates.error ?? file.error)?.message}</p>
               ) : (
                 <p className="text-sm text-muted-foreground">Loading workflow…</p>
-              )}
-              <OverviewTab key={JSON.stringify(savedDetails)} loan={loan} onGoToTab={goTo} />
+              ))}
+              {!closedFile && <OverviewTab key={JSON.stringify(savedDetails)} loan={loan} onGoToTab={goTo} />}
             </>
           )}
           {section === 'prequal' && <PrequalTab loan={loan} />}
