@@ -42,7 +42,9 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
       // A draft from "Edit limits" is a full copy of that program's matrix: it replaces it.
       if (imp.reading.editOf) return { ...p, include: true, programId: imp.reading.editOf, mode: 'replace' as const }
       const programId = matchProgram(p.name, existing.filter((e) => e.active), imp.lenderName, p)
-      return { ...p, include: true, programId, mode: defaultMode(p, existing.find((e) => e.id === programId), imp.documentId) }
+      const target = existing.find((e) => e.id === programId)
+      // Filling in a product keeps its name: a Fannie Mae matrix doesn't rename "Conventional".
+      return { ...p, name: target?.name ?? p.name, include: true, programId, mode: defaultMode(p, target, imp.documentId) }
     }),
   )
   const fixes = repaired.flatMap((r) => r.fixes)
@@ -201,7 +203,7 @@ function ProgramReview({ program: p, existing, documentId, pdfUrl, editable, onC
     >
       <FormGrid>
         <Input label="Program name" value={p.name} onChange={set('name')} readOnly={!editable} span={2} />
-        <Select label="Updates" value={p.programId} options={existing.map((e) => ({ value: e.id, label: e.name }))} onChange={(programId) => onChange({ ...p, programId, mode: defaultMode(p, existing.find((e) => e.id === programId), documentId) })} onClear={() => onChange({ ...p, programId: null, mode: 'replace' })} placeholder="A new program" readOnly={!editable} span={2} />
+        <Select label="Updates" value={p.programId} options={existing.map((e) => ({ value: e.id, label: e.name }))} onChange={(programId) => onChange({ ...p, programId, name: existing.find((e) => e.id === programId)?.name ?? p.name, mode: defaultMode(p, existing.find((e) => e.id === programId), documentId) })} onClear={() => onChange({ ...p, programId: null, mode: 'replace' })} placeholder="A new program" readOnly={!editable} span={2} />
         <Select label="Product family" value={p.family} options={options(PRODUCT_FAMILIES)} onChange={set('family')} readOnly={!editable} />
         {current && (
           <div className="sm:col-span-2 lg:col-span-6">

@@ -11,7 +11,26 @@ export type ImportCell = Omit<MatrixCell, 'id' | 'dscrMin' | 'citizenship' | 'ma
 
 /** Every square of every grid as a cell; a blank square is "not offered", never 0. */
 export function cellsFromProgram(p: ReadProgram): ImportCell[] {
-  return p.grids.flatMap((g) => cellsFromGrid(g))
+  // A max LTV grid and a max CLTV grid for the same loans are one set of limits: each loan gets both.
+  const out: ImportCell[] = []
+  const waiting = { ltv: new Map<string, ImportCell>(), cltv: new Map<string, ImportCell>() }
+  for (const g of p.grids) {
+    const other = g.ratio === 'ltv' ? 'cltv' : 'ltv'
+    for (const c of cellsFromGrid(g)) {
+      const k = key(c)
+      const pair = waiting[other].get(k)
+      if (pair) {
+        // Not offered in either grid means not offered.
+        Object.assign(pair, c.offered && pair.offered ? { maxLtv: pair.maxLtv ?? c.maxLtv, maxCltv: pair.maxCltv ?? c.maxCltv } : { offered: false, maxLtv: null, maxCltv: null })
+        waiting[other].delete(k)
+        continue
+      }
+      const copy = { ...c }
+      out.push(copy)
+      waiting[g.ratio].set(k, copy)
+    }
+  }
+  return out
 }
 
 /** Every square of a grid as a cell, once for each income type the grid covers (so a search by any of them finds it). */
@@ -196,11 +215,12 @@ export function checkProgram(p: ReadProgram): ImportWarning[] {
   }
 
   // Two grids that cover exactly the same loans (usually a copied grid whose occupancy or purpose wasn't changed).
+  // A max LTV grid and a max CLTV grid for the same loans are fine: they're combined.
   const owner = new Map<string, number>()
   const pairs = new Map<string, string>()
   p.grids.forEach((g, gi) =>
     cellsFromGrid(g).forEach((c) => {
-      const k = key(c)
+      const k = `${g.ratio}|${key(c)}`
       const first = owner.get(k)
       if (first == null) owner.set(k, gi)
       else if (first !== gi && !pairs.has(`${first}|${gi}`)) {
@@ -307,9 +327,25 @@ const union = <T>(a: readonly T[], b: readonly T[]) => [...new Set([...a, ...b])
 export function mergedProgram(p: ReviewProgram, current: ProgramNow | undefined) {
   const own = { cells: cellsFromProgram(p), rules: p.rules, docTypes: p.docTypes, purposes: p.purposes, features: p.features, termOptions: p.termOptions, description: p.description }
   if (!current || !p.programId || p.mode === 'replace') return own
-  const covered = new Set(own.cells.map(key))
   const ruleKeys = new Set(own.rules.map(ruleKey))
-  const cells = [...current.cells.filter((c) => !covered.has(key(c))), ...own.cells]
+  // Conventional is Fannie Mae or Freddie Mac, whichever allows more: where both matrices cover a loan, the higher limit stays.
+  // Otherwise this document's limit takes the place of the one in use.
+  const higher = (a: ImportCell, b: ImportCell) => (!b.offered ? a : !a.offered ? b : (b.maxLtv ?? b.maxCltv ?? 0) > (a.maxLtv ?? a.maxCltv ?? 0) ? b : a)
+  let cells: ImportCell[]
+  if (p.family === 'conventional' && own.cells.length > 0 && current.cells.length > 0) {
+    // Box by box (Fannie's "SFR/PUD + Condo, 1 unit" column lines up with Freddie's separate SFR and Condo columns).
+    const mine = new Map(single(own.cells).map((c) => [key(c), c]))
+    const merged = single(current.cells).map((c) => {
+      const n = mine.get(key(c))
+      if (!n) return c
+      mine.delete(key(c))
+      return higher(n, c)
+    })
+    cells = [...merged, ...mine.values()]
+  } else {
+    const covered = new Set(own.cells.map(key))
+    cells = [...current.cells.filter((c) => !covered.has(key(c))), ...own.cells]
+  }
   // A grid for another purpose or income type widens what the program offers.
   return {
     cells,
@@ -320,6 +356,25 @@ export function mergedProgram(p: ReviewProgram, current: ProgramNow | undefined)
     termOptions: union(current.termOptions, own.termOptions),
     description: own.description || current.description,
   }
+}
+
+/**
+ * Cells split to one property type, one purpose and one unit count each. Where one
+ * document's cells overlap, the lower limit wins, as it does in search.
+ */
+function single(cells: ImportCell[]): ImportCell[] {
+  const out = new Map<string, ImportCell>()
+  for (const c of cells)
+    for (const propertyType of c.propertyTypes)
+      for (const purpose of c.purposes)
+        for (let units = c.unitsMin; units <= Math.min(c.unitsMax, c.unitsMin + 8); units++) {
+          const one = { ...c, propertyTypes: [propertyType], purposes: [purpose], unitsMin: units, unitsMax: units }
+          const k = key(one)
+          const was = out.get(k)
+          const limit = (x: ImportCell) => (x.offered ? (x.maxLtv ?? x.maxCltv ?? 0) : -1)
+          if (!was || limit(one) < limit(was)) out.set(k, one)
+        }
+  return [...out.values()]
 }
 
 /** The programs to approve, in the shape approve_matrix_import() takes. */

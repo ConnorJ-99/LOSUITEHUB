@@ -57,7 +57,8 @@ export default function App() {
       <AuthProvider>
         <TooltipProvider delayDuration={300}>
           <RouterProvider router={router} />
-          <Toaster position="bottom-right" />
+          {/* An × on every message, so one that stays (the timer pauses while the pointer is over it) can be closed. */}
+          <Toaster position="bottom-right" closeButton duration={5000} />
           <ConfirmHost />
         </TooltipProvider>
       </AuthProvider>

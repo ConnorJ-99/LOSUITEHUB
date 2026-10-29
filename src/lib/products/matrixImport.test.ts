@@ -280,7 +280,7 @@ describe('approval', () => {
 })
 
 describe('one product, several documents', () => {
-  const p = (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0]
+  const p = { ...(M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0], family: 'fha' as const }
   const matrixCells = cellsFromProgram(p)
   const now = (over: Partial<ProgramNow> = {}): ProgramNow => ({ id: 'fha', name: 'FHA', cells: matrixCells, rules: p.rules, docTypes: ['full_doc'], purposes: ['purchase', 'rate_term'], features: [], termOptions: ['fixed_30'], description: null, sourceDocumentId: 'matrix-pdf', ...over })
   const dti45 = { field: 'dti', op: '<=', value: 45, appliesWhen: null, severity: 'hard', message: 'Max DTI 45%', page: 12, quote: 'Max DTI 45%' } as M.ReadRule
@@ -290,6 +290,29 @@ describe('one product, several documents', () => {
     expect(m.cells).toHaveLength(matrixCells.length)
     expect(m.rules.map((r) => r.message)).toEqual([...p.rules.map((r) => r.message), 'Max DTI 45%'])
     expect(m.termOptions).toEqual(['fixed_30', 'fixed_15'])
+  })
+  it('a max LTV grid and a max CLTV grid for the same loans become one set of limits, not a clash', () => {
+    const ltv = { ...p.grids[0], ratio: 'ltv' as const, title: 'Purchase (Max LTV)' }
+    const cltv = { ...p.grids[0], ratio: 'cltv' as const, title: 'Purchase (Max CLTV)', values: p.grids[0].values.map((row) => row.map((v) => (v == null ? v : v + 5))) }
+    const both = { ...p, grids: [ltv, cltv] }
+    expect(checkProgram(both).filter((w) => w.level === 'error')).toEqual([])
+    const cells = cellsFromProgram(both)
+    expect(cells).toHaveLength(cellsFromGrid(ltv).length)
+    const offered = cells.filter((c) => c.offered)
+    expect(offered.length).toBeGreaterThan(0)
+    expect(offered.every((c) => c.maxLtv != null && c.maxCltv === c.maxLtv + 5)).toBe(true)
+    // Two LTV grids for the same loans are still a mistake to fix.
+    expect(checkProgram({ ...p, grids: [ltv, { ...ltv, title: 'Copy' }] }).some((w) => w.level === 'error')).toBe(true)
+  })
+  it('Conventional: where Fannie Mae and Freddie Mac both cover a loan, the higher limit stays', () => {
+    const conv = { ...p, family: 'conventional' as const }
+    const fannie = cellsFromProgram({ ...conv, grids: [{ ...p.grids[0], values: p.grids[0].values.map((row) => row.map((v) => (v == null ? v : 97))) }] })
+    const freddie = { ...conv, grids: [{ ...p.grids[0], values: p.grids[0].values.map((row) => row.map((v) => (v == null ? v : 95))) }], include: true, programId: 'conv', mode: 'merge' as const }
+    const m = mergedProgram(freddie, now({ cells: fannie }))
+    expect(m.cells.length).toBeGreaterThanOrEqual(fannie.length)
+    expect(new Set(m.cells.filter((c) => c.offered).map((c) => c.maxLtv ?? c.maxCltv))).toEqual(new Set([97]))
+    // Other loan types: the newer document's limit takes over.
+    expect(new Set(mergedProgram({ ...freddie, family: 'fha' }, now({ cells: fannie })).cells.filter((c) => c.offered).map((c) => c.maxLtv ?? c.maxCltv))).toEqual(new Set([95]))
   })
   it("a second matrix PDF adds its grids; boxes it also covers take the new limits", () => {
     const second = { ...p, grids: [{ ...p.grids[0], purposes: ['cash_out'] as M.ReadGrid['purposes'] }], include: true, programId: 'fha', mode: 'merge' as const }
