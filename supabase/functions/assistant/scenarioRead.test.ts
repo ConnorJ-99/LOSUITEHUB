@@ -73,9 +73,13 @@ describe('reading a sentence', () => {
     expect('error' in r ? r : r.read.loanAmount).toBe(450000)
   })
   it('drops impossible values instead of guessing', () => {
-    const r = normalizeScenarioRead({ read: { ...blank, fico: 900, dti: 140, state: 'Texas', family: 'subprime', features: ['dpa', 'magic', 'dpa'], units: 7, propertyType: 'two_to_four' }, evidence: [], unclear: [] }, 'x')
+    const r = normalizeScenarioRead({ read: { ...blank, fico: 900, dti: 140, state: 'Texas', family: 'subprime', features: ['dpa', 'magic', 'dpa'], units: 25, propertyType: 'two_to_four' }, evidence: [], unclear: [] }, 'x')
     if ('error' in r) throw new Error(r.error)
     expect(r.read).toMatchObject({ fico: null, dti: null, state: null, family: null, features: ['dpa'], propertyType: 'two_to_four', units: 2 })
+    // 7 units is a 5+ unit building, whatever type was read.
+    const big = normalizeScenarioRead({ read: { ...blank, units: 7, propertyType: 'two_to_four' }, evidence: [], unclear: [] }, 'x')
+    if ('error' in big) throw new Error(big.error)
+    expect(big.read).toMatchObject({ propertyType: 'five_plus', units: 7 })
   })
   it('flags words that are not really in the sentence', () => {
     const r = normalizeScenarioRead({ read: { ...blank, fico: 700 }, evidence: [{ field: 'fico', words: '700 credit score' }], unclear: ['Is this a purchase?', 'a', 'b', 'c'] }, 'DSCR loan, 700 fico')

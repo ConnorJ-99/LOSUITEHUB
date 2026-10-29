@@ -226,6 +226,7 @@ export const withCounts = (g: ReadGrid): ReadGrid => ({ ...g, printedRows: g.row
 
 /** Single-unit types are 1 unit; 2–4 units alone is 2–4; a mix is 1–4. */
 export function unitsFor(types: MatrixPropertyType[]): { unitsMin: number; unitsMax: number } {
+  if (types.length === 1 && types[0] === 'five_plus') return { unitsMin: 5, unitsMax: 8 }
   if (types.length === 1 && types[0] === 'two_to_four') return { unitsMin: 2, unitsMax: 4 }
   return types.includes('two_to_four') ? { unitsMin: 1, unitsMax: 4 } : { unitsMin: 1, unitsMax: 1 }
 }

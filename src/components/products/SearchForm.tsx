@@ -4,14 +4,16 @@ import { Card, CurrencyInput, FormGrid, Input, NumberInput, PercentInput, Select
 import { formatPercent } from '@/lib/format'
 import { ratios } from '@/lib/products/engine'
 import { downPayment, withDownAmount, withDownPct, withPrice } from '@/lib/products/scenarioForm'
-import { CITIZENSHIPS, DOC_TYPES, FEATURES, LENDER_STATUSES, LIENS, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, PRODUCT_FAMILIES, type Feature, type LenderStatus } from '@/lib/products/taxonomy'
+import { CITIZENSHIPS, DOC_TYPES, FEATURES, LENDER_STATUSES, LIENS, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, PRODUCT_FAMILIES, type Feature, type LenderStatus, type MatrixPropertyType } from '@/lib/products/taxonomy'
 import type { Scenario } from '@/lib/products/types'
 
 /** Features offered as must-haves on the form (mockup 01). */
 const MUST_HAVES: Feature[] = ['dpa', 'itin', 'foreign_national', 'interest_only', 'non_warrantable_condo', 'manufactured', 'buydown', 'recent_credit_event', 'llc_vesting', 'first_time_investor', 'str_income', 'homeready_possible']
 export const SHOWN_STATUSES: LenderStatus[] = ['approved', 'pending', 'not_signed_up']
 const options = <T extends string>(l: { values: T[]; label: Record<T, string> }) => l.values.map((v) => ({ value: v, label: l.label[v] }))
-const UNIT_OPTIONS = ['1', '2', '3', '4'].map((u) => ({ value: u, label: u }))
+const UNIT_OPTIONS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'].map((u) => ({ value: u, label: u }))
+/** The property type that goes with a number of units: 2–4 units, 5+ units, or back to a house from either. */
+const typeForUnits = (units: number, type: MatrixPropertyType): MatrixPropertyType => (units >= 5 ? 'five_plus' : units > 1 ? 'two_to_four' : type === 'two_to_four' || type === 'five_plus' ? 'sfr_pud' : type)
 
 interface Props {
   scenario: Scenario
@@ -66,8 +68,8 @@ export function SearchForm({ scenario: s, onChange, statuses, onStatuses, typeCo
         <FormGrid>
           <Select label="Purpose" required value={s.purpose} options={options(MATRIX_PURPOSES).filter((p) => !second || p.value !== 'purchase')} onChange={(purpose) => onChange({ ...s, purpose, purchasePrice: purpose === 'purchase' ? s.purchasePrice : null })} />
           <Select label="Occupancy" required value={s.occupancy} options={options(OCCUPANCIES)} onChange={set('occupancy')} />
-          <Select label="Property type" required value={s.propertyType} options={options(MATRIX_PROPERTY_TYPES)} onChange={(t) => onChange({ ...s, propertyType: t, units: t === 'two_to_four' ? Math.max(2, s.units) : 1 })} />
-          <Select label="Units" value={String(s.units)} options={UNIT_OPTIONS} onChange={(u) => onChange({ ...s, units: Number(u), propertyType: Number(u) > 1 ? 'two_to_four' : s.propertyType === 'two_to_four' ? 'sfr_pud' : s.propertyType })} />
+          <Select label="Property type" required value={s.propertyType} options={options(MATRIX_PROPERTY_TYPES)} onChange={(t) => onChange({ ...s, propertyType: t, units: t === 'two_to_four' ? Math.min(4, Math.max(2, s.units)) : t === 'five_plus' ? Math.max(5, s.units) : 1 })} />
+          <Select label="Units" value={String(s.units)} options={UNIT_OPTIONS} onChange={(u) => onChange({ ...s, units: Number(u), propertyType: typeForUnits(Number(u), s.propertyType) })} />
           <Input label="State" required value={s.state} onChange={(v) => set('state')(v.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))} />
           <Input label="County" value={s.county ?? ''} onChange={(v) => set('county')(v || null)} />
 

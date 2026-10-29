@@ -143,6 +143,19 @@ export function repairProgram(p: ReadProgram): { program: ReadProgram; fixes: st
         next = { ...next, propertyTypes: [t] }
       }
     }
+    // A grid for 5–8 or 5–9 unit buildings is "5+ units", whatever property type it was read with (or none).
+    const bigUnits = (min: number | null | undefined, title: string) => (min ?? 0) >= 5 || /\b5\s*[-–]\s*\d+\s*units?\b|\b5\+\s*units?\b/i.test(title)
+    if (bigUnits(next.unitsMin, where) && !(next.propertyTypes.length === 1 && next.propertyTypes[0] === 'five_plus')) {
+      const units = /\b5\s*[-–]\s*(\d+)/.exec(where)
+      next = {
+        ...next,
+        propertyTypes: ['five_plus'],
+        unitsMin: Math.max(5, next.unitsMin),
+        unitsMax: Math.min(20, Math.max(next.unitsMax, units ? Number(units[1]) : 5, 5)),
+        columns: next.columns.map((c) => (c.propertyTypes?.length ? { ...c, propertyTypes: null } : c)),
+      }
+      fixes.push(`${where}: set the property type to 5+ units (${next.unitsMin}–${next.unitsMax} units).`)
+    }
     return next
   })
   const rules = p.rules.flatMap((r) => {

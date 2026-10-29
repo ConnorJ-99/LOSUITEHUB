@@ -219,6 +219,14 @@ describe('fixing what real matrices trip on', () => {
     expect(checkProgram(program).filter((w) => w.level === 'error')).toEqual([])
     expect(new Set(cellsFromProgram(program).map((c) => c.dscrMin))).toEqual(new Set([1, 0.75]))
   })
+  it('a 5–8 or 5–9 unit grid becomes "5+ units"', () => {
+    const p = base()
+    const g = { ...p.grids[0], occupancy: 'investment' as const }
+    const { program, fixes } = repairProgram({ ...p, grids: [{ ...g, title: 'DSCR 5-9 Unit | Eligibility Matrix', propertyTypes: [] }, { ...g, title: 'Investment Property (5-8) Units', propertyTypes: ['two_to_four'], unitsMin: 5, unitsMax: 8 }] })
+    expect(program.grids.map((x: M.ReadGrid) => [x.propertyTypes, x.unitsMin, x.unitsMax])).toEqual([[['five_plus'], 5, 9], [['five_plus'], 5, 8]])
+    expect(fixes.filter((f) => f.includes('5+ units'))).toHaveLength(2)
+    expect(checkProgram(program).filter((w) => w.level === 'error')).toEqual([])
+  })
   it('leaves a clean reading alone', () => {
     const p = base()
     expect(repairProgram(p)).toEqual({ program: p, fixes: [] })

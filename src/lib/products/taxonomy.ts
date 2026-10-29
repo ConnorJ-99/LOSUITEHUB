@@ -129,6 +129,7 @@ export const MATRIX_PROPERTY_TYPES = labels([
   ['mixed_use', 'Mixed-use'],
   ['condotel', 'Condotel'],
   ['rural', 'Rural SFR'],
+  ['five_plus', '5+ units'],
 ] as const)
 export type MatrixPropertyType = (typeof MATRIX_PROPERTY_TYPES.values)[number]
 
@@ -205,6 +206,7 @@ export function matrixPurposeFor(purpose: LoanPurpose): MatrixPurpose {
 
 /** The matrix property type for a home. Condos are warrantable unless flagged; townhouses price as SFR/PUD. */
 export function matrixPropertyTypeFor(type: PropertyType | null, units: number | null, nonWarrantable = false): MatrixPropertyType | null {
+  if ((units ?? 1) >= 5) return 'five_plus'
   if ((units ?? 1) >= 2 || type === 'two_to_four_unit') return 'two_to_four'
   switch (type) {
     case 'single_family':

@@ -14,7 +14,7 @@ export const SCENARIO_DOC_TYPES = ['full_doc', 'bank_statement_12', 'bank_statem
 export const SCENARIO_FEATURES = ['dpa', 'itin', 'foreign_national', 'interest_only', 'non_warrantable_condo', 'manufactured', 'buydown', 'recent_credit_event', 'first_time_investor', 'str_income', 'homeready_possible', 'llc_vesting'] as const
 export const SCENARIO_PURPOSES = ['purchase', 'rate_term', 'cash_out'] as const
 export const SCENARIO_OCCUPANCIES = ['primary', 'second_home', 'investment'] as const
-export const SCENARIO_PROPERTY_TYPES = ['sfr_pud', 'condo', 'non_warrantable_condo', 'two_to_four', 'manufactured', 'mixed_use', 'condotel', 'rural'] as const
+export const SCENARIO_PROPERTY_TYPES = ['sfr_pud', 'condo', 'non_warrantable_condo', 'two_to_four', 'manufactured', 'mixed_use', 'condotel', 'rural', 'five_plus'] as const
 export const SCENARIO_CITIZENSHIPS = ['us_citizen', 'permanent_resident', 'non_permanent_resident', 'itin', 'foreign_national'] as const
 
 type Of<T extends readonly string[]> = T[number]
@@ -128,7 +128,7 @@ Rules:
 - Product type: lien "first" unless it says second, closed-end second, CES, HELOAN ("ces") or HELOC ("heloc"). family: conventional, fha, va, usda, jumbo, non_qm, or "any" when it says any or doesn't care. A DSCR, bank statement, P&L, 1099, asset depletion or IRA distribution loan is non_qm. docType: dscr for DSCR, bank_statement_12 / bank_statement_24 for bank statements (12 if no months are given), form_1099, pnl_only, asset_depletion, wvoe, no_ratio, retirement_distribution (income from IRA or retirement account distributions), otherwise full_doc when the income is W-2 or tax returns.
 - Features only when stated: dpa (down payment assistance), itin, foreign_national, interest_only, non_warrantable_condo, manufactured, buydown, recent_credit_event, first_time_investor, str_income (short-term rental income), homeready_possible, llc_vesting (closing in an LLC).
 - purpose: purchase, rate_term (refi with no cash out), cash_out. occupancy: primary, second_home, investment (investor, rental, NOO, DSCR usually means investment).
-- propertyType: sfr_pud (house, SFR, single family, PUD, townhome), condo, non_warrantable_condo, two_to_four (duplex, triplex, fourplex; set units 2 to 4), manufactured, mixed_use.
+- propertyType: sfr_pud (house, SFR, single family, PUD, townhome), condo, non_warrantable_condo, two_to_four (duplex, triplex, fourplex; set units 2 to 4), five_plus (5 or more units; set units), manufactured, mixed_use.
 - Money: "$450k" is 450000, "1.2M" is 1200000. purchasePrice for a purchase; value for an appraised or estimated value. loanAmount only if a loan amount is stated. Put a down payment percent in downPaymentPct ("5% down" = 5) and a stated LTV in ltvPct; never work out the loan amount yourself. firstLienBalance is the existing first mortgage balance on a second-lien scenario.
 - fico is a whole number (a range like 700-719 means the lower end). dti and reservesMonths are numbers ("6 months reserves" = 6). dscr is a ratio like 1.1.
 - Credit events: months since a bankruptcy (bkSeasoningMonths) or foreclosure, short sale or deed in lieu (fcSeasoningMonths); "2 years ago" = 24. Mortgage lates in the last 12 or 24 months as counts.
@@ -167,7 +167,7 @@ export function normalizeScenarioRead(raw: unknown, sentence: string): ScenarioR
     purpose: isOneOf(SCENARIO_PURPOSES, r.purpose) ? r.purpose : null,
     occupancy: isOneOf(SCENARIO_OCCUPANCIES, r.occupancy) ? r.occupancy : null,
     propertyType: isOneOf(SCENARIO_PROPERTY_TYPES, r.propertyType) ? r.propertyType : null,
-    units: whole(asNumber(r.units, 1, 4)),
+    units: whole(asNumber(r.units, 1, 20)),
     state,
     county: typeof r.county === 'string' && r.county.trim() ? r.county.trim() : null,
     purchasePrice: price,
@@ -187,8 +187,10 @@ export function normalizeScenarioRead(raw: unknown, sentence: string): ScenarioR
     firstTimeBuyer: typeof r.firstTimeBuyer === 'boolean' ? r.firstTimeBuyer : null,
     homestead: typeof r.homestead === 'boolean' ? r.homestead : null,
   }
-  // A duplex/triplex/fourplex sets the units if the reading forgot.
+  // A duplex/triplex/fourplex sets the units if the reading forgot; 5 or more units is a 5+ unit building.
+  if (read.units != null && read.units >= 5) read.propertyType = 'five_plus'
   if (read.propertyType === 'two_to_four' && read.units == null) read.units = 2
+  if (read.propertyType === 'five_plus' && read.units == null) read.units = 5
 
   const filled = new Set(Object.entries(read).filter(([, v]) => v !== null && !(Array.isArray(v) && v.length === 0)).map(([k]) => k))
   // The loan amount may have come from the down payment or LTV words.

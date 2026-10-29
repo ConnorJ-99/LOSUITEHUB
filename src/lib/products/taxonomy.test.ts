@@ -24,7 +24,7 @@ import {
 
 const scripts = import.meta.glob<string>('/supabase/migrations/*.sql', { query: '?raw', import: 'default', eager: true })
 const sql = Object.values(scripts).join('\n')
-/** Values of a database enum: created, plus any later "add value". */
+/** Values of a database enum: created, plus any later "add value" (from every migration, 5+ units included). */
 function dbEnum(name: string): string[] {
   const created = new RegExp(`create type public\\.${name} as enum \\(([^)]*)\\)`).exec(sql)
   expect(created, `enum ${name}`).not.toBeNull()
