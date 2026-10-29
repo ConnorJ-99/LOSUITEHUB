@@ -109,10 +109,6 @@ export function UrlaTab({ loan }: { loan: LoanProfile }) {
               <PlusIcon />
               Add co-borrower
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>
-              <FileUpIcon />
-              Import MISMO file
-            </Button>
             <input
               ref={fileInput}
               type="file"
@@ -181,11 +177,18 @@ export function UrlaTab({ loan }: { loan: LoanProfile }) {
           { label: 'DTI', value: q.dti.front === null ? '—' : `${formatPercent(q.dti.front, 1)} / ${formatPercent(q.dti.back, 1)}`, warning: (q.dti.back ?? 0) > 50 },
         ]}
         action={
-          <Button onClick={() => setExporting(true)}>
-            <DownloadIcon />
-            <span className="hidden sm:inline">Export MISMO 3.4</span>
-            <span className="sm:hidden">Export</span>
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => fileInput.current?.click()}>
+              <FileUpIcon />
+              <span className="hidden sm:inline">Import MISMO</span>
+              <span className="sm:hidden">Import</span>
+            </Button>
+            <Button onClick={() => setExporting(true)}>
+              <DownloadIcon />
+              <span className="hidden sm:inline">Export MISMO 3.4</span>
+              <span className="sm:hidden">Export</span>
+            </Button>
+          </div>
         }
       />
 
