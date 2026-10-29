@@ -140,6 +140,7 @@ export function ImportClientsDialog({ open, onOpenChange }: { open: boolean; onO
             <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
               <li>Nothing is saved until you review every row and click Import.</li>
               <li>People are matched by the old site ID, then email, then phone (closed clients also by name and property address), so importing the same file again doesn't make duplicates.</li>
+              <li>Each closing is its own closed loan: a refi of the same home or another home with a different closing date is added to the same person.</li>
               <li>An import only fills in blanks. It never overwrites what's already in LOSuite and never moves a file's stage.</li>
               <li>Social Security numbers are never read. Delete that column from the export if it has one.</li>
             </ul>
