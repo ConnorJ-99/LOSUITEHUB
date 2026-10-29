@@ -73,8 +73,8 @@ describe('checkClientFile', () => {
   })
 
   it('never reads Social Security or tax ID columns', () => {
-    const checked = checkClientFile(file(['lo_email', 'first_name', 'last_name', 'stage', 'email', 'SSN', 'Social Security #'], ['connor@mps.mortgage', 'Ann', 'TEST', 'lead', 'ann@example.test', '123-45-6789', '123456789']), today)
-    expect(checked.sensitiveColumns).toEqual(['SSN', 'Social Security #'])
+    const checked = checkClientFile(file(['lo_email', 'first_name', 'last_name', 'stage', 'email', 'SSN', 'Social Security #', 'Borrower ITIN', 'Tax_ID', 'TIN'], ['connor@mps.mortgage', 'Ann', 'TEST', 'lead', 'ann@example.test', '123-45-6789', '123456789', '900-70-6789', '12-3456789', '98-7656789']), today)
+    expect(checked.sensitiveColumns).toEqual(['SSN', 'Social Security #', 'Borrower ITIN', 'Tax_ID', 'TIN'])
     expect(JSON.stringify(checked.rows)).not.toContain('6789')
   })
 
@@ -126,6 +126,36 @@ describe('checkClientFile', () => {
       today,
     )
     expect(rows[1].warnings).toEqual(["Same old site ID as row 2; it updates that row's file."])
+  })
+
+  it("reads ARIVE's pipeline export as it comes (Connor's columns, 2026-10-29)", () => {
+    const arive = 'Primary Borrower\tARIVE Loan Id\tCo-Borrower\tSubject Property\tSubject State\tAdverse\tApp Completion Percentage\tApproved with Conditions\tClear To Close\tDisclosed\tDocs Signed / Loan Closed\tLoan Funded\tPreApproval Date\tStage Name\tSubmit to Underwriting\tSuspended\tLock Date\tLock Expiration\tLock Expiration Timezone\tPrimary Loan Officer NMLS\tPrimary Loan Officer Name\tLender\tPurchase Date\tApp/TRID Completed Date\tEst. Funding Date\tFirm Closing Date\tCo-Borrower First Name\tCo-Borrower Last Name\tPrimary Borrower First Name\tPrimary Borrower Last Name\tWarehouse Bank\tPrimary Borrower Cell Phone\tPrimary Borrower Email\tCo-Borrower Email\tCo-Borrower Cell Phone\tCo-Borrower Birthday\tPrimary Borrower Birthday\tMortgage Type\tLoan FICO\tLien Position\tDTI\tCLTV\tBase Loan Amount\tAmortization Term\tAmortization Type\tLTV\tAppraised Value\tSubject Address Line 1\tSubject Address Line 2\tSubject City\tSubject County\tOccupancy\tBase Price\tLoan Product\tPrimary Loan Officer Email\tLender Loan #\tCompensation Amount\tGross Loan Revenue'.split('\t')
+    // The columns Connor is adding to the report.
+    const header = [...arive, 'Loan Purpose', 'Note Rate', 'Purchase Price', 'Subject Zip', 'First Payment Date', 'Total Monthly Payment']
+    const row = (over: Record<string, string>) => header.map((h) => over[h] ?? '')
+    const base = { 'Primary Borrower First Name': 'Ann', 'Primary Borrower Last Name': 'TEST', 'Primary Loan Officer Email': 'connor@mps.mortgage', 'Primary Borrower Email': 'ann@example.test', 'Subject Address Line 1': '1 Test Ln', 'Subject City': 'Frisco', 'Subject State': 'TX', 'Base Price': '100.25' }
+    const { rows, missingRequired, sensitiveColumns } = checkClientFile(
+      file(
+        header,
+        row({ ...base, 'ARIVE Loan Id': 'A-100', 'Stage Name': 'Funded', 'Loan Purpose': 'Purchase', 'Docs Signed / Loan Closed': '06/10/2022', 'Loan Funded': '06/11/2022', 'Firm Closing Date': '06/09/2022', 'Mortgage Type': 'FHA', 'Base Loan Amount': '$300,000.00', 'Amortization Term': '360', 'Note Rate': '5.125', 'Purchase Price': '310000', 'Appraised Value': '312000', 'Occupancy': 'Primary Residence', 'Loan Product': 'FHA 30 Fixed', 'Primary Borrower Cell Phone': '(214) 555-0100', 'Primary Borrower Birthday': '03/15/1985', 'Co-Borrower First Name': 'Bo', 'Co-Borrower Last Name': 'TEST', 'Co-Borrower Cell Phone': '214-555-0101', 'Subject Zip': '75034' }),
+        // A later refi of the same home: no Docs Signed date, so Loan Funded is the closing date.
+        row({ ...base, 'ARIVE Loan Id': 'A-200', 'Stage Name': 'Loan Funded', 'Loan Purpose': 'No Cash-Out Refinance', 'Loan Funded': '2024-09-20', 'Firm Closing Date': '09/18/2024', 'Mortgage Type': 'Conventional', 'Base Loan Amount': '280000', 'Occupancy': 'Investment Property' }),
+      ),
+      today,
+    )
+    expect(missingRequired).toEqual([])
+    expect(sensitiveColumns).toEqual([])
+    expect(rows.map((r) => r.errors)).toEqual([[], []])
+    const [purchase, refi] = rows.map((r) => r.data!)
+    expect(purchase).toMatchObject({
+      lo_email: 'connor@mps.mortgage', first_name: 'Ann', last_name: 'TEST', stage: 'closed', purpose: 'purchase', closing_date: '2022-06-10',
+      loan_type: 'fha', loan_amount: 300000, term_months: 360, rate: 5.125, purchase_price: 310000, program: 'FHA 30 Fixed', arive_loan_number: 'A-100',
+      phone: '2145550100', birthday: '1985-03-15', co: { first_name: 'Bo', last_name: 'TEST', phone: '2145550101' },
+      property: { address: '1 Test Ln', city: 'Frisco', state: 'TX', zip: '75034', occupancy: 'primary', estimated_value: 312000 },
+    })
+    expect(refi).toMatchObject({ stage: 'closed', purpose: 'refinance_rate_term', closing_date: '2024-09-20', loan_type: 'conventional', arive_loan_number: 'A-200', property: { occupancy: 'investment' } })
+    // ARIVE's Base Price is the lender's pricing, never the home's price.
+    expect(refi.purchase_price).toBeNull()
   })
 })
 

@@ -26,19 +26,19 @@ export interface ColumnInfo {
   when?: string
   format: string
   example: string
-  /** Other header names that mean the same column. */
+  /** Other header names that mean the same column. When a file has several, the first one with a value in that row wins. */
   aliases?: string[]
 }
 
 /** Every column, in template order. */
 export const COLUMNS: readonly ColumnInfo[] = [
-  { key: 'lo_email', group: 'Required', required: true, format: 'The loan officer\'s LOSuite login email', example: 'connor@mps.mortgage', aliases: ['loan officer email', 'lo', 'loan officer', 'assigned to email', 'assigned lo email', 'assigned to'] },
-  { key: 'first_name', group: 'Required', required: true, format: 'Text', example: 'Jane', aliases: ['first', 'borrower first name'] },
-  { key: 'last_name', group: 'Required', required: true, format: 'Text', example: 'TEST', aliases: ['last', 'borrower last name'] },
-  { key: 'stage', group: 'Required', required: true, format: 'Lead, Contacted, Pre-Qualified, Pre-Approved, Home Search, Under Contract (or Application), Processing, Clear to Close, Closed, Nurture or Lost', example: 'Closed', aliases: ['status', 'pipeline stage'] },
-  { key: 'email', group: 'Person', when: 'Email or phone on every current client', format: 'name@example.com', example: 'jane.test@example.com', aliases: ['email address', 'borrower email'] },
-  { key: 'phone', group: 'Person', when: 'Email or phone on every current client', format: 'Any format, 10 digits', example: '(214) 555-0100', aliases: ['phone number', 'cell', 'mobile', 'cell phone', 'borrower phone'] },
-  { key: 'birthday', group: 'Person', format: 'Date: 03/15/1985 or 1985-03-15', example: '03/15/1985', aliases: ['dob', 'date of birth', 'birth date'] },
+  { key: 'lo_email', group: 'Required', required: true, format: 'The loan officer\'s LOSuite login email', example: 'connor@mps.mortgage', aliases: ['loan officer email', 'lo', 'loan officer', 'assigned to email', 'assigned lo email', 'assigned to', 'primary loan officer email'] },
+  { key: 'first_name', group: 'Required', required: true, format: 'Text', example: 'Jane', aliases: ['first', 'borrower first name', 'primary borrower first name'] },
+  { key: 'last_name', group: 'Required', required: true, format: 'Text', example: 'TEST', aliases: ['last', 'borrower last name', 'primary borrower last name'] },
+  { key: 'stage', group: 'Required', required: true, format: 'Lead, Contacted, Pre-Qualified, Pre-Approved, Home Search, Under Contract (or Application), Processing, Clear to Close, Closed, Nurture or Lost', example: 'Closed', aliases: ['status', 'pipeline stage', 'stage name'] },
+  { key: 'email', group: 'Person', when: 'Email or phone on every current client', format: 'name@example.com', example: 'jane.test@example.com', aliases: ['email address', 'borrower email', 'primary borrower email'] },
+  { key: 'phone', group: 'Person', when: 'Email or phone on every current client', format: 'Any format, 10 digits', example: '(214) 555-0100', aliases: ['phone number', 'cell', 'mobile', 'cell phone', 'borrower phone', 'primary borrower cell phone', 'primary borrower phone'] },
+  { key: 'birthday', group: 'Person', format: 'Date: 03/15/1985 or 1985-03-15', example: '03/15/1985', aliases: ['dob', 'date of birth', 'birth date', 'primary borrower birthday'] },
   { key: 'mailing_address', group: 'Person', format: 'Street address', example: '100 Example St', aliases: ['mailing street'] },
   { key: 'mailing_city', group: 'Person', format: 'Text', example: 'Dallas' },
   { key: 'mailing_state', group: 'Person', format: 'Two letters', example: 'TX' },
@@ -48,24 +48,24 @@ export const COLUMNS: readonly ColumnInfo[] = [
   { key: 'co_first_name', group: 'Co-borrower', format: 'Text', example: 'John', aliases: ['coborrower first name', 'co borrower first name'] },
   { key: 'co_last_name', group: 'Co-borrower', format: 'Text', example: 'TEST', aliases: ['coborrower last name', 'co borrower last name'] },
   { key: 'co_email', group: 'Co-borrower', format: 'name@example.com', example: '', aliases: ['coborrower email', 'co borrower email'] },
-  { key: 'co_phone', group: 'Co-borrower', format: 'Any format, 10 digits', example: '', aliases: ['coborrower phone', 'co borrower phone'] },
+  { key: 'co_phone', group: 'Co-borrower', format: 'Any format, 10 digits', example: '', aliases: ['coborrower phone', 'co borrower phone', 'co-borrower cell phone'] },
   { key: 'loan_purpose', group: 'Loan', format: 'Purchase, Refinance, Cash-Out Refinance, HELOC, HELOAN or Investment/DSCR (blank = Purchase)', example: 'Purchase', aliases: ['purpose', 'transaction type'] },
   { key: 'loan_type', group: 'Loan', format: 'Conventional, FHA, VA, USDA or Other', example: 'FHA', aliases: ['mortgage type', 'loan program type'] },
   { key: 'loan_amount', group: 'Loan', format: 'Money: 300000, $300,000 or 300k', example: '300000', aliases: ['base loan amount', 'amount'] },
   { key: 'purchase_price', group: 'Loan', format: 'Money', example: '315000', aliases: ['sales price', 'price'] },
   { key: 'rate', group: 'Loan', format: 'Percent: 6.125 or 6.125%', example: '6.125', aliases: ['interest rate', 'note rate'] },
-  { key: 'term_years', group: 'Loan', format: 'Years: 30 (360 months also works)', example: '30', aliases: ['term', 'loan term'] },
-  { key: 'monthly_payment', group: 'Loan', format: 'Money: the full payment at closing (PITI)', example: '2450', aliases: ['piti', 'payment', 'total payment'] },
+  { key: 'term_years', group: 'Loan', format: 'Years: 30 (360 months also works)', example: '30', aliases: ['term', 'loan term', 'amortization term'] },
+  { key: 'monthly_payment', group: 'Loan', format: 'Money: the full payment at closing (PITI)', example: '2450', aliases: ['piti', 'payment', 'total payment', 'total monthly payment', 'total housing payment'] },
   { key: 'lender', group: 'Loan', format: 'Text', example: 'Sample Lender', aliases: ['lender name', 'investor'] },
-  { key: 'program', group: 'Loan', format: 'Text', example: 'FHA 30 Fixed', aliases: ['loan program', 'product'] },
-  { key: 'closing_date', group: 'Loan', when: 'Required when the stage is Closed', format: 'Date: 03/15/2024 or 2024-03-15', example: '03/15/2024', aliases: ['close date', 'closed date', 'funded date', 'funding date'] },
+  { key: 'program', group: 'Loan', format: 'Text', example: 'FHA 30 Fixed', aliases: ['loan program', 'product', 'loan product'] },
+  { key: 'closing_date', group: 'Loan', when: 'Required when the stage is Closed', format: 'Date: 03/15/2024 or 2024-03-15', example: '03/15/2024', aliases: ['close date', 'closed date', 'funded date', 'funding date', 'docs signed / loan closed', 'loan closed', 'loan funded', 'firm closing date'] },
   { key: 'first_payment_date', group: 'Loan', format: 'Date', example: '05/01/2024', aliases: ['first payment'] },
-  { key: 'property_address', group: 'Property', when: 'Closed rows with no email or phone need it', format: 'Street address', example: '123 Sample Ln', aliases: ['address', 'subject address', 'street', 'property street'] },
-  { key: 'property_city', group: 'Property', format: 'Text', example: 'Frisco', aliases: ['city'] },
-  { key: 'property_state', group: 'Property', format: 'Two letters (blank = TX)', example: 'TX', aliases: ['state'] },
-  { key: 'property_zip', group: 'Property', format: '5 digits', example: '75034', aliases: ['zip', 'zip code', 'postal code'] },
+  { key: 'property_address', group: 'Property', when: 'Closed rows with no email or phone need it', format: 'Street address', example: '123 Sample Ln', aliases: ['address', 'subject address', 'street', 'property street', 'subject address line 1'] },
+  { key: 'property_city', group: 'Property', format: 'Text', example: 'Frisco', aliases: ['city', 'subject city'] },
+  { key: 'property_state', group: 'Property', format: 'Two letters (blank = TX)', example: 'TX', aliases: ['state', 'subject state'] },
+  { key: 'property_zip', group: 'Property', format: '5 digits', example: '75034', aliases: ['zip', 'zip code', 'postal code', 'subject zip', 'subject zip code', 'subject postal code'] },
   { key: 'occupancy', group: 'Property', format: 'Primary, Second Home or Investment (blank = Primary)', example: 'Primary', aliases: ['occupancy type'] },
-  { key: 'estimated_value', group: 'Property', format: 'Money', example: '340000', aliases: ['home value', 'current value'] },
+  { key: 'estimated_value', group: 'Property', format: 'Money', example: '340000', aliases: ['home value', 'current value', 'appraised value'] },
   { key: 'insurance_carrier', group: 'Property', format: 'Text', example: 'Sample Insurance Co', aliases: ['insurance company', 'hoi carrier'] },
   { key: 'insurance_renewal_date', group: 'Property', format: 'Date', example: '03/15/2025', aliases: ['insurance renewal', 'hoi renewal date'] },
   { key: 'homestead_filed', group: 'Property', format: 'Yes or No', example: 'No', aliases: ['homestead', 'homestead exemption'] },
@@ -74,7 +74,7 @@ export const COLUMNS: readonly ColumnInfo[] = [
   { key: 'agent_phone', group: 'People', format: 'Any format, 10 digits', example: '', aliases: ['realtor phone'] },
   { key: 'title_company', group: 'People', format: 'Text', example: 'Sample Title', aliases: ['title'] },
   { key: 'referral_source', group: 'Other', format: 'Text', example: 'Past client', aliases: ['source', 'lead source', 'referral'] },
-  { key: 'arive_loan_number', group: 'Other', format: 'Text', example: '', aliases: ['arive number', 'loan number'] },
+  { key: 'arive_loan_number', group: 'Other', format: 'Text', example: '', aliases: ['arive number', 'loan number', 'arive loan id'] },
   { key: 'lost_reason', group: 'Other', when: 'Required when the stage is Lost', format: 'Text', example: '', aliases: ['reason lost'] },
   { key: 'old_site_id', group: 'Other', format: 'The old site\'s record ID (recommended)', example: 'OLD-1001', aliases: ['id', 'record id', 'lead id', 'loan id', 'external id'] },
   { key: 'notes', group: 'Other', format: 'Text, saved once as a note', example: 'TEST row, delete me', aliases: ['note', 'comments'] },
@@ -85,7 +85,9 @@ const HEADER_LOOKUP = new Map<string, ColumnKey>(
   COLUMNS.flatMap((c) => [c.key, ...(c.aliases ?? [])].map((name) => [headerKey(name), c.key] as const)),
 )
 /** Columns that look like Social Security or tax ID numbers. They are never read. */
-const SENSITIVE_HEADER = /ssn|social|taxid|\btin\b|itin/
+const SENSITIVE_HEADER = /ssn|social|taxid/
+/** TIN and ITIN only as whole words, so ARIVE's "Submit to Underwriting" isn't one. */
+const SENSITIVE_WORD = /\b(tin|itin)\b/i
 
 /** The blank template: every header plus one fake example row. */
 export function templateCsv(): string {
@@ -108,6 +110,9 @@ const STAGE_WORDS: Record<string, PipelineStage> = {
   processing: 'processing', submitted: 'processing', submittedprocessing: 'processing', inprocess: 'processing', underwriting: 'processing',
   cleartoclose: 'clear_to_close', ctc: 'clear_to_close', approved: 'clear_to_close', approvedctc: 'clear_to_close',
   closed: 'closed', funded: 'closed', won: 'closed', complete: 'closed', completed: 'closed',
+  // ARIVE stage names.
+  loanfunded: 'closed', loanclosed: 'closed', docssigned: 'closed', docssignedloanclosed: 'closed', postclosing: 'closed',
+  clearedtoclose: 'clear_to_close', submittedtounderwriting: 'processing', approvedwithconditions: 'processing',
   nurture: 'nurture', notready: 'nurture',
   lost: 'lost', dead: 'lost',
 }
@@ -115,21 +120,22 @@ const STAGE_WORDS: Record<string, PipelineStage> = {
 const PURPOSE_WORDS: Record<string, LoanPurpose> = {
   purchase: 'purchase', buy: 'purchase', buying: 'purchase', homepurchase: 'purchase',
   refinance: 'refinance_rate_term', refi: 'refinance_rate_term', rateterm: 'refinance_rate_term', ratetermrefi: 'refinance_rate_term', ratetermrefinance: 'refinance_rate_term', rateandterm: 'refinance_rate_term', nocashoutrefinance: 'refinance_rate_term',
-  cashout: 'refinance_cash_out', cashoutrefi: 'refinance_cash_out', cashoutrefinance: 'refinance_cash_out',
+  limitedcashoutrefinance: 'refinance_rate_term', nocashoutrefi: 'refinance_rate_term', refinancerateterm: 'refinance_rate_term',
+  cashout: 'refinance_cash_out', cashoutrefi: 'refinance_cash_out', cashoutrefinance: 'refinance_cash_out', refinancecashout: 'refinance_cash_out',
   heloc: 'heloc', heloan: 'heloan', homeequityloan: 'heloan', closedendsecond: 'heloan', secondmortgage: 'heloan',
   investment: 'investment_dscr', dscr: 'investment_dscr', investmentdscr: 'investment_dscr', investor: 'investment_dscr',
 }
 
 const TYPE_WORDS: Record<string, MortgageType> = {
   conventional: 'conventional', conv: 'conventional', conforming: 'conventional', jumbo: 'conventional', highbalance: 'conventional',
-  fha: 'fha', va: 'va', usda: 'usda_rural', rural: 'usda_rural', usdarural: 'usda_rural',
+  fha: 'fha', va: 'va', usda: 'usda_rural', rural: 'usda_rural', usdarural: 'usda_rural', usdard: 'usda_rural',
   other: 'other', nonqm: 'other', dscr: 'other', bankstatement: 'other', heloc: 'other',
 }
 
 const OCCUPANCY_WORDS: Record<string, Occupancy> = {
   primary: 'primary', primaryresidence: 'primary', owneroccupied: 'primary', owner: 'primary', residence: 'primary',
-  second: 'second_home', secondhome: 'second_home', vacation: 'second_home', vacationhome: 'second_home',
-  investment: 'investment', rental: 'investment', nonowner: 'investment', nonowneroccupied: 'investment', investor: 'investment',
+  second: 'second_home', secondhome: 'second_home', secondaryresidence: 'second_home', vacation: 'second_home', vacationhome: 'second_home',
+  investment: 'investment', investmentproperty: 'investment', rental: 'investment', nonowner: 'investment', nonowneroccupied: 'investment', investor: 'investment',
 }
 
 /** A real calendar date from 2024-03-15, 3/15/2024, 3-15-2024 or 3/15/24. */
@@ -261,8 +267,8 @@ export function checkClientFile(text: string, today = new Date()): CheckedFile {
   const sensitiveColumns: string[] = []
   header.forEach((h, i) => {
     const k = headerKey(h)
-    if (SENSITIVE_HEADER.test(k)) sensitiveColumns.push(h.trim())
-    else if (HEADER_LOOKUP.has(k) && ![...map.values()].includes(HEADER_LOOKUP.get(k)!)) map.set(i, HEADER_LOOKUP.get(k)!)
+    if (SENSITIVE_HEADER.test(k) || SENSITIVE_WORD.test(h.replace(/[^a-z0-9]+/gi, ' '))) sensitiveColumns.push(h.trim())
+    else if (HEADER_LOOKUP.has(k)) map.set(i, HEADER_LOOKUP.get(k)!)
     else if (h.trim()) ignoredColumns.push(h.trim())
   })
   const present = new Set(map.values())
@@ -271,7 +277,8 @@ export function checkClientFile(text: string, today = new Date()): CheckedFile {
   const seenIds = new Map<string, number>()
   const rows = body.map((cells, index) => {
     const raw = Object.fromEntries(COLUMNS.map((c) => [c.key, ''])) as Record<ColumnKey, string>
-    map.forEach((key, i) => (raw[key] = (cells[i] ?? '').trim()))
+    // Columns in file order, so the first one with a value wins (ARIVE: Docs Signed, then Loan Funded, then Firm Closing Date).
+    map.forEach((key, i) => (raw[key] ||= (cells[i] ?? '').trim()))
     const checked = checkRow(raw, index + 2, today)
     const id = checked.data?.old_site_id
     if (id) {
