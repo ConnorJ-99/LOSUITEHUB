@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ArrowLeftIcon, KeyboardIcon, PlusIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
@@ -10,7 +11,7 @@ import { ContactsTab, LenderHeader, LenderTabs, LoansTab, OverlaysTab, ProductsT
 import { LenderList } from '@/components/lenders/LenderList'
 import { UploadDocumentDialog } from '@/components/lenders/UploadDocumentDialog'
 import { blankLender, guessStoredDocument, useDeleteLenderDocument, useLenderDocuments, useLenderPrograms, useLenders, useUpdateLenderDocument, type Lender, type LenderDocument, type LenderDraft, type LenderProgram } from '@/lib/api/lenders'
-import { readMatrix, usePendingImports, useStartTypedMatrix } from '@/lib/api/matrixImports'
+import { queueMatrixReads, readMatrix, useCollectReads, usePendingImports, useQueuedReads, useStartTypedMatrix } from '@/lib/api/matrixImports'
 import { useAiStatus } from '@/lib/api/assistant'
 import { useLenderContacts, useLenderFiles, useLenderMatrixVersions, useLenderOverlays } from '@/lib/api/lenderPage'
 import { openGuidelinePdf, searchPassages, useCatalog, type Passage } from '@/lib/api/products'
@@ -183,6 +184,27 @@ function DocumentList({ lenderId, documents, programs, canEdit }: { lenderId: st
   /** A draft already started for a document (typed or read), so it is continued instead of started twice. */
   const draftFor = (id: string) => pending.data?.find((i) => i.documentId === id)?.id ?? null
   const aiOff = ai.data?.ready === false
+  const queryClient = useQueryClient()
+  const queuedReads = useQueuedReads()
+  const inBackground = new Set(queuedReads.data ?? [])
+  useCollectReads(lenderId, inBackground.size)
+  const [sending, setSending] = useState(false)
+  const readable = (d: LenderDocument) => (d.docType === 'matrix' || d.docType === 'guidelines') && !!d.storagePath
+  /** Matrices and guidelines that haven't been read, typed or linked to a program yet. */
+  const unread = documents.filter((d) => readable(d) && d.programIds.length === 0 && !draftFor(d.id) && !inBackground.has(d.id))
+  const readAllLater = async () => {
+    setSending(true)
+    try {
+      const r = await queueMatrixReads(unread.map((d) => d.id))
+      queryClient.invalidateQueries({ queryKey: ['batchReads'] })
+      if (r.queued) toast.success(`Sent ${r.queued} to be read. Each reading shows up under Waiting for your review, usually within an hour.`)
+      for (const x of r.skipped) toast.error(`${documents.find((d) => d.id === x.documentId)?.title ?? 'A document'}: ${x.error}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setSending(false)
+    }
+  }
   const read = async (d: LenderDocument) => {
     setReading(d.id)
     try {
@@ -197,69 +219,89 @@ function DocumentList({ lenderId, documents, programs, canEdit }: { lenderId: st
   if (documents.length === 0) return <p className="text-sm text-muted-foreground">No documents yet.</p>
   const fail = { onError: (e: Error) => toast.error(e.message) }
   return (
-    <ul className="divide-y">
-      {documents.map((d) => (
-        <li key={d.id} className="py-2.5">
-          <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
-            <div className={cn('min-w-0 flex-1', !d.current && 'text-muted-foreground')}>
-              <p className="text-sm font-medium">
-                {d.title}
-                {!d.current && <span className="ml-2 rounded-full border px-2 py-0.5 text-[10px] font-normal">Superseded</span>}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {DOC_LABEL[d.docType]}
-                {d.versionLabel && ` · ${d.versionLabel}`}
-                {d.effectiveDate && ` · effective ${new Date(`${d.effectiveDate}T12:00:00`).toLocaleDateString('en-US')}`}
-                {d.pageCount != null && ` · ${d.pageCount} page${d.pageCount === 1 ? '' : 's'}`} · {d.passageCount} searchable passage{d.passageCount === 1 ? '' : 's'}
-                {d.pageCount != null && d.passageCount === 0 && ' (scanned? no text found)'}
-              </p>
-              <p className="mt-0.5 text-xs">{d.programIds.length ? `Covers: ${programs.filter((p) => d.programIds.includes(p.id)).map((p) => p.name).join(', ')}` : <span className="text-amber-700">Not linked to a program yet</span>}</p>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {d.storagePath && (
-                <Button size="sm" variant="ghost" onClick={() => openGuidelinePdf(d.storagePath!, null).catch((e: Error) => toast.error(e.message))}>
-                  Open
-                </Button>
-              )}
-              {canEdit && (
-                <>
-                  {d.programIds.length === 0 &&
-                    (draftFor(d.id) ? (
-                      <Button size="sm" variant="outline" asChild>
-                        <Link to={`/admin/lenders/imports/${draftFor(d.id)}`}>Continue setup</Link>
-                      </Button>
-                    ) : (
-                      <SetUpProgramButton lenderId={lenderId} document={d} />
-                    ))}
-                  {d.docType === 'matrix' && d.programIds.length > 0 && <TypeMatrixButton lenderId={lenderId} documentId={d.id} label="Type it in" />}
-                  {(d.docType === 'matrix' || d.docType === 'guidelines') && d.storagePath && (
-                    <Button size="sm" variant="outline" disabled={reading !== null || aiOff} onClick={() => read(d)} title={aiOff ? 'Turns on once the AI assistant is set up (the Anthropic key in Supabase)' : 'The assistant reads every grid and rule; you review it against the PDF before anything is used'}>
-                      {reading === d.id ? 'Reading… (a minute or two)' : 'Read with AI'}
-                    </Button>
-                  )}
-                  <Button size="sm" variant="ghost" onClick={() => setLinking(linking === d.id ? null : d.id)}>
-                    Programs
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => update.mutate({ id: d.id, current: !d.current }, fail)}>
-                    {d.current ? 'Mark superseded' : 'Mark current'}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={async () => (await confirmAction(`Delete "${d.title}" and its searchable text? This can't be undone.`, { confirmLabel: 'Delete', destructive: true })) && remove.mutate(d, { onSuccess: () => toast.success('Deleted'), ...fail })}>
-                    Delete
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
-          {linking === d.id && (
-            <ToggleChipGroup className="mt-2">
-              {programs.map((p) => (
-                <ToggleChip key={p.id} label={p.name} pressed={d.programIds.includes(p.id)} onChange={(on) => update.mutate({ id: d.id, programIds: on ? [...d.programIds, p.id] : d.programIds.filter((x) => x !== p.id) }, fail)} />
-              ))}
-            </ToggleChipGroup>
+    <>
+      {canEdit && !aiOff && (unread.length > 0 || inBackground.size > 0) && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          <span className="flex-1">
+            {inBackground.size > 0 && `${inBackground.size} being read in the background. `}
+            {unread.length > 0 && `${unread.length} not read yet.`}
+          </span>
+          {unread.length > 0 && (
+            <Button size="sm" variant="outline" disabled={sending} onClick={readAllLater} title="Half the cost of reading now, and no time limit, so long matrices get read too. Readings come back within minutes to a few hours.">
+              {sending ? 'Sending…' : `Read ${unread.length === 1 ? 'it' : `all ${unread.length}`} in the background (half price)`}
+            </Button>
           )}
-        </li>
-      ))}
-    </ul>
+        </div>
+      )}
+      <ul className="divide-y">
+        {documents.map((d) => (
+          <li key={d.id} className="py-2.5">
+            <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
+              <div className={cn('min-w-0 flex-1', !d.current && 'text-muted-foreground')}>
+                <p className="text-sm font-medium">
+                  {d.title}
+                  {!d.current && <span className="ml-2 rounded-full border px-2 py-0.5 text-[10px] font-normal">Superseded</span>}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {DOC_LABEL[d.docType]}
+                  {d.versionLabel && ` · ${d.versionLabel}`}
+                  {d.effectiveDate && ` · effective ${new Date(`${d.effectiveDate}T12:00:00`).toLocaleDateString('en-US')}`}
+                  {d.pageCount != null && ` · ${d.pageCount} page${d.pageCount === 1 ? '' : 's'}`} · {d.passageCount} searchable passage{d.passageCount === 1 ? '' : 's'}
+                  {d.pageCount != null && d.passageCount === 0 && ' (scanned? no text found)'}
+                </p>
+                <p className="mt-0.5 text-xs">{d.programIds.length ? `Covers: ${programs.filter((p) => d.programIds.includes(p.id)).map((p) => p.name).join(', ')}` : <span className="text-amber-700">Not linked to a program yet</span>}</p>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {d.storagePath && (
+                  <Button size="sm" variant="ghost" onClick={() => openGuidelinePdf(d.storagePath!, null).catch((e: Error) => toast.error(e.message))}>
+                    Open
+                  </Button>
+                )}
+                {canEdit && (
+                  <>
+                    {d.programIds.length === 0 &&
+                      (draftFor(d.id) ? (
+                        <Button size="sm" variant="outline" asChild>
+                          <Link to={`/admin/lenders/imports/${draftFor(d.id)}`}>Continue setup</Link>
+                        </Button>
+                      ) : (
+                        <SetUpProgramButton lenderId={lenderId} document={d} />
+                      ))}
+                    {d.docType === 'matrix' && d.programIds.length > 0 && <TypeMatrixButton lenderId={lenderId} documentId={d.id} label="Type it in" />}
+                    {readable(d) && inBackground.has(d.id) && (
+                      <Button size="sm" variant="outline" disabled title="Sent to be read in the background; the reading shows up under Waiting for your review">
+                        Reading in the background…
+                      </Button>
+                    )}
+                    {readable(d) && !inBackground.has(d.id) && (
+                      <Button size="sm" variant="outline" disabled={reading !== null || aiOff} onClick={() => read(d)} title={aiOff ? 'Turns on once the AI assistant is set up (the Anthropic key in Supabase)' : 'The assistant reads every grid and rule; you review it against the PDF before anything is used'}>
+                        {reading === d.id ? 'Reading… (a minute or two)' : 'Read with AI'}
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => setLinking(linking === d.id ? null : d.id)}>
+                      Programs
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => update.mutate({ id: d.id, current: !d.current }, fail)}>
+                      {d.current ? 'Mark superseded' : 'Mark current'}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={async () => (await confirmAction(`Delete "${d.title}" and its searchable text? This can't be undone.`, { confirmLabel: 'Delete', destructive: true })) && remove.mutate(d, { onSuccess: () => toast.success('Deleted'), ...fail })}>
+                      Delete
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+            {linking === d.id && (
+              <ToggleChipGroup className="mt-2">
+                {programs.map((p) => (
+                  <ToggleChip key={p.id} label={p.name} pressed={d.programIds.includes(p.id)} onChange={(on) => update.mutate({ id: d.id, programIds: on ? [...d.programIds, p.id] : d.programIds.filter((x) => x !== p.id) }, fail)} />
+                ))}
+              </ToggleChipGroup>
+            )}
+          </li>
+        ))}
+      </ul>
+    </>
   )
 }
 

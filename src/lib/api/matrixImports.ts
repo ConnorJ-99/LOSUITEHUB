@@ -49,6 +49,67 @@ export async function readMatrix(documentId: string): Promise<string> {
   return r.importId
 }
 
+interface BatchSubmit {
+  batchId: string | null
+  queued: number
+  skipped: { documentId: string; error: string }[]
+  left: string[]
+}
+
+/**
+ * Sends matrices to be read in the background: half price and no time limit, so long
+ * matrices get read too. Takes as many calls as the PDFs need; each reading lands in
+ * "Waiting for your review" once it's collected.
+ */
+export async function queueMatrixReads(documentIds: string[]): Promise<{ queued: number; skipped: BatchSubmit['skipped'] }> {
+  let rest = documentIds
+  let queued = 0
+  const skipped: BatchSubmit['skipped'] = []
+  while (rest.length > 0) {
+    const r = await invokeAssistant<BatchSubmit>({ task: 'matrix_batch_submit', documentIds: rest.slice(0, 50) }, 'The assistant could not send these to be read.')
+    queued += r.queued
+    skipped.push(...r.skipped)
+    rest = [...r.left, ...rest.slice(50)]
+  }
+  return { queued, skipped }
+}
+
+export interface BatchCollect {
+  saved: number
+  failed: number
+  waiting: number
+  more: boolean
+}
+
+/** Saves the background readings that are done (no AI cost: it only fetches finished results). */
+export async function collectMatrixReads(): Promise<BatchCollect> {
+  return invokeAssistant<BatchCollect>({ task: 'matrix_batch_collect' }, 'The assistant could not check the background readings.')
+}
+
+/** Documents being read in the background right now. */
+export function useQueuedReads() {
+  return useQuery({
+    queryKey: ['batchReads'],
+    queryFn: async () =>
+      unwrap<{ input_ref: { documentId: string } }[]>(await db().from('ai_runs').select('input_ref').eq('task_type', 'matrix_read').eq('status', 'running').not('input_ref->>batchId', 'is', null)).map((r) => r.input_ref.documentId),
+  })
+}
+
+/** While anything is being read in the background, saves finished readings every two minutes. */
+export function useCollectReads(lenderId: string, queued: number) {
+  const queryClient = useQueryClient()
+  return useQuery({
+    queryKey: ['batchCollect', lenderId],
+    enabled: queued > 0,
+    refetchInterval: 2 * 60 * 1000,
+    queryFn: async () => {
+      const r = await collectMatrixReads()
+      if (r.saved + r.failed > 0) for (const key of [['batchReads'], keys.lenderImports(lenderId)]) queryClient.invalidateQueries({ queryKey: key })
+      return r
+    },
+  })
+}
+
 /** Starts a matrix typed by hand (optionally beside one of the lender's PDFs). It's a draft until approved, like an AI reading. */
 export function useStartTypedMatrix(lenderId: string) {
   const queryClient = useQueryClient()

@@ -213,6 +213,8 @@ Deno.serve(async (request) => {
     if (task === 'contract_read') return await handleContractRead(db, body, userId, apiKey)
     if (task === 'call_notes_read') return await handleNotesRead(db, body, userId, apiKey)
     if (task === 'matrix_read') return await handleMatrixRead(db, body, userId, apiKey)
+    if (task === 'matrix_batch_submit') return await handleMatrixBatchSubmit(db, body, userId, apiKey)
+    if (task === 'matrix_batch_collect') return await handleMatrixBatchCollect(db, apiKey)
     if (task === 'scenario_read') return await handleScenarioRead(db, body, userId, apiKey)
     if (task === 'guideline_answer') return await handleGuidelineAnswer(db, body, userId, apiKey)
     return await handleFollowUp(db, body, userId, apiKey)
@@ -508,37 +510,83 @@ ${noteText}
 /** Matrices are read with Opus: a misread cell sends a borrower to the wrong lender. */
 const MATRIX_MODEL = 'claude-opus-5-5'
 
+interface MatrixDoc {
+  organizationId: string
+  lenderId: string
+  title: string
+  storagePath: string
+}
+
+/** The lender document to read, or why it can't be read. */
+async function findMatrixDoc(db: SupabaseClient, documentId: unknown): Promise<MatrixDoc | { error: string }> {
+  if (typeof documentId !== 'string' || !UUID.test(documentId)) return { error: 'Missing or invalid document.' }
+  const doc = await db.from('guideline_documents').select('id, organization_id, lender_id, title, storage_path').eq('id', documentId).maybeSingle()
+  if (doc.error || !doc.data) return { error: "Document not found, or you don't have access." }
+  const { organization_id: organizationId, lender_id: lenderId, title, storage_path: storagePath } = doc.data as { organization_id: string; lender_id: string; title: string; storage_path: string | null }
+  if (!storagePath) return { error: 'This document has no stored PDF. Upload the matrix PDF first.' }
+  return { organizationId, lenderId, title, storagePath }
+}
+
+async function downloadMatrix(db: SupabaseClient, doc: MatrixDoc): Promise<Uint8Array> {
+  const blob = await db.storage.from('guideline-files').download(doc.storagePath)
+  if (blob.error || !blob.data) throw new Error(`Could not open ${doc.title}: ${blob.error?.message ?? 'missing file'}`)
+  const bytes = new Uint8Array(await blob.data.arrayBuffer())
+  if (bytes.length > MAX_MATRIX_BYTES) throw new UserError(`${doc.title} is ${Math.round(bytes.length / 1024 / 1024)} MB; the assistant reads matrices up to 20 MB. Upload just the matrix pages.`)
+  return bytes
+}
+
+/** What a matrix read sends Claude, the same whether it's read now or in a batch. */
+function matrixParams(bytes: Uint8Array, title: string) {
+  return {
+    model: MATRIX_MODEL,
+    max_tokens: 64000,
+    system: MATRIX_SYSTEM_PROMPT,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64(bytes) }, title },
+          { type: 'text', text: `${MATRIX_USER_PROMPT}\n\n${MATRIX_FORMAT_PROMPT}` },
+        ],
+      },
+    ],
+    // No structured-output format: the matrix form is too large for it; the reply is checked field by field.
+    output_config: { effort: 'medium' },
+  }
+}
+
+interface MatrixReply {
+  stop_reason: string | null
+  content: { type: string; text?: string }[]
+}
+
+/** Checks the assistant's reply and saves the reading for review; returns the import's id. */
+async function saveMatrixReply(db: SupabaseClient, runId: string, usage: Usage, doc: { organizationId: string; lenderId: string; documentId: string }, res: MatrixReply): Promise<string> {
+  if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read this document.')
+  if (res.stop_reason === 'max_tokens') throw new UserError('The matrix is too long to read in one go. Upload it in smaller parts (a few programs per PDF).')
+  const text = res.content.flatMap((b) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
+  const raw = parseJsonReply(text)
+  if (raw == null) throw new UserError('The assistant returned something unreadable. Try again.')
+  const reading = normalizeMatrixReading(raw)
+  if ('error' in reading) throw new UserError(reading.error)
+
+  const saved = await db.from('matrix_imports').insert({ organization_id: doc.organizationId, lender_id: doc.lenderId, document_id: doc.documentId, ai_run_id: runId, reading }).select('id').single()
+  if (saved.error) throw new Error(`Could not save the reading: ${saved.error.message}`)
+  await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+  return saved.data.id as string
+}
+
 async function handleMatrixRead(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
   const documentId = (body as { documentId?: unknown } | null)?.documentId
-  if (typeof documentId !== 'string' || !UUID.test(documentId)) return reply(400, { error: 'Missing or invalid document.' })
-  const doc = await db.from('guideline_documents').select('id, organization_id, lender_id, title, storage_path').eq('id', documentId).maybeSingle()
-  if (doc.error || !doc.data) return reply(400, { error: "Document not found, or you don't have access." })
-  const { organization_id: organizationId, lender_id: lenderId, title, storage_path: storagePath } = doc.data as { organization_id: string; lender_id: string; title: string; storage_path: string | null }
-  if (!storagePath) return reply(400, { error: 'This document has no stored PDF. Upload the matrix PDF first.' })
+  const doc = await findMatrixDoc(db, documentId)
+  if ('error' in doc) return reply(400, doc)
 
-  const runId = await startRun(db, organizationId, null, 'matrix_read', { documentId }, MATRIX_MODEL, userId)
+  const runId = await startRun(db, doc.organizationId, null, 'matrix_read', { documentId }, MATRIX_MODEL, userId)
   const usage: Usage = { input: 0, output: 0, model: MATRIX_MODEL }
   try {
-    const blob = await db.storage.from('guideline-files').download(storagePath)
-    if (blob.error || !blob.data) throw new Error(`Could not open ${title}: ${blob.error?.message ?? 'missing file'}`)
-    const bytes = new Uint8Array(await blob.data.arrayBuffer())
-    if (bytes.length > MAX_MATRIX_BYTES) throw new UserError(`${title} is ${Math.round(bytes.length / 1024 / 1024)} MB; the assistant reads matrices up to 20 MB. Upload just the matrix pages.`)
-
+    const bytes = await downloadMatrix(db, doc)
     const params = {
-      model: MATRIX_MODEL,
-      max_tokens: 64000,
-      system: MATRIX_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64(bytes) }, title },
-            { type: 'text', text: `${MATRIX_USER_PROMPT}\n\n${MATRIX_FORMAT_PROMPT}` },
-          ],
-        },
-      ],
-      // No structured-output format: the matrix form is too large for it; the reply is checked field by field below.
-      output_config: { effort: 'medium' },
+      ...matrixParams(bytes, doc.title),
       // If Opus declines on a safety check, the API retries on a suitable model itself.
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
@@ -548,21 +596,126 @@ async function handleMatrixRead(db: SupabaseClient, body: unknown, userId: strin
     usage.input += res.usage.input_tokens
     usage.output += res.usage.output_tokens
     usage.model = res.model
-    if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read this document.')
-    if (res.stop_reason === 'max_tokens') throw new UserError('The matrix is too long to read in one go. Upload it in smaller parts (a few programs per PDF).')
-    const text = res.content.flatMap((b: { type: string; text?: string }) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
-    const raw = parseJsonReply(text)
-    if (raw == null) throw new UserError('The assistant returned something unreadable. Try again.')
-    const reading = normalizeMatrixReading(raw)
-    if ('error' in reading) throw new UserError(reading.error)
-
-    const saved = await db.from('matrix_imports').insert({ organization_id: organizationId, lender_id: lenderId, document_id: documentId, ai_run_id: runId, reading }).select('id').single()
-    if (saved.error) throw new Error(`Could not save the reading: ${saved.error.message}`)
-    await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
-    return reply(200, { importId: saved.data.id, runId })
+    const importId = await saveMatrixReply(db, runId, usage, { organizationId: doc.organizationId, lenderId: doc.lenderId, documentId: documentId as string }, res as MatrixReply)
+    return reply(200, { importId, runId })
   } catch (e) {
     return failRun(db, runId, usage, e)
   }
+}
+
+// Batch reading: half price and no time limit, so long matrices that run past
+// the function's time limit still get read. Results come back within minutes
+// to a few hours; "collect" saves each finished reading for review, the same
+// as a reading done right away. Each document is its own run in ai_runs,
+// marked with its batch (input_ref.batchId) and "running" until collected.
+
+/** PDF bytes sent per call, so one call stays well inside the function's memory. Documents past it come back as "left" for the next call. */
+const BATCH_BYTES = 25 * 1024 * 1024
+const MAX_BATCH_DOCS = 50
+
+async function handleMatrixBatchSubmit(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const ids = (body as { documentIds?: unknown } | null)?.documentIds
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_BATCH_DOCS) return reply(400, { error: `Send 1 to ${MAX_BATCH_DOCS} documents.` })
+
+  const requests: { custom_id: string; params: ReturnType<typeof matrixParams> }[] = []
+  const runs: { runId: string; documentId: string; lenderId: string }[] = []
+  const skipped: { documentId: unknown; error: string }[] = []
+  const left: unknown[] = []
+  let bytesSent = 0
+  for (const documentId of ids) {
+    if (requests.length > 0 && bytesSent >= BATCH_BYTES) {
+      left.push(documentId)
+      continue
+    }
+    const doc = await findMatrixDoc(db, documentId)
+    if ('error' in doc) {
+      skipped.push({ documentId, error: doc.error })
+      continue
+    }
+    let bytes: Uint8Array
+    try {
+      bytes = await downloadMatrix(db, doc)
+    } catch (e) {
+      skipped.push({ documentId, error: (e as Error).message })
+      continue
+    }
+    bytesSent += bytes.length
+    const runId = await startRun(db, doc.organizationId, null, 'matrix_read', { documentId, lenderId: doc.lenderId }, MATRIX_MODEL, userId)
+    // The run's id matches each result to its document when the batch comes back.
+    requests.push({ custom_id: runId, params: matrixParams(bytes, doc.title) })
+    runs.push({ runId, documentId: documentId as string, lenderId: doc.lenderId })
+  }
+  if (requests.length === 0) return reply(200, { batchId: null, queued: 0, skipped, left })
+
+  try {
+    const batch = await new Anthropic({ apiKey }).messages.batches.create({ requests } as never)
+    await Promise.all(runs.map((r) => db.from('ai_runs').update({ input_ref: { documentId: r.documentId, lenderId: r.lenderId, batchId: batch.id } }).eq('id', r.runId)))
+    return reply(200, { batchId: batch.id, queued: runs.length, skipped, left })
+  } catch (e) {
+    const message = e instanceof Anthropic.APIError ? `Claude API error (${e.status ?? 'network'}): ${e.message}` : (e as Error).message
+    await db.from('ai_runs').update({ status: 'failed', error: message }).in('id', runs.map((r) => r.runId))
+    return reply(502, { error: message })
+  }
+}
+
+/** Stops saving results a little before the function's time limit; the rest are saved on the next call. */
+const COLLECT_SECONDS = 100
+
+interface BatchRun {
+  id: string
+  organization_id: string
+  input_ref: { documentId: string; lenderId: string; batchId: string }
+}
+
+async function handleMatrixBatchCollect(db: SupabaseClient, apiKey: string) {
+  const open = await db.from('ai_runs').select('id, organization_id, input_ref').eq('task_type', 'matrix_read').eq('status', 'running').not('input_ref->>batchId', 'is', null)
+  if (open.error) throw new Error(`Could not list batch reads: ${open.error.message}`)
+  const runs = new Map((open.data as BatchRun[]).map((r) => [r.id, r]))
+  const batchIds = [...new Set([...runs.values()].map((r) => r.input_ref.batchId))]
+
+  const client = new Anthropic({ apiKey })
+  const started = Date.now()
+  const outOfTime = () => Date.now() - started > COLLECT_SECONDS * 1000
+  let saved = 0
+  let failed = 0
+  let waiting = 0
+  let more = false
+  for (const batchId of batchIds) {
+    if (outOfTime()) {
+      more = true
+      break
+    }
+    const batch = await client.messages.batches.retrieve(batchId)
+    if (batch.processing_status !== 'ended') {
+      waiting += [...runs.values()].filter((r) => r.input_ref.batchId === batchId).length
+      continue
+    }
+    for await (const result of await client.messages.batches.results(batchId)) {
+      const run = runs.get(result.custom_id)
+      // Already collected, or another person's run.
+      if (!run) continue
+      if (outOfTime()) {
+        more = true
+        break
+      }
+      const usage: Usage = { input: 0, output: 0, model: MATRIX_MODEL }
+      try {
+        if (result.result.type === 'errored') throw new UserError(`The read failed (${result.result.error.error.type}): ${result.result.error.error.message} Send it again.`)
+        if (result.result.type === 'expired') throw new UserError('The batch ran out of time before reading this one. Send it again.')
+        if (result.result.type === 'canceled') throw new UserError('This read was canceled. Send it again.')
+        const res = result.result.message
+        usage.input = res.usage.input_tokens
+        usage.output = res.usage.output_tokens
+        usage.model = res.model
+        await saveMatrixReply(db, run.id, usage, { organizationId: run.organization_id, lenderId: run.input_ref.lenderId, documentId: run.input_ref.documentId }, res as MatrixReply)
+        saved++
+      } catch (e) {
+        await failRun(db, run.id, usage, e)
+        failed++
+      }
+    }
+  }
+  return reply(200, { saved, failed, waiting, more })
 }
 
 // ---------------------------------------------------------------------------
