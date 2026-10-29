@@ -382,6 +382,22 @@ describe('a matrix fills in the existing product', () => {
     expect(matchProgram('DSCR 5-8 Unit', existing, 'A&D Mortgage', { family: 'non_qm', lien: 'first' })).toBeNull()
     expect(matchProgram('FHA', existing, 'A&D Mortgage', { family: 'va', lien: 'first' })).toBeNull()
   })
+  it('a reading opens fixed, matched and named like the product it fills in; errors and double matches block approving it unseen', () => {
+    const r = M.normalizeMatrixReading(reading()) as M.MatrixReading
+    const conv = { family: 'conventional' as const, lien: 'first' as const, active: true, cells: [], rules: [], docTypes: [], purposes: [], features: [], termOptions: [], description: null, sourceDocumentId: null }
+    const fannie = { ...r, programs: [{ ...r.programs[0], name: 'Fannie Mae Standard' }] }
+    const opened = M2.reviewReading(fannie, { pending: true, lenderName: 'A&D Mortgage', documentId: 'pdf', existing: [{ ...conv, id: 'conv', name: 'Conventional' }] })
+    expect(opened.programs[0]).toMatchObject({ programId: 'conv', name: 'Conventional', mode: 'merge', include: true })
+    expect(M2.approvalBlockers(opened.programs)).toEqual([])
+    // A retired product isn't filled in.
+    expect(M2.reviewReading(fannie, { pending: true, lenderName: '', documentId: 'pdf', existing: [{ ...conv, id: 'conv', name: 'Conventional', active: false }] }).programs[0].programId).toBeNull()
+    // Two programs filling in the same product need a look.
+    const twice = { ...r, programs: [fannie.programs[0], { ...fannie.programs[0], name: 'Freddie Mac Standard' }] }
+    const both = M2.reviewReading(twice, { pending: true, lenderName: '', documentId: 'pdf', existing: [{ ...conv, id: 'conv', name: 'Conventional' }] }).programs
+    expect(M2.approvalBlockers(both)).toContain('Two programs in this reading fill in the same product.')
+    const broken = { ...opened.programs[0], grids: [{ ...opened.programs[0].grids[0], propertyTypes: [], columns: opened.programs[0].grids[0].columns.map((c) => ({ ...c, propertyTypes: null })) }] }
+    expect(M2.approvalBlockers([broken]).length).toBeGreaterThan(0)
+  })
   it('Fannie Mae and Freddie Mac matrices fill in the Conventional product; HomeReady and the rest stay their own', () => {
     const conv = { family: 'conventional' as const, lien: 'first' as const }
     const programs = [

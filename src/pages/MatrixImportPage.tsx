@@ -8,7 +8,7 @@ import { useAuth } from '@/lib/auth/context'
 import { PlusIcon, Trash2Icon } from 'lucide-react'
 import { GridEditor, RuleForm } from '@/components/lenders/MatrixGridEditor'
 import { saveTypedDraft, useApproveImport, useDiscardImport, useExistingPrograms, useMatrixImport, useSignedPdf, type ExistingProgram, type MatrixImport } from '@/lib/api/matrixImports'
-import { cellsFromProgram, changeText, checkProgram, defaultMode, diffCells, matchProgram, mergedProgram, repairProgram, type ReviewProgram } from '@/lib/products/matrixImport'
+import { cellsFromProgram, changeText, checkProgram, defaultMode, diffCells, mergedProgram, reviewReading, type ReviewProgram } from '@/lib/products/matrixImport'
 import { DOC_TYPES, FEATURES, LIENS, MATRIX_PURPOSES, PRODUCT_FAMILIES, TERM_OPTIONS, termChoices } from '@/lib/products/taxonomy'
 import { blankGrid, blankProgram, copyGrid, ratioFor, syncGrids } from '@/lib/products/typedMatrix'
 
@@ -36,18 +36,9 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
   const discard = useDiscardImport(imp.id, imp.lenderId)
   const pdf = useSignedPdf(imp.storagePath)
   // Readings waiting for review get the common fixes first (no-score rows, Condotel/rural grids, missing income type).
-  const [repaired] = useState(() => imp.reading.programs.map((p) => (imp.status === 'pending_review' ? repairProgram(p) : { program: p, fixes: [] })))
-  const [programs, setPrograms] = useState<ReviewProgram[]>(() =>
-    repaired.map(({ program: p }) => {
-      // A draft from "Edit limits" is a full copy of that program's matrix: it replaces it.
-      if (imp.reading.editOf) return { ...p, include: true, programId: imp.reading.editOf, mode: 'replace' as const }
-      const programId = matchProgram(p.name, existing.filter((e) => e.active), imp.lenderName, p)
-      const target = existing.find((e) => e.id === programId)
-      // Filling in a product keeps its name: a Fannie Mae matrix doesn't rename "Conventional".
-      return { ...p, name: target?.name ?? p.name, include: true, programId, mode: defaultMode(p, target, imp.documentId) }
-    }),
-  )
-  const fixes = repaired.flatMap((r) => r.fixes)
+  const [opened] = useState(() => reviewReading(imp.reading, { pending: imp.status === 'pending_review', lenderName: imp.lenderName, documentId: imp.documentId, existing }))
+  const [programs, setPrograms] = useState<ReviewProgram[]>(opened.programs)
+  const fixes = opened.fixes
   const [effectiveDate, setEffectiveDate] = useState<string | null>(imp.reading.effectiveDate)
   const pending = imp.status === 'pending_review'
   const editable = pending && canEdit

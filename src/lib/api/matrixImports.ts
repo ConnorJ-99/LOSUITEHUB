@@ -1,7 +1,8 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MatrixReading, ReadGrid, ReadProgram, ReadRule } from '../../../supabase/functions/assistant/matrix'
 import type { ProgramNow, ReviewProgram } from '@/lib/products/matrixImport'
-import { approvalPayload } from '@/lib/products/matrixImport'
+import { approvalBlockers, approvalPayload, reviewReading } from '@/lib/products/matrixImport'
 import { blankProgram, gridsFromCells } from '@/lib/products/typedMatrix'
 import type { MatrixCell } from '@/lib/products/types'
 import { invokeAssistant } from './assistant'
@@ -194,42 +195,41 @@ export interface ExistingProgram extends ProgramNow {
 
 /** The lender's programs with what each has now (matrix cells, rules, terms, income types), to compare against or merge into. */
 export function useExistingPrograms(lenderId: string) {
-  return useQuery({
-    queryKey: keys.lenderPrograms(`${lenderId}:cells`),
-    queryFn: async (): Promise<ExistingProgram[]> => {
-      const programs = unwrap<
-        { id: string; name: string; product_family: ReadProgram['family']; lien: ReadProgram['lien']; active: boolean; doc_types: ProgramNow['docTypes']; purposes: ProgramNow['purposes']; features: ProgramNow['features']; term_options: ProgramNow['termOptions'] | null; description: string | null; matrix_versions: { id: string; version: number; status: string; source_document_id: string | null }[] }[]
-      >(await db().from('programs').select('id, name, product_family, lien, active, doc_types, purposes, features, term_options, description, matrix_versions(id, version, status, source_document_id)').eq('lender_id', lenderId))
-      const approved = programs.flatMap((p) => p.matrix_versions.filter((v) => v.status === 'approved').map((v) => ({ programId: p.id, versionId: v.id, version: v.version, sourceDocumentId: v.source_document_id })))
-      const ids = approved.map((a) => a.versionId)
-      const [cells, rules] = ids.length
-        ? await Promise.all([
-            unwrap<Record<string, unknown>[]>(await db().from('program_matrix_cells').select(CELL_COLUMNS).in('matrix_version_id', ids).limit(20000)),
-            unwrap<Record<string, unknown>[]>(await db().from('program_rules').select(RULE_COLUMNS).in('matrix_version_id', ids)),
-          ])
-        : [[], []]
-      return programs.map((p): ExistingProgram => {
-        const v = approved.find((x) => x.programId === p.id)
-        return {
-          id: p.id,
-          name: p.name,
-          family: p.product_family,
-          lien: p.lien,
-          active: p.active,
-          version: v?.version ?? null,
-          sourceDocumentId: v?.sourceDocumentId ?? null,
-          docTypes: p.doc_types,
-          purposes: p.purposes,
-          features: p.features,
-          termOptions: p.term_options ?? [],
-          description: p.description,
-          cells: cells.filter((c) => c.matrix_version_id === v?.versionId).map(toImportCell),
-          rules: rules
-            .filter((r) => r.matrix_version_id === v?.versionId)
-            .map(toReadRule),
-        }
-      })
-    },
+  return useQuery({ queryKey: keys.lenderPrograms(`${lenderId}:cells`), queryFn: () => existingPrograms(lenderId) })
+}
+
+async function existingPrograms(lenderId: string): Promise<ExistingProgram[]> {
+  const programs = unwrap<
+    { id: string; name: string; product_family: ReadProgram['family']; lien: ReadProgram['lien']; active: boolean; doc_types: ProgramNow['docTypes']; purposes: ProgramNow['purposes']; features: ProgramNow['features']; term_options: ProgramNow['termOptions'] | null; description: string | null; matrix_versions: { id: string; version: number; status: string; source_document_id: string | null }[] }[]
+  >(await db().from('programs').select('id, name, product_family, lien, active, doc_types, purposes, features, term_options, description, matrix_versions(id, version, status, source_document_id)').eq('lender_id', lenderId))
+  const approved = programs.flatMap((p) => p.matrix_versions.filter((v) => v.status === 'approved').map((v) => ({ programId: p.id, versionId: v.id, version: v.version, sourceDocumentId: v.source_document_id })))
+  const ids = approved.map((a) => a.versionId)
+  const [cells, rules] = ids.length
+    ? await Promise.all([
+        unwrap<Record<string, unknown>[]>(await db().from('program_matrix_cells').select(CELL_COLUMNS).in('matrix_version_id', ids).limit(20000)),
+        unwrap<Record<string, unknown>[]>(await db().from('program_rules').select(RULE_COLUMNS).in('matrix_version_id', ids)),
+      ])
+    : [[], []]
+  return programs.map((p): ExistingProgram => {
+    const v = approved.find((x) => x.programId === p.id)
+    return {
+      id: p.id,
+      name: p.name,
+      family: p.product_family,
+      lien: p.lien,
+      active: p.active,
+      version: v?.version ?? null,
+      sourceDocumentId: v?.sourceDocumentId ?? null,
+      docTypes: p.doc_types,
+      purposes: p.purposes,
+      features: p.features,
+      termOptions: p.term_options ?? [],
+      description: p.description,
+      cells: cells.filter((c) => c.matrix_version_id === v?.versionId).map(toImportCell),
+      rules: rules
+        .filter((r) => r.matrix_version_id === v?.versionId)
+        .map(toReadRule),
+    }
   })
 }
 
@@ -244,6 +244,87 @@ export function useApproveImport(importId: string, lenderId: string) {
       for (const key of [keys.matrixImport(importId), keys.lenderImports(lenderId), keys.lenderPrograms(lenderId), keys.lenderPrograms(`${lenderId}:cells`), keys.lenderDocuments(lenderId), keys.lenders, keys.catalog, ['programGuidelines']]) queryClient.invalidateQueries({ queryKey: key })
     },
   })
+}
+
+export interface NeedsReview {
+  importId: string
+  lenderId: string
+  lenderName: string
+  title: string
+  reasons: string[]
+}
+
+export interface ApproveAllResult {
+  readings: number
+  programs: number
+  cells: number
+  needsReview: NeedsReview[]
+}
+
+/** Readings the assistant made that are waiting for review (one lender, or every lender), oldest first. */
+async function waitingAiReadings(lenderId: string | null): Promise<MatrixImport[]> {
+  let q = db().from('matrix_imports').select(SELECT).eq('status', 'pending_review').eq('source', 'ai')
+  if (lenderId) q = q.eq('lender_id', lenderId)
+  return unwrap<ImportRow[]>(await q.order('created_at').limit(1000)).map(toImport)
+}
+
+/** How many of the assistant's readings wait for review (one lender, or every lender). */
+export function useWaitingAiCount(lenderId: string | null) {
+  return useQuery({ queryKey: ['waitingAi', lenderId], queryFn: async () => (await waitingAiReadings(lenderId)).length })
+}
+
+/**
+ * Approves every reading the assistant made that has no errors, exactly as
+ * approving it on its review screen would (the same fixes, product matching
+ * and merge or replace). One lender at a time and in the order they were read,
+ * so a later reading fills in a product an earlier one created. Readings with
+ * errors, and drafts typed by hand, stay waiting.
+ */
+export async function approveAllReady(lenderId: string | null, onProgress: (done: number, total: number) => void): Promise<ApproveAllResult> {
+  const waiting = await waitingAiReadings(lenderId)
+  const result: ApproveAllResult = { readings: 0, programs: 0, cells: 0, needsReview: [] }
+  const lenders = [...new Set(waiting.map((i) => i.lenderId))]
+  let done = 0
+  for (const id of lenders) {
+    let existing = await existingPrograms(id)
+    for (const imp of waiting.filter((i) => i.lenderId === id)) {
+      onProgress(done++, waiting.length)
+      const { programs } = reviewReading(imp.reading, { pending: true, lenderName: imp.lenderName, documentId: imp.documentId, existing })
+      const reasons = approvalBlockers(programs)
+      const needs = { importId: imp.id, lenderId: id, lenderName: imp.lenderName, title: imp.documentTitle ?? imp.reading.programs.map((p) => p.name).join(', ') }
+      if (reasons.length) {
+        result.needsReview.push({ ...needs, reasons })
+        continue
+      }
+      const r = await db().rpc('approve_matrix_import', { p_import_id: imp.id, p_programs: approvalPayload(programs, existing), p_effective_date: imp.reading.effectiveDate })
+      if (r.error) {
+        result.needsReview.push({ ...needs, reasons: [r.error.message] })
+        continue
+      }
+      const saved = r.data as { programs: number; cells: number }
+      result.readings++
+      result.programs += saved.programs
+      result.cells += saved.cells
+      // The next reading matches against what this one just created or filled in.
+      existing = await existingPrograms(id)
+    }
+    await linkUnlinkedDocuments(id).catch(() => 0)
+  }
+  onProgress(done, waiting.length)
+  return result
+}
+
+export function useApproveAllReady(lenderId: string | null) {
+  const queryClient = useQueryClient()
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const mutation = useMutation({
+    mutationFn: () => approveAllReady(lenderId, (done, total) => setProgress({ done, total })),
+    onSettled: () => {
+      setProgress(null)
+      for (const key of [['waitingAi'], ['matrixImport'], ['lenderImports'], ['lenderPrograms'], ['lenderDocuments'], keys.lenders, keys.catalog, ['programGuidelines'], ['lenderDetail']]) queryClient.invalidateQueries({ queryKey: key })
+    },
+  })
+  return { ...mutation, progress }
 }
 
 export function useDiscardImport(importId: string, lenderId: string) {

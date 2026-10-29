@@ -2,7 +2,7 @@
 // and the difference from the version in use (plan §5.4–5.6). Pure.
 
 import { formatCurrency, formatPercent } from '@/lib/format'
-import { cleanRule, type ReadGrid, type ReadProgram, type ReadRule } from '../../../supabase/functions/assistant/matrix'
+import { cleanRule, type MatrixReading, type ReadGrid, type ReadProgram, type ReadRule } from '../../../supabase/functions/assistant/matrix'
 import { MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, termMonths, type MatrixPropertyType, type MatrixPurpose } from './taxonomy'
 import type { MatrixCell } from './types'
 
@@ -395,6 +395,37 @@ function single(cells: ImportCell[]): ImportCell[] {
           if (!was || limit(one) < limit(was)) out.set(k, one)
         }
   return [...out.values()]
+}
+
+/** A lender's program as matching sees it. */
+export type MatchableProgram = ProgramNow & { family: ReadProgram['family']; lien: ReadProgram['lien']; active: boolean }
+
+/**
+ * A reading as the review screen opens it: the common fixes applied (while it
+ * waits for review), each program matched to the lender's product it fills in
+ * (keeping that product's name), and merge or replace picked.
+ */
+export function reviewReading(reading: MatrixReading, o: { pending: boolean; lenderName: string; documentId: string | null; existing: MatchableProgram[] }): { programs: ReviewProgram[]; fixes: string[] } {
+  const repaired = reading.programs.map((p) => (o.pending ? repairProgram(p) : { program: p, fixes: [] }))
+  const programs = repaired.map(({ program: p }): ReviewProgram => {
+    // A draft from "Edit limits" is a full copy of that program's matrix: it replaces it.
+    if (reading.editOf) return { ...p, include: true, programId: reading.editOf, mode: 'replace' }
+    const programId = matchProgram(p.name, o.existing.filter((e) => e.active), o.lenderName, p)
+    const target = o.existing.find((e) => e.id === programId)
+    // Filling in a product keeps its name: a Fannie Mae matrix doesn't rename "Conventional".
+    return { ...p, name: target?.name ?? p.name, include: true, programId, mode: defaultMode(p, target, o.documentId) }
+  })
+  return { programs, fixes: repaired.flatMap((r) => r.fixes) }
+}
+
+/** Why a reading can't be approved without a look: its errors, or two programs filling in the same product. */
+export function approvalBlockers(programs: ReviewProgram[]): string[] {
+  const included = programs.filter((p) => p.include)
+  const errors = included.flatMap((p) => checkProgram(p).filter((w) => w.level === 'error').map((w) => `${p.name}: ${w.message}`))
+  const targets = included.flatMap((p) => (p.programId ? [p.programId] : []))
+  const twice = targets.length !== new Set(targets).size ? ['Two programs in this reading fill in the same product.'] : []
+  const unnamed = included.some((p) => !p.name.trim()) ? ['A program has no name.'] : []
+  return [...errors, ...twice, ...unnamed]
 }
 
 /** The programs to approve, in the shape approve_matrix_import() takes. */

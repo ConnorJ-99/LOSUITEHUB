@@ -9,9 +9,10 @@ import { Card, EmptyState, PageHeader, ToggleChip, ToggleChipGroup, confirmActio
 import { LenderDialog } from '@/components/lenders/LenderDialog'
 import { ContactsTab, LenderHeader, LenderTabs, LoansTab, OverlaysTab, ProductsTab, SidePanel, useSaveLenderNotes } from '@/components/lenders/LenderDetailParts'
 import { LenderList } from '@/components/lenders/LenderList'
+import { ApproveAllReadyButton, NeedsReviewList } from '@/components/lenders/ApproveAllReady'
 import { UploadDocumentDialog } from '@/components/lenders/UploadDocumentDialog'
 import { blankLender, guessStoredDocument, useDeleteLenderDocument, useLenderDocuments, useLenderPrograms, useLenders, useUpdateLenderDocument, type Lender, type LenderDocument, type LenderDraft, type LenderProgram } from '@/lib/api/lenders'
-import { queueMatrixReads, readMatrix, useCollectReads, usePendingImports, useQueuedReads, useStartTypedMatrix } from '@/lib/api/matrixImports'
+import { queueMatrixReads, readMatrix, useCollectReads, usePendingImports, useQueuedReads, useStartTypedMatrix, type ApproveAllResult } from '@/lib/api/matrixImports'
 import { useAiStatus } from '@/lib/api/assistant'
 import { useLenderContacts, useLenderFiles, useLenderMatrixVersions, useLenderOverlays } from '@/lib/api/lenderPage'
 import { openGuidelinePdf, searchPassages, useCatalog, type Passage } from '@/lib/api/products'
@@ -32,6 +33,7 @@ export function LendersPage() {
   const lenders = useLenders()
   const [params, setParams] = useSearchParams()
   const [editing, setEditing] = useState<LenderDraft | null>(null)
+  const [approvedAll, setApprovedAll] = useState<ApproveAllResult | null>(null)
   const list = lenders.data ?? []
   const selected = list.find((l) => l.id === params.get('lender')) ?? null
   const pick = (id: string) => setParams({ lender: id })
@@ -51,13 +53,21 @@ export function LendersPage() {
           description="Your lenders, what they offer, and the matrices and guidelines Product Search uses."
           action={
             canEdit && (
-              <Button onClick={() => setEditing(blankLender())}>
-                <PlusIcon />
-                Add lender
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <ApproveAllReadyButton lenderId={null} onDone={setApprovedAll} />
+                <Button onClick={() => setEditing(blankLender())}>
+                  <PlusIcon />
+                  Add lender
+                </Button>
+              </div>
             )
           }
         />
+      )}
+      {!selected && approvedAll && (
+        <div className="mb-4">
+          <NeedsReviewList result={approvedAll} showLender onClose={() => setApprovedAll(null)} />
+        </div>
       )}
       {lenders.isLoading ? (
         <p className="py-12 text-center text-sm text-muted-foreground">Loading…</p>
@@ -142,7 +152,7 @@ function LenderDetail({ lender: l, canEdit, onEdit }: { lender: Lender; canEdit:
           )}
           {tab === 'documents' && (
             <>
-              <PendingImports lenderId={l.id} />
+              <PendingImports lenderId={l.id} canEdit={canEdit} />
               <Card
                 title="Documents"
                 description="The lender's PDFs, stored privately. Their text is searchable by section, with page numbers."
@@ -410,11 +420,13 @@ function SetUpProgramButton({ lenderId, document: d }: { lenderId: string; docum
 }
 
 /** Matrices waiting for review: typed drafts and assistant readings. */
-function PendingImports({ lenderId }: { lenderId: string }) {
+function PendingImports({ lenderId, canEdit }: { lenderId: string; canEdit: boolean }) {
   const imports = usePendingImports(lenderId)
+  const [approved, setApproved] = useState<ApproveAllResult | null>(null)
+  if (approved) return <NeedsReviewList result={approved} showLender={false} onClose={() => setApproved(null)} />
   if (!imports.data?.length) return null
   return (
-    <Card title="Waiting for your review" description="Matrices typed by hand or read by the assistant. Nothing in them is searchable until you approve it.">
+    <Card title="Waiting for your review" description="Matrices typed by hand or read by the assistant. Nothing in them is searchable until you approve it." action={canEdit && <ApproveAllReadyButton lenderId={lenderId} onDone={setApproved} />}>
       <ul className="divide-y">
         {imports.data.map((i) => (
           <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
