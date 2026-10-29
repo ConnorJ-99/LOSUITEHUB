@@ -185,6 +185,8 @@ export function usePendingImports(lenderId: string) {
 export interface ExistingProgram extends ProgramNow {
   family: ReadProgram['family']
   lien: ReadProgram['lien']
+  /** Retired programs aren't searched, and a new reading isn't matched to them. */
+  active: boolean
   /** The approved matrix version in use, if any. */
   version: number | null
 }
@@ -195,8 +197,8 @@ export function useExistingPrograms(lenderId: string) {
     queryKey: keys.lenderPrograms(`${lenderId}:cells`),
     queryFn: async (): Promise<ExistingProgram[]> => {
       const programs = unwrap<
-        { id: string; name: string; product_family: ReadProgram['family']; lien: ReadProgram['lien']; doc_types: ProgramNow['docTypes']; purposes: ProgramNow['purposes']; features: ProgramNow['features']; term_options: ProgramNow['termOptions'] | null; description: string | null; matrix_versions: { id: string; version: number; status: string; source_document_id: string | null }[] }[]
-      >(await db().from('programs').select('id, name, product_family, lien, doc_types, purposes, features, term_options, description, matrix_versions(id, version, status, source_document_id)').eq('lender_id', lenderId))
+        { id: string; name: string; product_family: ReadProgram['family']; lien: ReadProgram['lien']; active: boolean; doc_types: ProgramNow['docTypes']; purposes: ProgramNow['purposes']; features: ProgramNow['features']; term_options: ProgramNow['termOptions'] | null; description: string | null; matrix_versions: { id: string; version: number; status: string; source_document_id: string | null }[] }[]
+      >(await db().from('programs').select('id, name, product_family, lien, active, doc_types, purposes, features, term_options, description, matrix_versions(id, version, status, source_document_id)').eq('lender_id', lenderId))
       const approved = programs.flatMap((p) => p.matrix_versions.filter((v) => v.status === 'approved').map((v) => ({ programId: p.id, versionId: v.id, version: v.version, sourceDocumentId: v.source_document_id })))
       const ids = approved.map((a) => a.versionId)
       const [cells, rules] = ids.length
@@ -212,6 +214,7 @@ export function useExistingPrograms(lenderId: string) {
           name: p.name,
           family: p.product_family,
           lien: p.lien,
+          active: p.active,
           version: v?.version ?? null,
           sourceDocumentId: v?.sourceDocumentId ?? null,
           docTypes: p.doc_types,

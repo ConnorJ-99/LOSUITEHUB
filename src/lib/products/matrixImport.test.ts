@@ -185,6 +185,22 @@ describe('fixing what real matrices trip on', () => {
     expect(fixes).toHaveLength(4)
     expect(checkProgram(program).filter((w) => w.level === 'error')).toEqual([])
   })
+  it('keeps a single "all credit scores" row (A&D Fannie Mae: no score bands printed)', () => {
+    const p = base()
+    const g = p.grids[0]
+    const all = { ...g, rows: [{ label: 'All credit scores (no credit-score bands printed; credit score per DU)', ficoMin: 300, ficoMax: 850 }], values: [g.values[0]] }
+    const { program, fixes } = repairProgram({ ...p, grids: [all] })
+    expect(program.grids[0].rows).toHaveLength(1)
+    expect(fixes).toEqual([])
+    // Rows with a score range stay, whatever the label; a bare "No FICO" row beside them goes.
+    const labeled = (label: string, ficoMin: number) => ({ label, ficoMin, ficoMax: 850 })
+    const mixed = { ...g, rows: [labeled('680+ / No FICO', 680), labeled('No FICO score required. Evaluated by AUS', 300), labeled('No FICO', 300)], values: [g.values[0], g.values[0], g.values[0]] }
+    // (The stacked "680+" and "300+" rows become 680+ and 300–679.)
+    expect(repairProgram({ ...p, grids: [mixed] }).program.grids[0].rows.map((r: M.GridRow) => [r.ficoMin, r.ficoMax])).toEqual([[680, 850], [300, 679]])
+    // Even a grid of only "No FICO" rows keeps them rather than vanishing (the checks flag it instead).
+    const onlyNoFico = { ...g, rows: [{ label: 'No FICO', ficoMin: 0, ficoMax: 0 }], values: [g.values[0]] }
+    expect(repairProgram({ ...p, grids: [onlyNoFico] }).program.grids[0].rows).toHaveLength(1)
+  })
   it('leaves a clean reading alone', () => {
     const p = base()
     expect(repairProgram(p)).toEqual({ program: p, fixes: [] })
@@ -324,6 +340,25 @@ describe('a matrix fills in the existing product', () => {
     expect(matchProgram('DSCR Matrix', existing, 'A&D Mortgage', { family: 'non_qm', lien: 'ces' })).toBeNull()
     expect(matchProgram('DSCR 5-8 Unit', existing, 'A&D Mortgage', { family: 'non_qm', lien: 'first' })).toBeNull()
     expect(matchProgram('FHA', existing, 'A&D Mortgage', { family: 'va', lien: 'first' })).toBeNull()
+  })
+  it('Fannie Mae and Freddie Mac matrices fill in the Conventional product; HomeReady and the rest stay their own', () => {
+    const conv = { family: 'conventional' as const, lien: 'first' as const }
+    const programs = [
+      { id: 'conv', name: 'Conventional', ...conv },
+      { id: 'hr', name: 'HomeReady', ...conv },
+      { id: 'hp', name: 'Home Possible', ...conv },
+    ]
+    expect(matchProgram('Fannie Mae Standard Eligibility', programs, 'A&D Mortgage', conv)).toBe('conv')
+    expect(matchProgram('Freddie Mac – Standard Eligibility', programs, 'A&D Mortgage', conv)).toBe('conv')
+    expect(matchProgram('Fannie Mae (DU) Conventional Conforming', programs, 'A&D Mortgage', conv)).toBe('conv')
+    expect(matchProgram('Fannie Mae HomeReady', programs, 'A&D Mortgage', conv)).toBe('hr')
+    expect(matchProgram('Freddie Mac Home Possible', programs, 'A&D Mortgage', conv)).toBe('hp')
+    expect(matchProgram('Freddie Mac Refi Possible', programs, 'A&D Mortgage', conv)).toBeNull()
+    expect(matchProgram('Freddie Mac HomeOne', programs, 'A&D Mortgage', conv)).toBeNull()
+    // Two plain Conventional products: ambiguous, so it asks rather than guessing.
+    expect(matchProgram('Fannie Mae', [...programs, { id: 'fn', name: 'Fannie Mae Standard Eligibility', ...conv }], 'A&D Mortgage', conv)).toBeNull()
+    // Agency words only count for Conventional.
+    expect(matchProgram('Standard', [{ id: 'fha', name: 'FHA', family: 'fha', lien: 'first' }], 'A&D Mortgage', { family: 'fha', lien: 'first' })).toBeNull()
   })
 })
 

@@ -71,9 +71,12 @@ export function repairProgram(p: ReadProgram): { program: ReadProgram; fixes: st
   const fixes: string[] = []
   const grids = p.grids.map((g) => {
     const where = g.title || 'a grid'
-    const keep = g.rows.map((r) => !(r.ficoMin < 300 || r.ficoMax < 300 || /no\s*(fico|score|credit)/i.test(r.label)))
+    // A row read with a score range is kept whatever its label says: "No FICO score required. Evaluated by AUS",
+    // "No minimum" and "No credit-score bands printed" (300–850) mean every score, and "680+ / No FICO" is still 680+.
+    const keep = g.rows.map((r) => !(r.ficoMin < 300 || r.ficoMax < 300 || /^\W*(no|without)\s*(fico|score|credit\s*score)\W*$/i.test(r.label)))
     let next = g
-    if (keep.some((k) => !k)) {
+    // A grid is never emptied: its one row is the limits for every score.
+    if (keep.some((k) => !k) && keep.some((k) => k)) {
       fixes.push(`${where}: left out the "no credit score" row (Product Search needs a score); check the PDF for those limits.`)
       next = { ...next, rows: next.rows.filter((_, i) => keep[i]), values: next.values.filter((_, i) => keep[i]), printedRows: next.rows.filter((_, i) => keep[i]).length }
     }
@@ -370,11 +373,17 @@ const FILLER = new Set(['program', 'programs', 'product', 'products', 'matrix', 
  */
 export function matchProgram(name: string, existing: { id: string; name: string; family?: ReadProgram['family']; lien?: ReadProgram['lien'] }[], lenderName = '', reading?: Pick<ReadProgram, 'family' | 'lien'>): string | null {
   const lenderWords = new Set(lenderName.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))
-  const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !FILLER.has(w) && !lenderWords.has(w))
+  // Conventional loans are agency loans: "Fannie Mae Standard Eligibility" and "Freddie Mac (LPA)" are the lender's Conventional product.
+  const agency = reading?.family === 'conventional'
+  const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !FILLER.has(w) && !lenderWords.has(w) && !(agency && AGENCY.has(w)))
   const target = words(name)
-  if (!target.length) return null
   // A program of another lien or loan type is never the same product, whatever its name.
   const sameKind = (e: (typeof existing)[number]) => !reading || e.family == null || (e.family === reading.family && e.lien === reading.lien)
+  if (!target.length) {
+    // Nothing but agency words: the lender's plain Conventional product, when it has exactly one.
+    const plain = agency ? existing.filter((e) => sameKind(e) && e.family != null && words(e.name).length === 0) : []
+    return plain.length === 1 ? plain[0].id : null
+  }
   // "Refi Now" and "RefiNow" are the same name.
   const exact = existing.find((e) => sameKind(e) && words(e.name).join('') === target.join(''))
   if (exact || !reading) return exact?.id ?? null
@@ -389,6 +398,9 @@ export function matchProgram(name: string, existing: { id: string; name: string;
   const best = candidates.filter((c) => c.w.length === most)
   return best.length === 1 ? best[0].e.id : null
 }
+
+/** Words that name a Conventional loan's agency or standard version, not a different product. */
+const AGENCY = new Set(['conventional', 'conv', 'conforming', 'agency', 'fannie', 'mae', 'fnma', 'freddie', 'mac', 'fhlmc', 'standard', 'du', 'lpa', 'desktop', 'underwriter', 'advisor'])
 
 /** Words that make a different product of the same loan type. */
 const VARIANTS = new Set(['streamline', 'irrrl', 'dpa', 'assistance', 'down', '203k', 'renovation', 'homestyle', 'homeready', 'possible', 'refinow', 'simple', 'jumbo', 'heloc', 'ces', 'second', '2nd', 'itin', 'foreign', 'dscr', 'investor', 'no', 'ratio', 'bridge', 'doctor', 'medical', 'physician', 'construction', 'reverse', 'condotel', 'interest', 'io', '5', '8', 'unit'])
