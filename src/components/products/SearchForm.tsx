@@ -3,8 +3,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CurrencyInput, FormGrid, Input, NumberInput, PercentInput, Select, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { formatPercent } from '@/lib/format'
 import { ratios } from '@/lib/products/engine'
-import { downPayment, withDownAmount, withDownPct, withPrice } from '@/lib/products/scenarioForm'
-import { CITIZENSHIPS, DOC_TYPES, FEATURES, LENDER_STATUSES, LIENS, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, PRODUCT_FAMILIES, type Feature, type LenderStatus, type MatrixPropertyType } from '@/lib/products/taxonomy'
+import { downPayment, typeForUnits, withDownAmount, withDownPct, withPrice } from '@/lib/products/scenarioForm'
+import { CITIZENSHIPS, DOC_TYPES, FEATURES, LENDER_STATUSES, LIENS, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, PRODUCT_FAMILIES, type Feature, type LenderStatus } from '@/lib/products/taxonomy'
 import type { Scenario } from '@/lib/products/types'
 
 /** Features offered as must-haves on the form (mockup 01). */
@@ -12,8 +12,6 @@ const MUST_HAVES: Feature[] = ['dpa', 'itin', 'foreign_national', 'interest_only
 export const SHOWN_STATUSES: LenderStatus[] = ['approved', 'pending', 'not_signed_up']
 const options = <T extends string>(l: { values: T[]; label: Record<T, string> }) => l.values.map((v) => ({ value: v, label: l.label[v] }))
 const UNIT_OPTIONS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'].map((u) => ({ value: u, label: u }))
-/** The property type that goes with a number of units: 2–4 units, 5+ units, or back to a house from either. */
-const typeForUnits = (units: number, type: MatrixPropertyType): MatrixPropertyType => (units >= 5 ? 'five_plus' : units > 1 ? 'two_to_four' : type === 'two_to_four' || type === 'five_plus' ? 'sfr_pud' : type)
 
 interface Props {
   scenario: Scenario

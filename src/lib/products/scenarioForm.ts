@@ -9,7 +9,7 @@ import type { Application } from '@/lib/api/urla'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { applicationSummary } from '@/lib/urla/summary'
 import { purchasePriceOf, ratios } from './engine'
-import { citizenshipFor, DOC_TYPES, docTypeFor, FEATURES, LIENS, lienFor, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, matrixPropertyTypeFor, matrixPurposeFor, OCCUPANCIES, PRODUCT_FAMILIES, type ProductFamily } from './taxonomy'
+import { citizenshipFor, DOC_TYPES, docTypeFor, FEATURES, LIENS, lienFor, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, matrixPropertyTypeFor, matrixPurposeFor, OCCUPANCIES, PRODUCT_FAMILIES, type MatrixPropertyType, type ProductFamily } from './taxonomy'
 import type { Scenario } from './types'
 
 export function blankScenario(): Scenario {
@@ -179,3 +179,6 @@ export function scenarioLabel(s: Scenario): string {
   parts.push(s.lien === 'first' ? `LTV ${formatPercent(ltv, 2)}` : `CLTV ${formatPercent(cltv, 2)}`)
   return parts.join(' · ')
 }
+
+/** The property type that goes with a number of units: 2–4 units, 5+ units, or back to a house from either. */
+export const typeForUnits = (units: number, type: MatrixPropertyType): MatrixPropertyType => (units >= 5 ? 'five_plus' : units > 1 ? 'two_to_four' : type === 'two_to_four' || type === 'five_plus' ? 'sfr_pud' : type)
