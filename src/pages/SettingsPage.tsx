@@ -6,6 +6,7 @@ import { Select as BaseSelect, SelectContent, SelectItem, SelectTrigger, SelectV
 import { Card, confirmAction, FormGrid, Input, PageHeader, Select } from '@/components/shared'
 import { BRAND_TYPES, useBrandImage, useRemoveBrandImage, useUploadBrandImage } from '@/lib/api/brandFiles'
 import { DocumentRulesCard } from '@/components/documents/DocumentRulesCard'
+import { GhlCard, SendingCard } from '@/components/messaging/GhlSettingsCards'
 import { FeeListCard } from '@/components/pricing/FeeListCard'
 import { MessageTemplatesCard } from '@/components/queue/MessageTemplatesCard'
 import { useDraft } from '@/components/urla/useDraft'
@@ -275,6 +276,8 @@ export function SettingsPage() {
         <DocumentRulesCard canEdit={canEditCompany} />
         <FeeListCard canEdit={canEditCompany} />
         {me && <TeamCard members={members.data ?? []} me={me} />}
+        {canEditCompany && <GhlCard members={members.data ?? []} />}
+        <SendingCard canEdit={canEditCompany} />
       </div>
     </>
   )
