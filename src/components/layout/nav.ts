@@ -1,6 +1,7 @@
 import {
   BuildingIcon,
   ComponentIcon,
+  HandshakeIcon,
   PanelsTopLeftIcon,
   KanbanIcon,
   InboxIcon,
@@ -31,6 +32,7 @@ export const navSections: NavSection[] = [
       { to: '/inbox', label: 'Inbox', icon: MessagesSquareIcon, unreadBadge: true },
       { to: '/pipeline', label: 'Pipeline', icon: KanbanIcon },
       { to: '/contacts', label: 'Contacts', icon: UsersIcon },
+      { to: '/partners', label: 'Partner center', icon: HandshakeIcon },
       { to: '/product-search', label: 'Product Search', icon: SearchIcon },
     ],
   },

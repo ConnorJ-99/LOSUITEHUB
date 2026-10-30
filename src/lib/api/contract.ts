@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ContactRole, ExtractedContact, ExtractedField } from '../../../supabase/functions/assistant/contract'
 import { CONTACT_ROLES, CONTRACT_FIELDS } from '../../../supabase/functions/assistant/contract'
-import type { PastTeamMember, Person, TaskPlanRow, TeamRoleFromContract } from '@/lib/contract/followThrough'
+import type { Person, TaskPlanRow, TeamRoleFromContract } from '@/lib/contract/followThrough'
 import type { DraftMessage } from '@/lib/queue/today'
 import type { LoanDetails } from './types'
 import type { Application } from './urla'
@@ -201,51 +201,24 @@ export function useSyncDeadlineTasks(loanId: string, organizationId: string) {
   })
 }
 
-interface PastRow {
-  loan_id: string
-  name: string | null
-  company: string | null
-  email: string | null
-  phone: string | null
-  loan: { borrowers: { role: string; contact: { first_name: string; last_name: string } | null }[] } | null
-}
-
-/** Agents and title contacts on every file you can see, for recognizing people you've worked with. */
-export function usePastTeamMembers() {
-  return useQuery({
-    queryKey: keys.pastTeam,
-    queryFn: async (): Promise<PastTeamMember[]> =>
-      unwrap<PastRow[]>(
-        await db()
-          .from('loan_team_members')
-          .select('loan_id, name, company, email, phone, loan:loans!loan_team_members_loan_id_fkey ( borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( first_name, last_name ) ) )')
-          .is('profile_id', null)
-          .or('email.not.is.null,phone.not.is.null'),
-      ).map((r) => {
-        const primary = r.loan?.borrowers.find((b) => b.role === 'primary')?.contact
-        return { loanId: r.loan_id, borrowerName: primary ? `${primary.first_name} ${primary.last_name}`.trim() : 'another file', name: r.name, company: r.company, email: r.email, phone: r.phone }
-      }),
-  })
-}
-
-/** Puts a person from the contract on the file's team (replacing whoever had that role). */
+/** Puts a person from the contract on the file's team (replacing whoever had that role). The database links them to their partner, or adds one. */
 export function useAddToTeam(loanId: string, organizationId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ role, person }: { role: TeamRoleFromContract; person: Person }) => {
+    mutationFn: async ({ role, person, partnerId }: { role: TeamRoleFromContract; person: Person; partnerId?: string | null }) => {
       if (!person.name?.trim()) throw new Error('This person has no name.')
       unwrap(
         await db()
           .from('loan_team_members')
           .upsert(
-            { loan_id: loanId, organization_id: organizationId, role, profile_id: null, name: person.name.trim(), company: person.company?.trim() || null, email: person.email?.trim() || null, phone: person.phone?.trim() || null },
+            { loan_id: loanId, organization_id: organizationId, role, profile_id: null, name: person.name.trim(), company: person.company?.trim() || null, email: person.email?.trim() || null, phone: person.phone?.trim() || null, partner_id: partnerId ?? null },
             { onConflict: 'loan_id,role' },
           )
           .select('id'),
       )
     },
     onSettled: () => {
-      for (const key of [keys.loanFile(loanId), keys.pastTeam]) queryClient.invalidateQueries({ queryKey: key })
+      for (const key of [keys.loanFile(loanId), keys.partners]) queryClient.invalidateQueries({ queryKey: key })
     },
   })
 }

@@ -150,23 +150,7 @@ export function samePerson(a: Person, b: Person): boolean {
   return !!loose(a.name) && loose(a.name) === loose(b.name)
 }
 
-export interface PastTeamMember extends Person {
-  loanId: string
-  borrowerName: string
-}
-
-/** The same person on another file, matched by email or phone only (names are too often shared). */
-export function findOnOtherFiles(contact: Person, past: PastTeamMember[], thisLoanId: string): PastTeamMember | null {
-  return (
-    past.find(
-      (p) =>
-        p.loanId !== thisLoanId &&
-        ((!!contact.email && !!p.email && contact.email.trim().toLowerCase() === p.email.trim().toLowerCase()) || (digits(contact.phone).length === 10 && digits(contact.phone) === digits(p.phone))),
-    ) ?? null
-  )
-}
-
-/** Fills gaps in what the contract gave from the same person's record on another file. */
+/** Fills gaps in what the contract gave from the same person's saved partner record. */
 export function mergePerson(fromContract: Person, known: Person | null): Person {
   return {
     name: fromContract.name || known?.name || null,

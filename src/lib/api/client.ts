@@ -36,7 +36,7 @@ export const keys = {
   documents: (loanId: string) => ['documents', loanId] as const,
   preapprovalLetters: (loanId: string) => ['preapprovalLetters', loanId] as const,
   readings: (loanId: string) => ['readings', loanId] as const,
-  pastTeam: ['pastTeam'] as const,
+  partners: ['partners'] as const,
   creditEvents: (loanId: string) => ['creditEvents', loanId] as const,
   noteReadings: (loanId: string) => ['noteReadings', loanId] as const,
   webForms: (loanId: string) => ['webForms', loanId] as const,

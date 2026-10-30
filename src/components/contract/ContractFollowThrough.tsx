@@ -4,15 +4,15 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, ToggleChip } from '@/components/shared'
-import { useAddToTeam, useContractPeople, usePastTeamMembers, useQueueIntroEmails, useSyncDeadlineTasks } from '@/lib/api/contract'
+import { useAddToTeam, useContractPeople, useQueueIntroEmails, useSyncDeadlineTasks } from '@/lib/api/contract'
 import { useLoanFile } from '@/lib/api/loanfile'
+import { usePartners } from '@/lib/api/partners'
 import { useOrganization, useProfile } from '@/lib/api/settings'
 import { useLoanTasks } from '@/lib/api/tasks'
 import type { LoanProfile } from '@/lib/api/types'
 import type { Application } from '@/lib/api/urla'
 import {
   deadlineTasks,
-  findOnOtherFiles,
   introEmail,
   mergePerson,
   planTasks,
@@ -23,6 +23,7 @@ import {
   type TeamRoleFromContract,
 } from '@/lib/contract/followThrough'
 import { formatIsoDate } from '@/lib/dates'
+import { matchPartner } from '@/lib/partners/match'
 
 const ROLE_LABEL: Record<TeamRoleFromContract, string> = {
   listing_agent: 'Listing agent',
@@ -89,12 +90,13 @@ function DeadlineTasksCard({ loan }: { loan: LoanProfile }) {
 function PeopleCard({ loan }: { loan: LoanProfile }) {
   const contacts = useContractPeople(loan.id)
   const file = useLoanFile(loan.id)
-  const past = usePastTeamMembers()
+  const partners = usePartners()
   const add = useAddToTeam(loan.id, loan.organizationId)
   const people = (contacts.data ?? []).flatMap((c) => {
     const role = teamRoleFor(c.role)
     if (!role) return []
-    const known = findOnOtherFiles(c, past.data ?? [], loan.id)
+    const match = matchPartner(c, partners.data ?? [])
+    const known = match.by === 'email' || match.by === 'phone' ? match.partner : null
     return [{ role, person: mergePerson(c, known), known }]
   })
 
@@ -106,7 +108,7 @@ function PeopleCard({ loan }: { loan: LoanProfile }) {
     )
   }
   return (
-    <Card title="People from the contract" description="Add them to the file's team. People you've worked with before are matched by email or phone.">
+    <Card title="People from the contract" description="Add them to the file's team. People you've worked with before are matched to your saved partners by email or phone.">
       <ul className="divide-y">
         {people.map(({ role, person, known }, i) => {
           const current = file.data?.team.find((t) => t.role === role) ?? null
@@ -121,7 +123,7 @@ function PeopleCard({ loan }: { loan: LoanProfile }) {
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {[person.email, person.phone].filter(Boolean).join(' · ') || 'No email or phone in the contract'}
-                  {known && ` · worked with on ${known.borrowerName}'s file`}
+                  {known && ` · saved partner${known.files.length ? `, on ${known.files.length} file${known.files.length === 1 ? '' : 's'}` : ''}`}
                 </p>
               </div>
               {onTeam ? (
@@ -134,7 +136,7 @@ function PeopleCard({ loan }: { loan: LoanProfile }) {
                   size="sm"
                   variant="outline"
                   disabled={add.isPending}
-                  onClick={() => add.mutate({ role, person }, { onSuccess: () => toast.success(`${person.name} added as ${ROLE_LABEL[role].toLowerCase()}`), onError: (e) => toast.error(e.message) })}
+                  onClick={() => add.mutate({ role, person, partnerId: known?.id ?? null }, { onSuccess: () => toast.success(`${person.name} added as ${ROLE_LABEL[role].toLowerCase()}`), onError: (e) => toast.error(e.message) })}
                 >
                   <UserPlusIcon />
                   {current ? `Replace ${current.name ?? 'current'}` : 'Add to team'}

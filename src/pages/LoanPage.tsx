@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card, EmptyState, FormGrid, Input, confirmAction } from '@/components/shared'
+import { Card, EmptyState, confirmAction } from '@/components/shared'
 import { ClosedLoanCard } from '@/components/closed/ClosedLoanCard'
 import { ContractTab } from '@/components/contract/ContractTab'
 import { DocumentsTab } from '@/components/documents/DocumentsTab'
@@ -40,7 +40,7 @@ import { TasksCard } from '@/components/profile/TasksCard'
 import { PropertiesTab } from '@/components/profile/PropertiesTab'
 import { IncomeTab } from '@/components/income/IncomeTab'
 import { PrequalTab } from '@/components/prequal/PrequalTab'
-import { EditDialog } from '@/components/urla/parts'
+import { TeamMemberDialog } from '@/components/partners/TeamMemberDialog'
 import { UrlaTab } from '@/components/urla/UrlaTab'
 import { useLoanFile, useSaveTeamMember, useSetLoanOfficer, useStepTemplates, type TeamRole } from '@/lib/api/loanfile'
 import { LoanPricingTab } from '@/components/pricing/LoanPricingTab'
@@ -132,7 +132,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const [detailsOpen, setDetailsOpen] = useState(true)
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [completing, setCompleting] = useState(false)
-  const [teamEdit, setTeamEdit] = useState<{ role: TeamRole; label: string; name: string; company: string; withCompany: boolean } | null>(null)
+  const [teamEdit, setTeamEdit] = useState<{ role: TeamRole; label: string; withCompany: boolean } | null>(null)
 
   const isPurchase = loan.purpose === 'purchase'
   const filePeople = useFilePeople(loan.id)
@@ -188,8 +188,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const custom = (label: string) => {
     const t = roleFor(label)
     if (t.role === 'loan_officer') return
-    const record = file.data?.team.find((r) => r.role === t.role)
-    setTeamEdit({ role: t.role, label, name: record?.name ?? '', company: record?.company ?? '', withCompany: !!t.company })
+    setTeamEdit({ role: t.role, label, withCompany: !!t.company })
   }
 
   const allNav: FileNavItem[] = [
@@ -353,24 +352,20 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
       )}
       {editing && <EditLeadDialog loan={loan} ariveLoanNumber={loan.details.ariveLoanNumber} open={editing} onOpenChange={setEditing} />}
       {teamEdit && (
-        <EditDialog
-          title={teamEdit.label}
-          open
-          onOpenChange={(o) => !o && setTeamEdit(null)}
+        <TeamMemberDialog
+          role={teamEdit.role}
+          label={teamEdit.label}
+          withCompany={teamEdit.withCompany}
+          record={file.data?.team.find((r) => r.role === teamEdit.role) ?? null}
           saving={saveTeam.isPending}
-          onSubmit={() => {
-            if (!teamEdit.name.trim()) return toast.error('Enter a name')
+          onClose={() => setTeamEdit(null)}
+          onSave={(member) =>
             saveTeam.mutate(
-              { role: teamEdit.role, member: { name: teamEdit.name, company: teamEdit.company } },
+              { role: teamEdit.role, member },
               { onSuccess: () => { toast.success(`${teamEdit.label} saved`); setTeamEdit(null) }, onError: (e) => toast.error(e.message) },
             )
-          }}
-        >
-          <FormGrid>
-            <Input label="Name" required value={teamEdit.name} onChange={(v) => setTeamEdit({ ...teamEdit, name: v })} span={3} />
-            {teamEdit.withCompany && <Input label="Company" value={teamEdit.company} onChange={(v) => setTeamEdit({ ...teamEdit, company: v })} span={3} />}
-          </FormGrid>
-        </EditDialog>
+          }
+        />
       )}
       {dialog}
     </>

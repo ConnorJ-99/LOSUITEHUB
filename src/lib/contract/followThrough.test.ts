@@ -4,7 +4,6 @@ import {
   closingDisclosureDue,
   deadlineTasks,
   federalHolidays,
-  findOnOtherFiles,
   introEmail,
   introIssues,
   mergePerson,
@@ -12,7 +11,6 @@ import {
   samePerson,
   teamRoleFor,
   type ContractDates,
-  type PastTeamMember,
 } from './followThrough'
 
 const dates: ContractDates = { contractDate: '2026-10-25', optionEndDate: '2026-11-01', financingDeadline: '2026-11-09', surveyDeadline: '2026-11-04', closingDate: '2026-12-03' }
@@ -55,21 +53,13 @@ describe('deadline tasks', () => {
 })
 
 describe('people', () => {
-  const past: PastTeamMember[] = [
-    { loanId: 'other', borrowerName: 'Jane Smith', name: 'Lisa Lister', company: 'Sample Realty', email: 'LISA@example.com', phone: '(214) 555-0111' },
-    { loanId: 'this', borrowerName: 'This file', name: 'Lisa Lister', company: null, email: 'lisa@example.com', phone: null },
-  ]
+  const known = { name: 'Lisa Lister', company: 'Sample Realty', email: 'LISA@example.com', phone: '(214) 555-0111' }
   it('maps contract roles to team roles', () => {
     expect(teamRoleFor('listing_agent')).toBe('listing_agent')
     expect(teamRoleFor('seller')).toBeNull()
   })
-  it('finds the same person on other files by email or phone, not by name', () => {
-    expect(findOnOtherFiles({ name: 'L. Lister', company: null, email: 'lisa@example.com', phone: null }, past, 'this')?.borrowerName).toBe('Jane Smith')
-    expect(findOnOtherFiles({ name: 'Someone', company: null, email: null, phone: '214.555.0111' }, past, 'this')?.loanId).toBe('other')
-    expect(findOnOtherFiles({ name: 'Lisa Lister', company: null, email: null, phone: null }, past, 'this')).toBeNull()
-  })
   it('fills gaps from the known record and compares people', () => {
-    expect(mergePerson({ name: 'Lisa Lister', company: null, email: null, phone: '214-555-0111' }, past[0])).toEqual({ name: 'Lisa Lister', company: 'Sample Realty', email: 'LISA@example.com', phone: '214-555-0111' })
+    expect(mergePerson({ name: 'Lisa Lister', company: null, email: null, phone: '214-555-0111' }, known)).toEqual({ name: 'Lisa Lister', company: 'Sample Realty', email: 'LISA@example.com', phone: '214-555-0111' })
     expect(samePerson({ name: 'Sam Escrow (TEST)', company: null, email: null, phone: null }, { name: 'sam escrow', company: 'x', email: null, phone: null })).toBe(true)
     expect(samePerson({ name: 'Sam', company: null, email: 'a@example.com', phone: null }, { name: 'Pat', company: null, email: 'b@example.com', phone: null })).toBe(false)
   })

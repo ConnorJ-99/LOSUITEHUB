@@ -16,6 +16,8 @@ export interface TeamMemberRecord {
   company: string | null
   email: string | null
   phone: string | null
+  /** The saved partner (agents and title), linked by the database by email or phone. */
+  partnerId: string | null
 }
 
 interface TemplateRow {
@@ -71,12 +73,12 @@ export function useLoanFile(loanId: string) {
       const [milestones, steps, team] = await Promise.all([
         db().from('loan_milestones').select('milestone, reached_on').eq('loan_id', loanId),
         db().from('loan_steps').select('step_key, status, done_on').eq('loan_id', loanId),
-        db().from('loan_team_members').select('id, role, profile_id, name, company, email, phone').eq('loan_id', loanId),
+        db().from('loan_team_members').select('id, role, profile_id, partner_id, name, company, email, phone').eq('loan_id', loanId),
       ])
       return {
         milestones: unwrap<{ milestone: Milestone; reached_on: string }[]>(milestones).map((m) => ({ milestone: m.milestone, reachedOn: m.reached_on })),
         marks: unwrap<{ step_key: string; status: 'done' | 'na'; done_on: string | null }[]>(steps).map((s) => ({ stepKey: s.step_key, status: s.status, doneOn: s.done_on })),
-        team: unwrap<{ id: string; role: TeamRole; profile_id: string | null; name: string | null; company: string | null; email: string | null; phone: string | null }[]>(team).map((t) => ({
+        team: unwrap<{ id: string; role: TeamRole; profile_id: string | null; partner_id: string | null; name: string | null; company: string | null; email: string | null; phone: string | null }[]>(team).map((t) => ({
           id: t.id,
           role: t.role,
           profileId: t.profile_id,
@@ -84,6 +86,7 @@ export function useLoanFile(loanId: string) {
           company: t.company,
           email: t.email,
           phone: t.phone,
+          partnerId: t.partner_id,
         })),
       }
     },
@@ -133,11 +136,16 @@ export function useMarkStep(loanId: string, organizationId: string) {
   })
 }
 
-/** Assigns (or clears, with null) one team role on a file: a company user or an outside contact by name. */
+/**
+ * Assigns (or clears, with null) one team role on a file: a company user or an
+ * outside contact. The database links an outside contact to their saved
+ * partner by email or phone (or the one picked), or adds them as a partner.
+ */
 export function useSaveTeamMember(loanId: string, organizationId: string) {
   const invalidate = useInvalidateFile(loanId)
+  const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ role, member }: { role: TeamRole; member: { profileId?: string | null; name?: string | null; company?: string | null } | null }) => {
+    mutationFn: async ({ role, member }: { role: TeamRole; member: { profileId?: string | null; name?: string | null; company?: string | null; email?: string | null; phone?: string | null; partnerId?: string | null } | null }) => {
       if (!member) {
         unwrap(await db().from('loan_team_members').delete().eq('loan_id', loanId).eq('role', role))
         return
@@ -146,13 +154,26 @@ export function useSaveTeamMember(loanId: string, organizationId: string) {
         await db()
           .from('loan_team_members')
           .upsert(
-            { loan_id: loanId, organization_id: organizationId, role, profile_id: member.profileId ?? null, name: member.name?.trim() || null, company: member.company?.trim() || null },
+            {
+              loan_id: loanId,
+              organization_id: organizationId,
+              role,
+              profile_id: member.profileId ?? null,
+              name: member.name?.trim() || null,
+              company: member.company?.trim() || null,
+              email: member.email?.trim().toLowerCase() || null,
+              phone: member.phone?.trim() || null,
+              partner_id: member.partnerId ?? null,
+            },
             { onConflict: 'loan_id,role' },
           )
           .select('id'),
       )
     },
-    onSettled: invalidate,
+    onSettled: () => {
+      invalidate()
+      queryClient.invalidateQueries({ queryKey: keys.partners })
+    },
   })
 }
 

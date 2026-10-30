@@ -20,6 +20,7 @@ import { PipelinePage } from '@/pages/PipelinePage'
 import { ClosingCalendarPage } from '@/pages/ClosingCalendarPage'
 import { InboxPage } from '@/pages/InboxPage'
 import { LeadsHomePage } from '@/pages/LeadsHomePage'
+import { PartnersPage } from '@/pages/PartnersPage'
 import { ProductSearchPage } from '@/pages/ProductSearchPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
@@ -43,6 +44,7 @@ const router = createBrowserRouter([
       { path: 'pipeline/closings', element: <ClosingCalendarPage /> },
       { path: 'pipeline/:pipelineId', element: <PipelinePage /> },
       { path: 'contacts', element: <ContactsPage /> },
+      { path: 'partners', element: <PartnersPage /> },
       { path: 'loans/:loanId', element: <LoanPage /> },
       { path: 'product-search', element: <ProductSearchPage /> },
       { path: 'admin/lenders', element: <LendersPage /> },
