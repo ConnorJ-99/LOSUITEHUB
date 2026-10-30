@@ -63,6 +63,12 @@ Choices Connor has approved. Follow them unless he changes them.
   - **GHL contacts and workflows:** contacts are created only when a person is first messaged, never in bulk. LOSuite never enrolls anyone in a GHL workflow.
   - **Inbound replies:** a hand-built GHL workflow ("Customer Replied" → plain Webhook action with the secret in the URL) is only a notice. The function fetches the message from the GHL API itself, and a scheduled check catches missed ones.
   - **Phase 1** (connection, user links, sending settings, call log; `20261202000000_ghl_connection.sql`) is done.
+  - **Phase 2a** (`20261203000000_ghl_messages.sql` and the `ghl-inbound` Edge Function) is done:
+    - `messages` (unmatched ones are admin-only), `consent_events`, opt-out dates guarded so only `restore_consent()` with a note turns consent back on, and admin `match_message()`.
+    - **Test mode:** `messaging_settings.inbound_mode = 'test_only'` (the default) saves only GHL contacts named TEST, skipping others by name, until Connor switches it to `all` at cutover. Check connection records which company owns the sub-account (`ghl_location_id`).
+    - **Function permissions:** service-role-only database functions must also be revoked from `anon` and `authenticated` (Supabase grants new functions to them by default; follow lead intake's pattern).
+    - **Paste builder:** `npm run function:paste` now also follows `../ghl/` imports.
+    - **Next:** 2b (screens) and 2c (the scheduled check, and Connor's GHL workflow; ghl-inbound needs Verify JWT off and `GHL_WEBHOOK_SECRET` first).
 - **Every database script is safe to re-run and ends with a confirmation row** ("LOSuite … installed"). Connor pastes scripts into the Supabase SQL Editor, where highlighted text silently runs only part of a script and still says "Success". Test each script in PGlite (run twice, and a partial run followed by a full run) before handing it over.
 
 ## Core concepts

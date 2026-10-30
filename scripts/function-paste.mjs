@@ -1,5 +1,6 @@
 // Builds one file to paste into the Supabase dashboard's Edge Function editor:
-// index.ts plus every local module it imports (followUp.ts, contract.ts).
+// index.ts plus every local module it imports (followUp.ts, contract.ts), or
+// one from a sibling function's folder ('../ghl/match.ts').
 // Each module goes in its own namespace so their private helpers can't
 // collide, and index.ts's imports become aliases into those namespaces.
 // Usage: npm run function:paste [-- lead-intake]   (default: assistant)
@@ -11,12 +12,12 @@ const dir = `supabase/functions/${name}`
 // Git may check files out with Windows line endings; the patterns below expect \n.
 const read = (path) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
 const index = read(`${dir}/index.ts`)
-const local = /import \{([^}]*)\} from '\.\/(\w+)\.ts'\n/g
-const imports = [...index.matchAll(local)].map((m) => ({ module: m[2], names: m[1].split(',').map((n) => n.replace(/^\s*type\s+/, '').trim()).filter(Boolean) }))
+const local = /import \{([^}]*)\} from '(\.\/|\.\.\/[\w-]+\/)(\w+)\.ts'\n/g
+const imports = [...index.matchAll(local)].map((m) => ({ folder: m[2], module: m[3], names: m[1].split(',').map((n) => n.replace(/^\s*type\s+/, '').trim()).filter(Boolean) }))
 if (imports.length === 0) throw new Error('Could not find the local imports in index.ts')
 
-const namespaces = imports.map(({ module }) => {
-  const code = read(`${dir}/${module}.ts`)
+const namespaces = imports.map(({ folder, module }) => {
+  const code = read(`${dir}/${folder}${module}.ts`)
   if (/^import /m.test(code)) throw new Error(`${module}.ts must not import anything`)
   return `// ---- ${module}.ts ----\nnamespace ${module} {\n${code}\n}`
 })

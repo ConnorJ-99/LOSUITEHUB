@@ -5,7 +5,8 @@
 //   the assistant's, so nothing else in the app depends on GHL.
 // - "token_check": a read-only look at what the Private Integration Token can
 //   do (sub-account name, GHL users, phone numbers, which calls work or need a
-//   scope), then re-confirms every team member's linked number.
+//   scope), then re-confirms every team member's linked number and records
+//   this company as the sub-account's owner (for ghl-inbound).
 // - "link_user": links a team member to their GHL user, after GHL confirms the
 //   number assigned to that user. Texts only ever go from that number.
 //
@@ -224,6 +225,12 @@ async function tokenCheck(db: SupabaseClient, g: Ghl, organizationId: string, us
   const people = await loadPeople(g)
   const checks = [...people.outcomes, ...(await otherChecks(g))]
   const linksChecked = await refreshLinks(db, organizationId, people)
+  // ghl-inbound finds the company that owns this sub-account here.
+  const owner = await db.from('messaging_settings').upsert({ organization_id: organizationId, ghl_location_id: g.locationId }, { onConflict: 'organization_id' })
+  if (owner.error) {
+    if (owner.error.code === '23505') throw new UserError('This GHL sub-account is already connected to another company in LOSuite.')
+    throw new Error(owner.error.message)
+  }
   const logError = await saveLog(db, organizationId, userId, 'token_check', g)
   return {
     location: people.location,

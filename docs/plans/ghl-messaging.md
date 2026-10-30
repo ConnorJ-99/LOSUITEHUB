@@ -171,6 +171,16 @@ Each phase is tested, shown to you, and committed separately. Every database scr
 
 ### Phase 2: Inbound and the Messages tab (read only)
 
+Built in three steps, each tested and committed:
+- **2a. Database and inbound function:** `20261203000000_ghl_messages.sql` and the `ghl-inbound` Edge Function (Verify JWT off; it reuses `ghl/match.ts`). The paste builder now also follows `../ghl/` imports.
+- **2b. Screens:** the Messages tab, the panels, Needs matching, the Inbox count, and a "Check for new messages" button.
+- **2c. Automation:** the scheduled check, and the GHL workflow Connor builds by hand.
+
+**Test mode (new, default on).** `messaging_settings.inbound_mode = 'test_only'` saves only GHL contacts with TEST in their name. Others are skipped by the name GHL lists, before their record is even read, so real clients' messages stay out of the dev database. Connor switches it to `all` at cutover.
+
+**Sub-account owner.** Check connection records which company owns the GHL sub-account (`messaging_settings.ghl_location_id`), so ghl-inbound knows where messages belong.
+
+
 - **`messages` table:** company, person (empty until matched), loan, channel (reuses the existing `message_channel`: text or email), direction, body, subject, from, to, GHL message and conversation ids (unique, so nothing saves twice), status, sent and received times, who sent it, match status and reason.
 - **Who sees messages:** a matched message is visible through `can_see_contact()`. Unmatched messages and the Needs matching list are visible only to the **admin** role (`sees_all_files()`, decision 1). Owners see only their own files' messages.
 - **`ghl-inbound` function** (Verify JWT off, checks `GHL_WEBHOOK_SECRET` with the same safe comparison as lead intake). It gets the ping, reads the new messages from GHL, matches and saves them.
@@ -222,7 +232,7 @@ Each phase is tested, shown to you, and committed separately. Every database scr
 4. **Workflows:** LOSuite never enrolls anyone in a GHL workflow in this build.
 5. **Quiet hours:** Mon–Sat 9am–9pm and Sun noon–9pm, Central time, kept as a setting Connor can change. Connor is still confirming the window with compliance.
 6. **Creating GHL contacts:** only when a person is first messaged, never in bulk. *Still to answer: which workflows start on Contact Created or Tag Added (or "none").*
-7. *Still to answer: which "Customer Replied" workflows auto-reply (or "none").*
+7. **Customer Replied workflows:** none of Connor's auto-reply (Oct 29), so replies to LOSuite texts won't trigger anything extra in GHL.
 8. *Still to answer: which numbers are A2P-approved, and whether mps.mortgage is verified for sending (this also decides the email sender in 3).*
 9. **Webhook:** use the plain **Webhook** action, which has no per-run charge, with the secret in the URL.
    - Each webhook is only a notice.
