@@ -172,8 +172,8 @@ Each phase is tested, shown to you, and committed separately. Every database scr
 ### Phase 2: Inbound and the Messages tab (read only)
 
 Built in three steps, each tested and committed:
-- **2a. Database and inbound function:** `20261203000000_ghl_messages.sql` and the `ghl-inbound` Edge Function (Verify JWT off; it reuses `ghl/match.ts`). The paste builder now also follows `../ghl/` imports.
-- **2b. Screens:** the Messages tab, the panels, Needs matching, the Inbox count, and a "Check for new messages" button.
+- **2a. Database and inbound function (done):** `20261203000000_ghl_messages.sql` and the `ghl-inbound` Edge Function (Verify JWT off; it reuses `ghl/match.ts`). The paste builder now also follows `../ghl/` imports.
+- **2b. Screens (done):** the Messages tab, the panels, Needs matching, the Inbox count, and a "Check for new messages" button. `20261204000000_ghl_message_senders.sql` keeps GHL's sender name, email and phone on each message for matching.
 - **2c. Automation:** the scheduled check, and the GHL workflow Connor builds by hand.
 
 **Test mode (new, default on).** `messaging_settings.inbound_mode = 'test_only'` saves only GHL contacts with TEST in their name. Others are skipped by the name GHL lists, before their record is even read, so real clients' messages stay out of the dev database. Connor switches it to `all` at cutover.

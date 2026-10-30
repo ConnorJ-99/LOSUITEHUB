@@ -4,6 +4,7 @@ import {
   PanelsTopLeftIcon,
   KanbanIcon,
   InboxIcon,
+  MessagesSquareIcon,
   SearchIcon,
   SettingsIcon,
   UsersIcon,
@@ -14,6 +15,8 @@ export interface NavItem {
   to: string
   label: string
   icon: LucideIcon
+  /** Shows the count of unread texts and emails next to the label. */
+  unreadBadge?: boolean
 }
 
 export interface NavSection {
@@ -25,6 +28,7 @@ export const navSections: NavSection[] = [
   {
     items: [
       { to: '/', label: 'Today', icon: InboxIcon },
+      { to: '/inbox', label: 'Inbox', icon: MessagesSquareIcon, unreadBadge: true },
       { to: '/pipeline', label: 'Pipeline', icon: KanbanIcon },
       { to: '/contacts', label: 'Contacts', icon: UsersIcon },
       { to: '/product-search', label: 'Product Search', icon: SearchIcon },

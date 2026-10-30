@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useNewLead } from '@/components/leads/new-lead-context'
+import { useUnreadCount } from '@/lib/api/messages'
 import { roleLabels, useAuth, type CurrentUser } from '@/lib/auth/context'
 import { BrandMark } from './BrandMark'
 import { navSections } from './nav'
@@ -45,6 +46,7 @@ export interface SidebarProps {
 export function Sidebar({ user, collapsed, onToggleCollapsed, onNavigate }: SidebarProps) {
   const { signOut } = useAuth()
   const { openNewLead } = useNewLead()
+  const unread = useUnreadCount()
 
   return (
     <aside className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
@@ -97,8 +99,16 @@ export function Sidebar({ user, collapsed, onToggleCollapsed, onNavigate }: Side
                     )
                   }
                 >
-                  <item.icon className="size-4 shrink-0" />
+                  <span className="relative">
+                    <item.icon className="size-4 shrink-0" />
+                    {item.unreadBadge && collapsed && !!unread.data && <span className="absolute -top-1 -right-1 size-2 rounded-full bg-primary" aria-label={`${unread.data} unread`} />}
+                  </span>
                   {!collapsed && item.label}
+                  {item.unreadBadge && !collapsed && !!unread.data && (
+                    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[0.7rem] font-semibold text-primary-foreground tabular-nums" aria-label={`${unread.data} unread`}>
+                      {unread.data}
+                    </span>
+                  )}
                 </NavLink>
               </MaybeTooltip>
             ))}

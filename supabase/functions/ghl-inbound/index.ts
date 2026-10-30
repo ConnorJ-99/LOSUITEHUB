@@ -208,7 +208,7 @@ async function syncConversation(db: SupabaseClient, g: Ghl, company: Company, co
   }
 
   const rows = []
-  for (const m of fresh) rows.push(await messageRow(g, orgId, m, ghlContactId, conversationId, match, loanId))
+  for (const m of fresh) rows.push(await messageRow(g, orgId, m, contact, conversationId, match, loanId))
   const saved = await db.from('messages').upsert(rows, { onConflict: 'organization_id,ghl_message_id', ignoreDuplicates: true }).select('ghl_message_id')
   if (saved.error) throw new Error(saved.error.message)
   s.saved += saved.data?.length ?? 0
@@ -220,7 +220,7 @@ async function syncConversation(db: SupabaseClient, g: Ghl, company: Company, co
   }
 }
 
-async function messageRow(g: Ghl, orgId: string, m: GhlMessage, ghlContactId: string, conversationId: string, match: MatchResult, loanId: string | null) {
+async function messageRow(g: Ghl, orgId: string, m: GhlMessage, contact: GhlContact, conversationId: string, match: MatchResult, loanId: string | null) {
   let subject: string | null = null
   let body = m.body
   let from: string | null = null
@@ -250,7 +250,11 @@ async function messageRow(g: Ghl, orgId: string, m: GhlMessage, ghlContactId: st
     sent_at: m.sentAt,
     ghl_message_id: m.id,
     ghl_conversation_id: m.conversationId ?? conversationId,
-    ghl_contact_id: ghlContactId,
+    ghl_contact_id: contact.id,
+    // Who it's from as GHL has them, so an admin can match it (20261204000000_ghl_message_senders.sql).
+    ghl_contact_name: contact.name ?? ([contact.firstName, contact.lastName].filter(Boolean).join(' ') || null),
+    ghl_contact_email: contact.email,
+    ghl_contact_phone: contact.phone,
     ghl_user_id: m.userId,
     match_status: match.kind === 'matched' ? 'matched' : 'needs_matching',
     matched_by: match.kind === 'matched' ? match.by : null,

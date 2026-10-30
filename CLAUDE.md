@@ -68,7 +68,15 @@ Choices Connor has approved. Follow them unless he changes them.
     - **Test mode:** `messaging_settings.inbound_mode = 'test_only'` (the default) saves only GHL contacts named TEST, skipping others by name, until Connor switches it to `all` at cutover. Check connection records which company owns the sub-account (`ghl_location_id`).
     - **Function permissions:** service-role-only database functions must also be revoked from `anon` and `authenticated` (Supabase grants new functions to them by default; follow lead intake's pattern).
     - **Paste builder:** `npm run function:paste` now also follows `../ghl/` imports.
-    - **Next:** 2b (screens) and 2c (the scheduled check, and Connor's GHL workflow; ghl-inbound needs Verify JWT off and `GHL_WEBHOOK_SECRET` first).
+  - **Phase 2b** (screens) is done:
+    - **Messages** on every file, closed ones too. One thread of a file's borrowers' texts and emails, in Central time, read only until Phase 3. Opening it marks messages read.
+    - **Contact & consent** panel: consent chips, Shared phone, and "Restore…" with a note.
+    - **GoHighLevel** panel: linked, matched by, which number texts go from.
+    - **`/inbox`:** conversations you can see, plus admin-only **Needs matching** with "This is…", which calls `match_message()`. The sidebar Inbox shows the unread count.
+    - **Check for new messages** (owners and admins) runs ghl-inbound's catch-up.
+    - Messages keep GHL's sender name, email and phone (`20261204000000_ghl_message_senders.sql`) for matching.
+    - Sample data: `supabase/seed-dev/ghl-messages-test.sql` (Jordan TEST / Maya TEST), removed with `ghl-messages-test-remove.sql`.
+  - **Next: 2c** (the scheduled check, and Connor's GHL workflow; ghl-inbound needs Verify JWT off and `GHL_WEBHOOK_SECRET` first).
 - **Every database script is safe to re-run and ends with a confirmation row** ("LOSuite … installed"). Connor pastes scripts into the Supabase SQL Editor, where highlighted text silently runs only part of a script and still says "Success". Test each script in PGlite (run twice, and a partial run followed by a full run) before handing it over.
 
 ## Core concepts

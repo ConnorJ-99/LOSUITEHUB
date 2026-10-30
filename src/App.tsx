@@ -18,6 +18,7 @@ import { MatrixImportPage } from '@/pages/MatrixImportPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { PipelinePage } from '@/pages/PipelinePage'
 import { ClosingCalendarPage } from '@/pages/ClosingCalendarPage'
+import { InboxPage } from '@/pages/InboxPage'
 import { LeadsHomePage } from '@/pages/LeadsHomePage'
 import { ProductSearchPage } from '@/pages/ProductSearchPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -37,6 +38,7 @@ const router = createBrowserRouter([
     element: <AuthGate />,
     children: [
       { index: true, element: <TodayPage /> },
+      { path: 'inbox', element: <InboxPage /> },
       { path: 'pipeline', element: <LeadsHomePage /> },
       { path: 'pipeline/closings', element: <ClosingCalendarPage /> },
       { path: 'pipeline/:pipelineId', element: <PipelinePage /> },
