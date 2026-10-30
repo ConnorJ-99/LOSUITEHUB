@@ -282,11 +282,15 @@ export interface CashFigure {
   amount: number
 }
 
-/** Purchase: price − loan + closing costs − earnest money − seller credits. Refinance: loan − closing costs − payoffs. */
-export function cashFigure(input: { purpose: LoanPurpose; purchasePrice: number | null; totalLoanAmount: number; closingCosts: number; payoffs: number; earnestMoney: number; sellerCredits: number }): CashFigure {
+/**
+ * Purchase: price − loan + closing costs − earnest money − seller credits. Refinance: loan − closing costs − payoffs.
+ * The loan here is the base loan: a financed FHA/VA/USDA fee goes to the agency, so it is never cash.
+ */
+export function cashFigure(input: { purpose: LoanPurpose; purchasePrice: number | null; totalLoanAmount: number; financedFee: number; closingCosts: number; payoffs: number; earnestMoney: number; sellerCredits: number }): CashFigure {
+  const loanAmount = round(input.totalLoanAmount - input.financedFee)
   const brings = isPurchase(input.purpose)
-    ? purchaseCashToClose({ purchasePrice: input.purchasePrice ?? 0, loanAmount: input.totalLoanAmount, closingCosts: input.closingCosts, earnestMoney: input.earnestMoney, sellerCredits: input.sellerCredits })
-    : -cashToBorrower({ loanAmount: input.totalLoanAmount, closingCosts: input.closingCosts, payoffs: input.payoffs })
+    ? purchaseCashToClose({ purchasePrice: input.purchasePrice ?? 0, loanAmount, closingCosts: input.closingCosts, earnestMoney: input.earnestMoney, sellerCredits: input.sellerCredits })
+    : -cashToBorrower({ loanAmount, closingCosts: input.closingCosts, payoffs: input.payoffs })
   return brings > 0 ? { label: 'Cash to close', amount: brings } : { label: 'Cash to borrower', amount: round(-brings) }
 }
 

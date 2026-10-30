@@ -33,7 +33,7 @@ function input(over: Partial<WorksheetInput> & { overrides?: FeeOverride[]; prop
     lines: priced.lines,
     totals: priced.totals,
     figures: priced.figures,
-    cash: cashFigure({ purpose: loan.purpose, purchasePrice: null, totalLoanAmount: priced.figures.totalLoanAmount, closingCosts: priced.closingCosts, payoffs, earnestMoney: 0, sellerCredits: 0 }),
+    cash: cashFigure({ purpose: loan.purpose, purchasePrice: null, totalLoanAmount: priced.figures.totalLoanAmount, financedFee: priced.figures.financedFee, closingCosts: priced.closingCosts, payoffs, earnestMoney: 0, sellerCredits: 0 }),
     payoffs,
     remainingLiens: 0,
     earnestMoney: 0,
@@ -67,6 +67,29 @@ describe('Fee Worksheet contents', () => {
       const sum = w.cash.lines.reduce((s, l) => s + (l.negative ? -l.amount : l.amount), 0)
       expect(Math.round(sum * 100) / 100).toBe(w.cash.title === 'Estimated cash to you' ? w.cash.total : -w.cash.total)
     }
+  })
+
+  it('an FHA loan adds the financed fee back: it is in the loan but is not cash', () => {
+    // $425,000 purchase, 3.5% down: base loan $410,125 + $7,177.19 UFMIP.
+    const fha = (purpose: 'purchase' | 'refinance_rate_term') => {
+      const loan = { id: 'l1', purpose, details: { ...baseDetails, loanAmount: 410125, purchasePrice: purpose === 'purchase' ? 425000 : null, noteRate: 6.5, termMonths: 360, mortgageType: 'fha' as const, estimatedFundingDate: '2026-10-26', subjectPropertyId: 'p1' } }
+      const property = home({ estimatedValue: 425000, liens: purpose === 'purchase' ? [] : [{ id: 'x', propertyId: 'p1', position: 'first', lender: null, balance: 380000, noteRate: 7, monthlyPayment: 2600, isHeloc: false, originatedOn: null, isTexasCashOut: false, toBePaidOff: false, creditLimit: null, mortgageType: 'fha' }] })
+      const scenario = scenarioFrom(loan, property, 'FHA')
+      const priced = priceScenario(scenario, purpose, templates, [])
+      const payoffs = payoffsFor(purpose, property)
+      const cash = cashFigure({ purpose, purchasePrice: scenario.purchasePrice, totalLoanAmount: priced.figures.totalLoanAmount, financedFee: priced.figures.financedFee, closingCosts: priced.closingCosts, payoffs, earnestMoney: 0, sellerCredits: 0 })
+      return { w: feeWorksheet(input({ purpose, scenario, lines: priced.lines, totals: priced.totals, figures: priced.figures, cash, payoffs, property })), closingCosts: priced.closingCosts }
+    }
+    const buy = fha('purchase')
+    expect(buy.w.cash.lines.slice(0, 3)).toEqual([{ label: 'Purchase price', amount: 425000 }, { label: 'Loan amount', amount: 417302.19, negative: true }, { label: 'Upfront mortgage insurance (financed)', amount: 7177.19, negative: false }])
+    // The full 3.5% down payment ($14,875) plus closing costs.
+    expect(buy.w.cash.total).toBe(Math.round((14875 + buy.closingCosts) * 100) / 100)
+    const refi = fha('refinance_rate_term')
+    expect(refi.w.cash.lines[1]).toEqual({ label: 'Upfront mortgage insurance (financed)', amount: 7177.19, negative: true })
+    // A purchase's lines add up to the cash to close; a refi's to the cash to the borrower.
+    const sum = (w: typeof buy.w) => Math.round(w.cash.lines.reduce((s, l) => s + (l.negative ? -l.amount : l.amount), 0) * 100) / 100
+    expect(sum(buy.w)).toBe(buy.w.cash.total)
+    expect(sum(refi.w)).toBe(refi.w.cash.title === 'Estimated cash to you' ? refi.w.cash.total : -refi.w.cash.total)
   })
 
   it('the facts at the top', () => {

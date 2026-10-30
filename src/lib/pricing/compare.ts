@@ -52,6 +52,7 @@ export function quoteDeal(ctx: CompareContext): QuoteDeal {
   const f = scenarioFigures(ctx.scenario)
   return {
     loanAmount: f.totalLoanAmount,
+    financedFee: f.financedFee,
     termMonths: ctx.scenario.termMonths ?? 360,
     purchasePrice: ctx.purpose === 'purchase' ? ctx.scenario.purchasePrice : null,
     payoffs: payoffsFor(ctx.purpose, ctx.property),

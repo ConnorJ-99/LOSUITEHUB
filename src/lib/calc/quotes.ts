@@ -16,7 +16,10 @@ export interface QuoteInput {
 
 /** The deal every quote prices (one pricing scenario: TBD or a home). */
 export interface QuoteDeal {
+  /** Total loan, with any financed FHA/VA/USDA fee: the payment is figured on it. */
   loanAmount: number
+  /** The financed fee inside loanAmount. It goes to the agency, so cash to close leaves it out. */
+  financedFee: number
   termMonths: number
   /** Purchase price; null for a refinance. */
   purchasePrice: number | null
@@ -47,9 +50,10 @@ export const DEFAULT_HORIZON_YEARS = 5
 
 export function quoteFigures(q: QuoteInput, deal: QuoteDeal, horizonYears = DEFAULT_HORIZON_YEARS): QuoteFigures {
   const pi = monthlyPrincipalAndInterest(deal.loanAmount, q.rate, deal.termMonths)
-  const downPayment = deal.purchasePrice != null ? round(deal.purchasePrice - deal.loanAmount) : 0
-  // Purchase: down payment + costs − credits. Refinance: payoffs + costs − credits − the new loan.
-  const base = deal.purchasePrice != null ? downPayment : deal.payoffs - deal.loanAmount
+  const baseLoan = deal.loanAmount - deal.financedFee
+  const downPayment = deal.purchasePrice != null ? round(deal.purchasePrice - baseLoan) : 0
+  // Purchase: down payment + costs − credits. Refinance: payoffs + costs − credits − the new loan (before the financed fee).
+  const base = deal.purchasePrice != null ? downPayment : deal.payoffs - baseLoan
   const cashToClose = round(base + q.closingCosts - q.lenderCredit - deal.sellerCredits - deal.earnestMoney)
   return {
     id: q.id,

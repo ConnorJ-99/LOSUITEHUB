@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { breakEven, categoryWinners, quoteFigures, sortQuotes, type QuoteDeal } from './quotes'
+import { monthlyPrincipalAndInterest } from './payment'
 
 // Mockup 07: TBD purchase, $400,000, 5% down, $380,000, 30-year fixed, taxes 2.2% and HOI $150/mo.
-const deal: QuoteDeal = { loanAmount: 380000, termMonths: 360, purchasePrice: 400000, payoffs: 0, monthlyTaxesInsurance: 883.33, monthlyHoa: 0, earnestMoney: 0, sellerCredits: 0 }
+const deal: QuoteDeal = { loanAmount: 380000, financedFee: 0, termMonths: 360, purchasePrice: 400000, payoffs: 0, monthlyTaxesInsurance: 883.33, monthlyHoa: 0, earnestMoney: 0, sellerCredits: 0 }
 const uwm = quoteFigures({ id: 'UWM', rate: 7.5, closingCosts: 20000, lenderCredit: 0, monthlyMi: 120 }, deal)
 const pennymac = quoteFigures({ id: 'PennyMac', rate: 7.3, closingCosts: 30000, lenderCredit: 0, monthlyMi: 118 }, deal)
 const ad = quoteFigures({ id: 'A&D', rate: 7.875, closingCosts: 10000, lenderCredit: 0, monthlyMi: 125 }, deal)
@@ -45,6 +46,12 @@ describe('mockup 07: three quotes on a TBD purchase', () => {
     const refi = quoteFigures({ id: 'r', rate: 7.625, closingCosts: 24770.94, lenderCredit: 0, monthlyMi: 0 }, { ...deal, loanAmount: 465000, purchasePrice: null, payoffs: 390694 })
     expect(refi.cashToClose).toBe(-49535.06)
     expect(refi.principalAndInterest).toBe(3291.24)
+  })
+  it('a financed FHA fee is in the payment but not in cash to close', () => {
+    const fha = quoteFigures({ id: 'f', rate: 6.5, closingCosts: 9000, lenderCredit: 0, monthlyMi: 0 }, { ...deal, loanAmount: 417302.19, financedFee: 7177.19, purchasePrice: 425000 })
+    expect(fha.downPayment).toBe(14875)
+    expect(fha.cashToClose).toBe(23875)
+    expect(fha.principalAndInterest).toBe(monthlyPrincipalAndInterest(417302.19, 6.5, 360))
   })
   it('the horizon can be 3 or 7 years', () => {
     expect(Math.round(quoteFigures({ id: 'u', rate: 7.5, closingCosts: 20000, lenderCredit: 0, monthlyMi: 120 }, deal, 3).horizonCost)).toBe(Math.round(40000 + 36 * 2777.02))

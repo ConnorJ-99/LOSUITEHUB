@@ -64,11 +64,21 @@ describe('existing mortgages and cash', () => {
     expect(remainingLiensFor('refinance_cash_out', withLiens)).toBe(40000)
   })
   it("Connor's test case: $49,535.06 to the borrower", () => {
-    expect(cashFigure({ purpose: 'refinance_cash_out', purchasePrice: null, totalLoanAmount: 465000, closingCosts: 24770.94, payoffs: 390694, earnestMoney: 0, sellerCredits: 0 })).toEqual({ label: 'Cash to borrower', amount: 49535.06 })
+    expect(cashFigure({ purpose: 'refinance_cash_out', purchasePrice: null, totalLoanAmount: 465000, financedFee: 0, closingCosts: 24770.94, payoffs: 390694, earnestMoney: 0, sellerCredits: 0 })).toEqual({ label: 'Cash to borrower', amount: 49535.06 })
   })
   it('a purchase brings cash to close', () => {
-    expect(cashFigure({ purpose: 'purchase', purchasePrice: 400000, totalLoanAmount: 380000, closingCosts: 9000, payoffs: 0, earnestMoney: 4000, sellerCredits: 3000 })).toEqual({ label: 'Cash to close', amount: 22000 })
+    expect(cashFigure({ purpose: 'purchase', purchasePrice: 400000, totalLoanAmount: 380000, financedFee: 0, closingCosts: 9000, payoffs: 0, earnestMoney: 4000, sellerCredits: 3000 })).toEqual({ label: 'Cash to close', amount: 22000 })
     expect(payoffsFor('purchase', withLiens)).toBe(0)
+  })
+  it('the financed FHA fee is not cash: an FHA purchase still brings the full down payment', () => {
+    // $425,000, 3.5% down: base loan $410,125 + $7,177.19 UFMIP = $417,302.19.
+    const loan = { id: 'l1', purpose: 'purchase' as const, details: details({ loanAmount: 410125, purchasePrice: 425000, mortgageType: 'fha' }) }
+    const f = scenarioFigures(scenarioFrom(loan, null, 'FHA'))
+    expect(f).toMatchObject({ totalLoanAmount: 417302.19, financedFee: 7177.19 })
+    expect(cashFigure({ purpose: 'purchase', purchasePrice: 425000, totalLoanAmount: f.totalLoanAmount, financedFee: f.financedFee, closingCosts: 9000, payoffs: 0, earnestMoney: 0, sellerCredits: 0 })).toEqual({ label: 'Cash to close', amount: 23875 })
+  })
+  it('nor on a refinance: the fee goes to FHA/VA/USDA, not to the borrower', () => {
+    expect(cashFigure({ purpose: 'refinance_rate_term', purchasePrice: null, totalLoanAmount: 407000, financedFee: 7000, closingCosts: 5000, payoffs: 380000, earnestMoney: 0, sellerCredits: 0 })).toEqual({ label: 'Cash to borrower', amount: 15000 })
   })
 })
 

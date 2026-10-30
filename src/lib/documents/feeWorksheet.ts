@@ -5,7 +5,7 @@
 
 import { cltv, round, type FeeLine, type FeeSection, type SectionTotals } from '@/lib/calc'
 import type { CashFigure, ScenarioDraft, ScenarioFigures } from '@/lib/pricing/scenario'
-import type { Occupancy, PropertyType } from '@/lib/api/types'
+import type { MortgageType, Occupancy, PropertyType } from '@/lib/api/types'
 import { purposeLabel, type LoanPurpose } from '@/lib/pipeline/stages'
 import { MORTGAGE_TYPE_OPTIONS, OCCUPANCY_OPTIONS, PROPERTY_TYPE_OPTIONS } from '@/components/profile/options'
 import { formatCurrency, formatPercent } from '@/lib/format'
@@ -111,6 +111,9 @@ export function productLabel(s: Pick<ScenarioDraft, 'mortgageType' | 'termMonths
   return s.interestOnly ? `${product}, interest only` : product
 }
 
+/** The financed upfront fee's name on the cash lines. */
+const FINANCED_FEE: Partial<Record<MortgageType, string>> = { fha: 'Upfront mortgage insurance (financed)', va: 'VA funding fee (financed)', usda_rural: 'USDA guarantee fee (financed)' }
+
 const ESCROWS = { none: 'Taxes & insurance', taxes: 'Insurance only', insurance: 'Taxes only', all: 'None (waived)' } as const
 
 function section(letter: FeeSection, lines: FeeLine[], totals: SectionTotals): WorksheetSection {
@@ -146,16 +149,20 @@ export function feeWorksheet(input: WorksheetInput): FeeWorksheet {
     ...(p.other ? [{ label: s.otherPaymentLabel || 'Other', amount: p.other }] : []),
   ].map((l) => ({ ...l, amount: round(l.amount) }))
 
+  // The loan includes the financed fee, which goes to the agency rather than to closing, so it's added back.
+  const financedFee = f.financedFee ? [{ label: (s.mortgageType && FINANCED_FEE[s.mortgageType]) || 'Financed upfront fee', amount: f.financedFee, negative: !isPurchase }] : []
   const cashLines: AmountLine[] = isPurchase
     ? [
         { label: 'Purchase price', amount: s.purchasePrice ?? 0 },
         { label: 'Loan amount', amount: f.totalLoanAmount, negative: true },
+        ...financedFee,
         { label: 'Closing costs after lender credits', amount: closingCosts },
         ...(input.earnestMoney ? [{ label: 'Earnest money already paid', amount: input.earnestMoney, negative: true }] : []),
         ...(input.sellerCredits ? [{ label: 'Seller credits', amount: input.sellerCredits, negative: true }] : []),
       ]
     : [
         { label: 'Loan amount', amount: f.totalLoanAmount },
+        ...financedFee,
         { label: 'Closing costs after lender credits', amount: closingCosts, negative: true },
         ...(input.payoffs ? [{ label: 'Mortgages paid off', amount: input.payoffs, negative: true }] : []),
       ]

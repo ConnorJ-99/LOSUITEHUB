@@ -17,7 +17,7 @@ const quotes = [quote('UWM', 7.5, 20000, 120), quote('PennyMac', 7.3, 30000, 118
 describe('mockup 07 through a TBD pricing scenario', () => {
   it('the deal: no property, taxes 2.2% and HOI $150 a month = $883.33', () => {
     expect(tbd.propertyId).toBeNull()
-    expect(quoteDeal(ctx)).toEqual({ loanAmount: 380000, termMonths: 360, purchasePrice: 400000, payoffs: 0, monthlyTaxesInsurance: 883.33, monthlyHoa: 0, earnestMoney: 0, sellerCredits: 0 })
+    expect(quoteDeal(ctx)).toEqual({ loanAmount: 380000, financedFee: 0, termMonths: 360, purchasePrice: 400000, payoffs: 0, monthlyTaxesInsurance: 883.33, monthlyHoa: 0, earnestMoney: 0, sellerCredits: 0 })
   })
   it('the three cards, sorting and break-even match the mockup', () => {
     const figs = compareQuotes(quotes, ctx)

@@ -70,7 +70,7 @@ export function ScenarioEditor({ loan, scenario, properties, templates, earnestM
   const priced = priceScenario(draft, loan.purpose, templates, overrides, otherFinancingFor(loan.purpose, property))
   const { figures } = priced
   const payoffs = payoffsFor(loan.purpose, property)
-  const cash = cashFigure({ purpose: loan.purpose, purchasePrice: draft.purchasePrice, totalLoanAmount: figures.totalLoanAmount, closingCosts: priced.closingCosts, payoffs, earnestMoney, sellerCredits: loan.details.sellerCredits ?? 0 })
+  const cash = cashFigure({ purpose: loan.purpose, purchasePrice: draft.purchasePrice, totalLoanAmount: figures.totalLoanAmount, financedFee: figures.financedFee, closingCosts: priced.closingCosts, payoffs, earnestMoney, sellerCredits: loan.details.sellerCredits ?? 0 })
   const prepaids = round(priced.totals.F + priced.totals.G)
   const changes = scenarioChanges(scenario, draft)
   const dirty = Object.keys(changes).length > 0
@@ -275,7 +275,7 @@ export function ScenarioEditor({ loan, scenario, properties, templates, earnestM
               {draft.lenderCredit > 0 && <SummaryLine label="Lender credit" value={`−${formatCurrency(draft.lenderCredit)}`} />}
               {isPurchase ? (
                 <>
-                  <SummaryLine label="Down payment" value={formatCurrency(round((draft.purchasePrice ?? 0) - figures.totalLoanAmount))} />
+                  <SummaryLine label="Down payment" value={formatCurrency(round((draft.purchasePrice ?? 0) - (draft.loanAmount ?? 0)))} />
                   {earnestMoney > 0 && <SummaryLine label="Earnest money" value={`−${formatCurrency(earnestMoney)}`} />}
                   {(loan.details.sellerCredits ?? 0) > 0 && <SummaryLine label="Seller credits" value={`−${formatCurrency(loan.details.sellerCredits)}`} />}
                 </>
