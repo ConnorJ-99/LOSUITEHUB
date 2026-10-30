@@ -242,3 +242,43 @@ Built in three steps, each tested and committed:
 11. **GHL-only users:** the two GHL users who don't use LOSuite are left out of user linking.
 
 When Phase 1 is approved, these go into the CLAUDE.md decisions log.
+
+---
+
+## 5. Next build (Connor, Oct 29, 2026, after sending worked)
+
+Phase 3 (sending) worked end to end on Connor's own TEST lead: GHL answered 201, the text was delivered, and his reply came back in.
+
+### Step A. Test-mode privacy fix (first)
+**What happened:** linking Connor's TEST lead to his own GHL contact copied in that contact's last 50 messages. Those include GHL's internal "NEW LEAD" and "New Lead Reply" alerts, which carry real clients' names and phone numbers.
+
+**Fix in code.** In test mode:
+- Save only messages sent **after** the person was linked to the GHL contact (new `contacts.ghl_linked_at`, set automatically when the link is made).
+- Never save outbound messages that GHL's own workflows, campaigns or bulk actions sent (GHL's `source` field). Those are the internal alerts.
+
+**Cleanup:** a dev-only script deletes the copied history on Connor's TEST lead (everything before his test send).
+
+### Step B. Send estimates and approvals
+- **Send to borrower** on a saved Fee Worksheet, loan comparison or pre-approval letter (Documents, Fees, Letters).
+- **Email with the PDF attached:** LOSuite uploads the PDF into the person's GHL conversation (`POST /conversations/messages/upload`, Version 2021-04-15, `conversations/message.write`; PDF allowed). It then sends the email with GHL's file link as the attachment, so no expiring LOSuite links go out. It's optional to also send a short heads-up text ("Just emailed your pre-approval letter"). There are never PDFs or links in texts.
+- **Same checks as every send:** consent, opt-outs, sending hours, test mode, the LO's confirmed number, and no double sends. The message keeps which document was sent.
+
+### Step C. Partner center
+- **Partners:** realtors (buyer's and listing agents), title, builders and other referral partners, as one record each in a new `partners` table, matched by email or phone and never by name.
+- **Added automatically** when someone is put on a file's team, read from a contract (when Connor adds them), or comes in from the website's partner form. Each file's team row links to its partner.
+- **Partner center page:** each partner with their contact info, consent, and the files they're on (open and closed).
+- **Consent:** partners get the same consent and opt-out handling as borrowers, so updates to realtors pass the same checks.
+
+### Step D. Drafted reminders and follow-ups, on the Today page
+**Drafts are built in code from templates** (no AI needed) and land in the Action Queue. Each event makes one draft, keyed by its source, so it's never made twice.
+- **Borrower loan dates:** pre-approval letter expiring in 10 days, option period ending, closing in 3 days.
+- **Realtor milestone updates:** when a file reaches Approved w/ conditions (initial approval), Clear to close, Docs out or Closed, the file's buyer's agent gets a short update draft.
+- **Closed-client dates:** thank-you, first payment, homestead, insurance renewal, anniversary, birthday, holidays (from the closed profile's key dates).
+
+**On the Today page:** "Ready for your approval" cards with Approve & send, Edit, Snooze and Skip, and chips for consent, sending hours and touches this week, as in the mockup.
+
+**Automate (per client):** a client marked "automate" gets **date reminders only** (anniversary, birthday, holidays, insurance renewal, first payment, homestead) sent on their own at 10 AM on the day. It's still within sending hours and with consent, at most 2 a week per client. Lead and realtor updates always wait for a click.
+
+**Needs a scheduler:** making drafts each morning and sending automated reminders needs one. Supabase's built-in scheduler (pg_cron + pg_net calling an Edge Function with a secret) is a new pattern that needs Connor's approval.
+
+**Order:** A, then B. C can run in parallel with B. D comes last, since it uses B's send, C's partners, and the scheduler.

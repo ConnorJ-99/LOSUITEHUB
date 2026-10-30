@@ -210,6 +210,8 @@ export interface MessagingSettings {
   timeZone: string
   /** mps.mortgage verified for sending in GHL: yes = LOs email from their own address, no = info@mps.mortgage. */
   emailDomainVerified: boolean
+  /** Test mode: only people named TEST are sent to or saved from GHL (switched to all at cutover). */
+  testMode: boolean
   /** False when the company has no saved row yet (defaults apply). */
   saved: boolean
 }
@@ -220,13 +222,14 @@ export function useMessagingSettings() {
     queryKey: ghlKeys.settings,
     enabled: !!orgId,
     queryFn: async (): Promise<MessagingSettings> => {
-      const row = unwrap<{ send_hours: unknown; time_zone: string; email_domain_verified: boolean } | null>(
-        await db().from('messaging_settings').select('send_hours, time_zone, email_domain_verified').eq('organization_id', orgId!).maybeSingle(),
+      const row = unwrap<{ send_hours: unknown; time_zone: string; email_domain_verified: boolean; inbound_mode: string | null } | null>(
+        await db().from('messaging_settings').select('send_hours, time_zone, email_domain_verified, inbound_mode').eq('organization_id', orgId!).maybeSingle(),
       )
       return {
         sendHours: readSendHours(row?.send_hours),
         timeZone: row?.time_zone ?? 'America/Chicago',
         emailDomainVerified: row?.email_domain_verified ?? false,
+        testMode: (row?.inbound_mode ?? 'test_only') === 'test_only',
         saved: !!row,
       }
     },

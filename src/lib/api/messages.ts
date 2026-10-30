@@ -292,7 +292,7 @@ export interface ConsentEvent {
   id: string
   contactId: string
   channel: MessageChannel
-  change: 'opted_out' | 'restored'
+  change: 'opted_out' | 'restored' | 'granted'
   source: 'stop_reply' | 'ghl_dnd' | 'person'
   note: string | null
   createdAt: string
@@ -348,5 +348,47 @@ export function useCheckNewMessages() {
       return data as CatchUpResult
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: msgKeys.all }),
+  })
+}
+
+/** Records that someone agreed to texts or email, with a note saying how. After an opt-out, use useRestoreConsent. */
+export function useRecordConsent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (v: { contactId: string; channel: MessageChannel; note: string }) => {
+      unwrap(await db().rpc('record_consent', { p_contact_id: v.contactId, p_channel: v.channel, p_note: v.note }))
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: msgKeys.all }),
+  })
+}
+
+export interface SendResult {
+  sent?: boolean
+  alreadySent?: boolean
+  status: string | null
+  error?: string | null
+  from?: string | null
+  to?: string | null
+}
+
+/**
+ * Sends one text or email through GHL. The server re-checks every rule
+ * (consent, opt-outs, sending hours, test mode, the LO's confirmed number) and
+ * uses the key so the same message can't go twice.
+ */
+export function useSendMessage() {
+  const queryClient = useQueryClient()
+  const { state } = useAuth()
+  const orgId = state.status === 'signedIn' ? state.user.organizationId : null
+  return useMutation({
+    mutationFn: async (v: { contactId: string; loanId: string; channel: MessageChannel; body: string; subject: string | null; idempotencyKey: string }) => {
+      const { data, error } = await db().functions.invoke<SendResult>('ghl', { body: { task: 'send', organizationId: orgId, ...v } })
+      if (error) {
+        const detail = error instanceof FunctionsHttpError ? await error.context.json().catch(() => null) : null
+        throw new Error(detail?.error ?? 'The message was not sent.')
+      }
+      return data as SendResult
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: msgKeys.all }),
   })
 }

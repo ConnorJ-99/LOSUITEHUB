@@ -12,6 +12,7 @@ import {
   useConsentHistory,
   useFilePeople,
   useMarkRead,
+  useRecordConsent,
   useRestoreConsent,
   useThread,
   type FilePerson,
@@ -22,6 +23,7 @@ import { useAuth } from '@/lib/auth/context'
 import { relativeTime } from '@/lib/dates'
 import { consentChip, dayLabel, groupByDay, sharedPhoneIds, timeOfDay } from '@/lib/messaging/thread'
 import { formatPhone } from '@/lib/pipeline/helpers'
+import { Composer } from './Composer'
 import { TONE_CLASS } from './tone'
 
 type Filter = 'all' | 'text' | 'email'
@@ -79,15 +81,18 @@ function Bubble({ m, who, isNew }: { m: Message; who: string | null; isNew: bool
   )
 }
 
-function RestoreConsentDialog({ person, channel, onClose }: { person: FilePerson; channel: 'text' | 'email'; onClose: () => void }) {
+/** Records consent, or restores it after an opt-out. Either way a person writes how they agreed, and it's kept. */
+function ConsentDialog({ person, channel, mode, onClose }: { person: FilePerson; channel: 'text' | 'email'; mode: 'record' | 'restore'; onClose: () => void }) {
   const restore = useRestoreConsent()
+  const record = useRecordConsent()
   const [note, setNote] = useState('')
+  const what = channel === 'text' ? 'texts' : 'email'
   const save = () =>
-    restore.mutate(
+    (mode === 'restore' ? restore : record).mutate(
       { contactId: person.id, channel, note },
       {
         onSuccess: () => {
-          toast.success(`${channel === 'text' ? 'Texting' : 'Email'} turned back on for ${person.firstName}`)
+          toast.success(mode === 'restore' ? `${channel === 'text' ? 'Texting' : 'Email'} turned back on for ${person.firstName}` : `${person.firstName}'s consent to ${what} is recorded`)
           onClose()
         },
         onError: (e) => toast.error(e.message),
@@ -95,15 +100,25 @@ function RestoreConsentDialog({ person, channel, onClose }: { person: FilePerson
     )
   return (
     <EditDialog
-      title={`Turn ${channel === 'text' ? 'texting' : 'email'} back on for ${person.firstName}?`}
-      description={`${person.firstName} opted out. Only turn it back on if they asked to hear from you again. The note is kept in their consent history.`}
+      title={mode === 'restore' ? `Turn ${channel === 'text' ? 'texting' : 'email'} back on for ${person.firstName}?` : `Record ${person.firstName}'s consent to ${what}`}
+      description={
+        mode === 'restore'
+          ? `${person.firstName} opted out. Only turn it back on if they asked to hear from you again. The note is kept in their consent history.`
+          : `Only if ${person.firstName} agreed to get ${what} from MPS Mortgage. The note is kept in their consent history.`
+      }
       open
       onOpenChange={(o) => !o && onClose()}
       onSubmit={save}
-      saving={restore.isPending}
-      submitLabel="Turn back on"
+      saving={restore.isPending || record.isPending}
+      submitLabel={mode === 'restore' ? 'Turn back on' : 'Record consent'}
     >
-      <TextArea label="How did they agree again?" required value={note} onChange={setNote} placeholder='e.g. "Texted START on 11/2" or "Asked on our call 11/2 to text again"' />
+      <TextArea
+        label={mode === 'restore' ? 'How did they agree again?' : 'How did they agree?'}
+        required
+        value={note}
+        onChange={setNote}
+        placeholder={mode === 'restore' ? 'e.g. "Texted START on 11/2" or "Asked on our call 11/2 to text again"' : 'e.g. "Said yes to texts on our call 10/29" or "Checked the box on the website form"'}
+      />
     </EditDialog>
   )
 }
@@ -113,7 +128,7 @@ const SOURCE_LABEL = { stop_reply: 'replied STOP', ghl_dnd: 'Do Not Disturb in G
 function ContactConsentCard({ people }: { people: FilePerson[] }) {
   const history = useConsentHistory(people.map((p) => p.id))
   const shared = sharedPhoneIds(people)
-  const [restoring, setRestoring] = useState<{ person: FilePerson; channel: 'text' | 'email' } | null>(null)
+  const [editing, setEditing] = useState<{ person: FilePerson; channel: 'text' | 'email'; mode: 'record' | 'restore' } | null>(null)
 
   return (
     <Card title="Contact & consent">
@@ -140,10 +155,16 @@ function ContactConsentCard({ people }: { people: FilePerson[] }) {
                   <span className={TONE_CLASS[text.tone]}>{text.label}</span>
                 </span>
               </div>
-              {p.smsOptedOutAt && (
-                <Button size="sm" variant="outline" onClick={() => setRestoring({ person: p, channel: 'text' })}>
+              {p.smsOptedOutAt ? (
+                <Button size="sm" variant="outline" onClick={() => setEditing({ person: p, channel: 'text', mode: 'restore' })}>
                   Restore texting…
                 </Button>
+              ) : (
+                p.smsConsent !== true && (
+                  <Button size="sm" variant="outline" onClick={() => setEditing({ person: p, channel: 'text', mode: 'record' })}>
+                    Record text consent…
+                  </Button>
+                )
               )}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="min-w-0 break-all">
@@ -152,16 +173,22 @@ function ContactConsentCard({ people }: { people: FilePerson[] }) {
                 </span>
                 <span className={TONE_CLASS[email.tone]}>{email.label}</span>
               </div>
-              {p.emailOptedOutAt && (
-                <Button size="sm" variant="outline" onClick={() => setRestoring({ person: p, channel: 'email' })}>
+              {p.emailOptedOutAt ? (
+                <Button size="sm" variant="outline" onClick={() => setEditing({ person: p, channel: 'email', mode: 'restore' })}>
                   Restore email…
                 </Button>
+              ) : (
+                p.emailConsent !== true && (
+                  <Button size="sm" variant="outline" onClick={() => setEditing({ person: p, channel: 'email', mode: 'record' })}>
+                    Record email consent…
+                  </Button>
+                )
               )}
               {events.length > 0 && (
                 <ul className="space-y-0.5 text-xs text-muted-foreground">
                   {events.map((e) => (
                     <li key={e.id}>
-                      {relativeTime(e.createdAt)}: {e.channel === 'text' ? 'texting' : 'email'} {e.change === 'opted_out' ? `turned off (${SOURCE_LABEL[e.source]})` : `turned back on: "${e.note}"`}
+                      {relativeTime(e.createdAt)}: {e.channel === 'text' ? 'texting' : 'email'} {e.change === 'opted_out' ? `turned off (${SOURCE_LABEL[e.source]})` : `turned ${e.change === 'restored' ? 'back ' : ''}on: "${e.note}"`}
                     </li>
                   ))}
                 </ul>
@@ -171,7 +198,7 @@ function ContactConsentCard({ people }: { people: FilePerson[] }) {
         })}
         {shared.size > 0 && <p className="text-xs text-muted-foreground">Texts from a shared number aren't matched to anyone automatically; an admin picks the right person.</p>}
       </div>
-      {restoring && <RestoreConsentDialog person={restoring.person} channel={restoring.channel} onClose={() => setRestoring(null)} />}
+      {editing && <ConsentDialog person={editing.person} channel={editing.channel} mode={editing.mode} onClose={() => setEditing(null)} />}
     </Card>
   )
 }
@@ -221,7 +248,7 @@ function GhlPanel({ loan, people, messages, canCheck }: { loan: LoanProfile; peo
   )
 }
 
-/** The borrower's texts and emails from GHL in one thread, with consent and GHL status beside it. Read only until sending (Phase 3). */
+/** The borrower's texts and emails from GHL in one thread, a composer to send through GHL, and consent and GHL status beside it. */
 export function MessagesTab({ loan }: { loan: LoanProfile }) {
   const { state } = useAuth()
   const role = state.status === 'signedIn' ? state.user.role : null
@@ -290,9 +317,10 @@ export function MessagesTab({ loan }: { loan: LoanProfile }) {
             ))}
           </div>
         )}
-        <p className="mt-4 border-t pt-3 text-xs text-muted-foreground">
-          Reply from GHL for now. Sending from LOSuite, with consent and sending-hour checks, comes next. Times are Central{messages.length ? `; last message ${dayLabel(messages.at(-1)!.sentAt).toLowerCase()} at ${timeOfDay(messages.at(-1)!.sentAt)}` : ''}.
+        <p className="mt-3 text-xs text-muted-foreground">
+          Times are Central{messages.length ? `; last message ${dayLabel(messages.at(-1)!.sentAt).toLowerCase()} at ${timeOfDay(messages.at(-1)!.sentAt)}` : ''}.
         </p>
+        {people.data && people.data.length > 0 && <Composer loan={loan} people={people.data} />}
       </Card>
       <div className="space-y-4">
         {people.data && <ContactConsentCard people={people.data} />}

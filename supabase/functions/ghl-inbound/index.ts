@@ -14,7 +14,8 @@
 // match.ts: stored GHL id, email, phone; never by name). Unclear cases wait in
 // "Needs matching" for an admin. A STOP reply or GHL's Do Not Disturb turns
 // that channel's consent off. In test mode (the default) only GHL contacts
-// named TEST are saved, so real clients stay out of the dev database.
+// named TEST, or already linked to a LOSuite person named TEST, are saved, so
+// real clients stay out of the dev database.
 //
 // Writes use the service role (no signed-in user), so Row Level Security is
 // bypassed here on purpose; every write is scoped to the company that owns
@@ -96,6 +97,8 @@ interface Company {
   organization_id: string
   inbound_mode: 'test_only' | 'all'
   last_synced_at: string | null
+  /** Test mode: GHL contacts already linked to a LOSuite person named TEST (e.g. by a send), saved whatever GHL calls them. */
+  testLinks: Set<string>
 }
 
 interface Summary {
@@ -163,7 +166,7 @@ async function syncConversation(db: SupabaseClient, g: Ghl, company: Company, co
     s.failed++
     return
   }
-  if (company.inbound_mode === 'test_only' && !isTestContact(contact)) {
+  if (company.inbound_mode === 'test_only' && !isTestContact(contact) && !company.testLinks.has(contact.id)) {
     s.skippedNotTest++
     return
   }
@@ -264,7 +267,8 @@ async function messageRow(g: Ghl, orgId: string, m: GhlMessage, contact: GhlCont
 }
 
 /** Test mode: a conversation GHL lists under a name without TEST is skipped before its contact is even read. */
-const skipByName = (company: Company, c: ConversationRef) => company.inbound_mode === 'test_only' && !!c.name && !isTestContact({ firstName: null, lastName: null, name: c.name })
+const skipByName = (company: Company, c: ConversationRef) =>
+  company.inbound_mode === 'test_only' && !!c.name && !isTestContact({ firstName: null, lastName: null, name: c.name }) && !company.testLinks.has(c.contactId)
 
 /** A webhook: every conversation of one GHL contact. */
 async function syncContact(db: SupabaseClient, g: Ghl, company: Company, ghlContactId: string, s: Summary) {
@@ -321,7 +325,14 @@ Deno.serve(async (request) => {
   const company = await db.from('messaging_settings').select('organization_id, inbound_mode, last_synced_at').eq('ghl_location_id', locationId).maybeSingle()
   if (company.error) return reply(500, { error: company.error.message })
   if (!company.data) return reply(409, { error: 'LOSuite doesn\'t know which company this GHL sub-account belongs to yet. An owner or admin runs Check connection in Settings → GoHighLevel first.' })
-  const co = company.data as Company
+  const co = { ...(company.data as Omit<Company, 'testLinks'>), testLinks: new Set<string>() } as Company
+  if (co.inbound_mode === 'test_only') {
+    const linked = await db.from('contacts').select('ghl_contact_id, first_name, last_name').eq('organization_id', co.organization_id).not('ghl_contact_id', 'is', null)
+    if (linked.error) return reply(500, { error: linked.error.message })
+    for (const r of (linked.data ?? []) as { ghl_contact_id: string; first_name: string | null; last_name: string | null }[]) {
+      if (isTestContact({ firstName: r.first_name, lastName: r.last_name, name: null })) co.testLinks.add(r.ghl_contact_id)
+    }
+  }
 
   const body = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>
   const key = new URL(request.url).searchParams.get('key')
