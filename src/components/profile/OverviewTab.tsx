@@ -12,7 +12,7 @@ import { useContactLoans, useUpdateLead, useUpdateLoanDetails } from '@/lib/api/
 import { useProgramOptions } from '@/lib/api/loanPricing'
 import { useProperties, useSaveHomeFigures, type HomeFigures } from '@/lib/api/properties'
 import type { Lien, LoanDetails, LoanProfile, Property } from '@/lib/api/types'
-import { computeScenario, texasHomeEquityFlags, type ScenarioResult } from '@/lib/calc'
+import { computeScenario, loanRevenue, texasHomeEquityFlags, type ScenarioResult } from '@/lib/calc'
 import { formatIsoDate, relativeTime, todayIso } from '@/lib/dates'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { formatPhone } from '@/lib/pipeline/helpers'
@@ -138,6 +138,39 @@ function LenderFields({ loan, lenderName, programName, onLender, onProgram }: { 
 /** A 1st lien typed on the Loan details card before the home has one (used for the live math until it's saved). */
 function newFirstLien(propertyId: string, balance: number | null, monthlyPayment: number | null): Lien {
   return { id: 'new-first-lien', propertyId, position: 'first', lender: null, balance, noteRate: null, monthlyPayment, isHeloc: false, originatedOn: null, isTexasCashOut: false, toBePaidOff: false, creditLimit: null, mortgageType: null }
+}
+
+const REVENUE_AS = [
+  { value: 'percent' as const, label: '% of loan' },
+  { value: 'amount' as const, label: '$ amount' },
+]
+
+/** Revenue on the file: typed as a percent of the loan amount or as dollars; the other one is calculated. */
+function RevenueFields({ loanAmount, type, value, onChange }: { loanAmount: number | null; type: 'percent' | 'amount' | null; value: number | null; onChange: (type: 'percent' | 'amount', value: number | null) => void }) {
+  const [as, setAs] = useState<'percent' | 'amount'>(type ?? 'percent')
+  const r = loanRevenue(loanAmount, type, value)
+  // Switching % / $ keeps the same revenue, now typed the other way.
+  const switchTo = (next: 'percent' | 'amount') => {
+    setAs(next)
+    if (value !== null && type !== next) onChange(next, next === 'percent' ? r.pct : r.amount)
+  }
+  const calcHint = loanAmount ? 'Calculated from the loan amount' : 'Needs the loan amount'
+  return (
+    <>
+      <Select label="Revenue as" value={as} options={REVENUE_AS} onChange={switchTo} />
+      {as === 'percent' ? (
+        <>
+          <PercentInput label="Revenue %" value={type === 'percent' ? value : r.pct} onChange={(v) => onChange('percent', v)} />
+          <CurrencyInput label="Revenue $" value={r.amount} readOnly hint={value !== null ? calcHint : undefined} span={2} />
+        </>
+      ) : (
+        <>
+          <CurrencyInput label="Revenue $" value={type === 'amount' ? value : r.amount} onChange={(v) => onChange('amount', v)} />
+          <PercentInput label="Revenue %" value={r.pct} readOnly hint={value !== null ? calcHint : undefined} span={2} />
+        </>
+      )}
+    </>
+  )
 }
 
 function OtherLoans({ loan }: { loan: LoanProfile }) {
@@ -359,6 +392,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
               <Select label="Occupancy" value={form.occupancy} onChange={set('occupancy')} options={OCCUPANCY_OPTIONS} required span={2} />
               <DateInput label="Closing date" value={form.closingDate} onChange={set('closingDate')} span={2} />
               <LenderFields loan={loan} lenderName={form.lenderName} programName={form.programName} onLender={(v) => set('lenderName')(v.trim() ? v : null)} onProgram={(v) => set('programName')(v.trim() ? v : null)} />
+              <RevenueFields loanAmount={form.loanAmount} type={form.revenueType} value={form.revenueValue} onChange={(type, value) => setForm((f) => ({ ...f, revenueType: value === null ? null : type, revenueValue: value }))} />
               {purpose === 'purchase' && (
                 <>
                   <DateInput label="Contract date" value={form.contractDate} onChange={set('contractDate')} span={2} />

@@ -149,6 +149,9 @@ export interface LoanDetails {
   lenderName: string | null
   programName: string | null
   monthlyPayment: number | null
+  /** Revenue on the file, as typed: a percent of the loan amount or dollars (the other is calculated). */
+  revenueType: 'percent' | 'amount' | null
+  revenueValue: number | null
 }
 
 export type ImpoundWaiver = 'none' | 'taxes' | 'insurance' | 'all'
