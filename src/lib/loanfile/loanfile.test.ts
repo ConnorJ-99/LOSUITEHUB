@@ -169,7 +169,7 @@ describe('Select lender & program', () => {
   const ready = { ...facts, urlaMissing: 0 }
   it('is done once a program is chosen on Loan · Pricing', () => {
     expect(buildWorkflow(withStep, [], { ...ready, hasProgram: true }).steps.find((s) => s.key === 'select_program')).toMatchObject({ status: 'done', auto: true })
-    expect(buildWorkflow(withStep, [], { ...ready, hasProgram: false }).steps.find((s) => s.key === 'select_program')?.reason).toBe('Compare quotes on Loan · Pricing and choose one')
+    expect(buildWorkflow(withStep, [], { ...ready, hasProgram: false }).steps.find((s) => s.key === 'select_program')?.reason).toBe('Add the lender in Loan details, or compare quotes on Loan · Pricing and choose one')
   })
   it("blocks Submit until a lender is chosen: \"Can't submit: no lender/program selected\"", () => {
     const marks: StepMark[] = [{ stepKey: 'disclosures', status: 'done', doneOn: '2026-10-21' }]

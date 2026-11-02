@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CurrencyInput, DateInput, FormGrid, Input, PercentInput, Select, SummaryBar, type SummaryItem } from '@/components/shared'
 import { StageBadge } from '@/components/pipeline/StageBadge'
 import { lastContact, useNotes } from '@/lib/api/notes'
+import { useLenders } from '@/lib/api/lenders'
 import { useContactLoans, useUpdateLoanDetails } from '@/lib/api/loans'
+import { useProgramOptions } from '@/lib/api/loanPricing'
 import { useProperties } from '@/lib/api/properties'
 import type { LoanDetails, LoanProfile, Property } from '@/lib/api/types'
 import { computeScenario, texasHomeEquityFlags, type ScenarioResult } from '@/lib/calc'
@@ -95,6 +97,41 @@ type EditableDetails = Omit<LoanDetails, 'subjectPropertyId'>
 function editable({ subjectPropertyId, ...rest }: LoanDetails): EditableDetails {
   void subjectPropertyId
   return rest
+}
+
+/**
+ * The lender (and program, if known) for this file without pricing it first:
+ * pick one of your lenders or type any name. A program chosen on Loan ·
+ * Pricing names its own lender and takes over, so it's shown instead.
+ */
+function LenderFields({ loan, lenderName, programName, onLender, onProgram }: { loan: LoanProfile; lenderName: string | null; programName: string | null; onLender: (v: string) => void; onProgram: (v: string) => void }) {
+  const lenders = useLenders()
+  const options = useProgramOptions(loan.id)
+  const chosen = loan.details.programId ? options.data?.find((o) => o.programId === loan.details.programId) : undefined
+  if (loan.details.programId)
+    return (
+      <>
+        <Input label="Lender" value={chosen?.lenderName ?? ''} readOnly hint="Chosen on Loan · Pricing" span={2} />
+        <Input label="Program" value={chosen?.programName ?? ''} readOnly span={2} />
+      </>
+    )
+  const lender = lenders.data?.find((l) => l.name.toLowerCase() === (lenderName ?? '').trim().toLowerCase())
+  return (
+    <>
+      <Input label="Lender" value={lenderName ?? ''} onChange={onLender} list={`lenders-${loan.id}`} placeholder="Pick or type a lender" hint="No pricing needed; quotes can come later" span={2} />
+      <datalist id={`lenders-${loan.id}`}>
+        {(lenders.data ?? []).map((l) => (
+          <option key={l.id} value={l.name} />
+        ))}
+      </datalist>
+      <Input label="Program (optional)" value={programName ?? ''} onChange={onProgram} list={`programs-${loan.id}`} placeholder={lender ? 'Pick or type a program' : 'e.g. Conventional'} span={2} />
+      <datalist id={`programs-${loan.id}`}>
+        {(lender?.programs ?? []).filter((p) => p.active).map((p) => (
+          <option key={p.id} value={p.name} />
+        ))}
+      </datalist>
+    </>
+  )
 }
 
 function OtherLoans({ loan }: { loan: LoanProfile }) {
@@ -260,6 +297,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
               )}
               <Select label="Occupancy" value={form.occupancy} onChange={set('occupancy')} options={OCCUPANCY_OPTIONS} required span={2} />
               <DateInput label="Closing date" value={form.closingDate} onChange={set('closingDate')} span={2} />
+              <LenderFields loan={loan} lenderName={form.lenderName} programName={form.programName} onLender={(v) => set('lenderName')(v.trim() ? v : null)} onProgram={(v) => set('programName')(v.trim() ? v : null)} />
               {purpose === 'purchase' && (
                 <>
                   <DateInput label="Contract date" value={form.contractDate} onChange={set('contractDate')} span={2} />

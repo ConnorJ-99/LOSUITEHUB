@@ -162,7 +162,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           hasContract: loan.details.contractDate !== null,
           hasLoanAmount: loan.details.loanAmount !== null,
           hasRate: loan.details.noteRate !== null,
-          hasProgram: loan.details.programId !== null,
+          hasProgram: loan.details.programId !== null || loan.details.lenderName !== null,
           hasPreapprovalLetter: letters.data ? letters.data.length > 0 : undefined,
           stageSince,
         })
