@@ -4,14 +4,14 @@ import { Link } from 'react-router'
 import { HomeIcon, MailIcon, PhoneIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card, CurrencyInput, DateInput, FormGrid, Input, PercentInput, Select, SummaryBar, type SummaryItem } from '@/components/shared'
+import { Card, confirmAction, CurrencyInput, DateInput, FormGrid, Input, PercentInput, Select, SummaryBar, type SummaryItem } from '@/components/shared'
 import { StageBadge } from '@/components/pipeline/StageBadge'
 import { lastContact, useNotes } from '@/lib/api/notes'
 import { useLenders } from '@/lib/api/lenders'
-import { useContactLoans, useUpdateLoanDetails } from '@/lib/api/loans'
+import { useContactLoans, useUpdateLead, useUpdateLoanDetails } from '@/lib/api/loans'
 import { useProgramOptions } from '@/lib/api/loanPricing'
-import { useProperties } from '@/lib/api/properties'
-import type { LoanDetails, LoanProfile, Property } from '@/lib/api/types'
+import { useProperties, useSaveHomeFigures, type HomeFigures } from '@/lib/api/properties'
+import type { Lien, LoanDetails, LoanProfile, Property } from '@/lib/api/types'
 import { computeScenario, texasHomeEquityFlags, type ScenarioResult } from '@/lib/calc'
 import { formatIsoDate, relativeTime, todayIso } from '@/lib/dates'
 import { formatCurrency, formatPercent } from '@/lib/format'
@@ -89,7 +89,8 @@ function NoSubjectProperty({ onGoToProperties }: { onGoToProperties: () => void 
   )
 }
 
-const FROM_PROPERTY = 'From the subject property'
+const FROM_PROPERTY = 'Saved to the subject property'
+const NEEDS_PROPERTY = 'Add the subject property first'
 
 /** The details this form edits. The subject property is chosen on the Properties tab. */
 type EditableDetails = Omit<LoanDetails, 'subjectPropertyId'>
@@ -134,6 +135,11 @@ function LenderFields({ loan, lenderName, programName, onLender, onProgram }: { 
   )
 }
 
+/** A 1st lien typed on the Loan details card before the home has one (used for the live math until it's saved). */
+function newFirstLien(propertyId: string, balance: number | null, monthlyPayment: number | null): Lien {
+  return { id: 'new-first-lien', propertyId, position: 'first', lender: null, balance, noteRate: null, monthlyPayment, isHeloc: false, originatedOn: null, isTexasCashOut: false, toBePaidOff: false, creditLimit: null, mortgageType: null }
+}
+
 function OtherLoans({ loan }: { loan: LoanProfile }) {
   const loans = useContactLoans(loan.borrower?.id)
   const others = (loans.data ?? []).filter((l) => l.id !== loan.id)
@@ -165,7 +171,28 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
   const [form, setForm] = useState<EditableDetails>(saved)
   const set = <K extends keyof EditableDetails>(key: K) => (value: EditableDetails[K]) => setForm((f) => ({ ...f, [key]: value }))
 
-  const subject: Property | null = properties.data?.find((p) => p.id === loan.details.subjectPropertyId) ?? null
+  const saveHome = useSaveHomeFigures(loan.id, loan.organizationId)
+  const updateLead = useUpdateLead()
+  // The home's value and 1st lien, edited here but saved on the property (so every tab shows the same figures).
+  const [home, setHome] = useState<HomeFigures>({})
+  const savedSubject: Property | null = properties.data?.find((p) => p.id === loan.details.subjectPropertyId) ?? null
+  const savedFirstLien = savedSubject?.liens.find((l) => l.position === 'first') ?? null
+  type Figure = Exclude<keyof HomeFigures, 'firstLienStays'>
+  const savedHome: Record<Figure, number | null> = { estimatedValue: savedSubject?.estimatedValue ?? null, firstLienBalance: savedFirstLien?.balance ?? null, firstLienPayment: savedFirstLien?.monthlyPayment ?? null }
+  const homeValue = (k: Figure) => (home[k] !== undefined ? home[k]! : savedHome[k])
+  const setHomeValue = (k: Figure) => (v: number | null) => setHome((h) => ({ ...h, [k]: v }))
+  const homeChanges = Object.fromEntries(Object.entries(home).filter(([k, v]) => v !== savedHome[k as Figure])) as HomeFigures
+  const homeDirty = Object.keys(homeChanges).length > 0
+  // The subject property as it will be once saved, so every calculated box updates as you type.
+  const subject: Property | null = savedSubject && {
+    ...savedSubject,
+    estimatedValue: homeValue('estimatedValue'),
+    liens: savedFirstLien
+      ? savedSubject.liens.map((l) => (l.id === savedFirstLien.id ? { ...l, balance: homeValue('firstLienBalance'), monthlyPayment: homeValue('firstLienPayment') } : l))
+      : homeChanges.firstLienBalance != null || homeChanges.firstLienPayment != null
+        ? [...savedSubject.liens, newFirstLien(savedSubject.id, homeValue('firstLienBalance'), homeValue('firstLienPayment'))]
+        : savedSubject.liens,
+  }
   const result = computeScenario(loanScenarioInput(loan.purpose, { ...loan.details, ...form }, subject))
   const texasFlags = texasHomeEquityFlags({
     purpose: loan.purpose,
@@ -181,18 +208,41 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
   const changes = Object.fromEntries(
     Object.entries(form).filter(([key, value]) => value !== saved[key as keyof EditableDetails]),
   ) as Partial<EditableDetails>
-  const dirty = Object.keys(changes).length > 0
+  const dirty = Object.keys(changes).length > 0 || homeDirty
+  const saving = updateDetails.isPending || saveHome.isPending
 
-  const save = () =>
-    updateDetails.mutate(changes, {
-      onSuccess: () => toast.success('Loan details saved'),
-      onError: (error) => toast.error(`Could not save: ${error.message}`),
-    })
+  const save = async () => {
+    try {
+      if (Object.keys(changes).length) await updateDetails.mutateAsync(changes)
+      if (homeDirty && savedSubject) await saveHome.mutateAsync({ propertyId: savedSubject.id, firstLienId: savedFirstLien?.id ?? null, figures: homeChanges })
+      setHome({})
+      toast.success('Loan details saved')
+    } catch (error) {
+      toast.error(`Could not save: ${(error as Error).message}`)
+    }
+  }
+
+  /** A cash-out on a home whose 1st mortgage stays is a 2nd lien: the HELOAN layout shows the 1st lien, the new 2nd and CLTV. */
+  const switchToHeloan = async () => {
+    if (!loan.borrower) return
+    if (!(await confirmAction('Switch this file to HELOAN (closed-end 2nd lien)? Loan details will show the home value, the 1st lien that stays, the new 2nd lien amount, the cash out and CLTV.', { confirmLabel: 'Switch to HELOAN' }))) return
+    const b = loan.borrower
+    updateLead.mutate(
+      { loanId: loan.id, contactId: b.id, contact: { firstName: b.firstName, lastName: b.lastName, phone: b.phone, email: b.email }, loan: { purpose: 'heloan', referralSource: loan.referralSource, assignedLoId: loan.assignedLo?.id ?? null } },
+      {
+        onSuccess: () => {
+          // The 1st mortgage stays on a 2nd-lien file, so it isn't paid off at closing.
+          if (savedSubject && savedFirstLien?.toBePaidOff) saveHome.mutate({ propertyId: savedSubject.id, firstLienId: savedFirstLien.id, figures: { firstLienStays: true } })
+          toast.success('Switched to HELOAN')
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    )
+  }
 
   const purpose = loan.purpose
   const isRefi = purpose === 'refinance_rate_term' || purpose === 'refinance_cash_out'
   const isSecond = purpose === 'heloc' || purpose === 'heloan'
-  const firstLien = subject?.liens.find((l) => l.position === 'first') ?? null
   const contact = lastContact(notes.data)
   const b = loan.borrower
   const termValue = form.termMonths ? (String(form.termMonths) as (typeof TERM_OPTIONS)[number]['value']) : null
@@ -222,12 +272,20 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
 
               {isRefi && (
                 <>
-                  <CurrencyInput label="Home value" value={result.value} readOnly hint={FROM_PROPERTY} span={2} />
-                  <CurrencyInput label="Current 1st lien" value={firstLien?.balance ?? null} readOnly hint={FROM_PROPERTY} span={2} />
-                  <CurrencyInput label="Current P&I" value={firstLien?.monthlyPayment ?? null} readOnly hint={FROM_PROPERTY} span={2} />
+                  <CurrencyInput label="Home value" value={homeValue('estimatedValue')} onChange={setHomeValue('estimatedValue')} readOnly={!subject} hint={subject ? FROM_PROPERTY : NEEDS_PROPERTY} span={2} />
+                  <CurrencyInput label="Current 1st lien" value={homeValue('firstLienBalance')} onChange={setHomeValue('firstLienBalance')} readOnly={!subject} hint={subject ? FROM_PROPERTY : NEEDS_PROPERTY} span={2} />
+                  <CurrencyInput label="Current P&I" value={homeValue('firstLienPayment')} onChange={setHomeValue('firstLienPayment')} readOnly={!subject} hint={subject ? FROM_PROPERTY : NEEDS_PROPERTY} span={2} />
                   <CurrencyInput label="New loan amount" value={form.loanAmount} onChange={set('loanAmount')} required span={2} />
                   {purpose === 'refinance_cash_out' && (
                     <CurrencyInput label="Cash-out amount" value={form.cashOutAmount} onChange={set('cashOutAmount')} span={2} />
+                  )}
+                  {purpose === 'refinance_cash_out' && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-accent px-3 py-2 text-sm text-accent-foreground sm:col-span-2 lg:col-span-6">
+                      <span>Keeping the 1st mortgage? Then this cash out is a 2nd lien (HELOAN).</span>
+                      <Button size="sm" variant="outline" onClick={switchToHeloan} disabled={updateLead.isPending}>
+                        Switch to HELOAN
+                      </Button>
+                    </div>
                   )}
                   <PercentInput label="LTV" value={result.ltv} readOnly hint="Calculated" />
                   <PercentInput label="CLTV" value={result.cltv} readOnly hint="Calculated" />
@@ -244,23 +302,26 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
 
               {isSecond && (
                 <>
-                  <CurrencyInput label="Home value" value={result.value} readOnly hint={FROM_PROPERTY} span={2} />
+                  <CurrencyInput label="Home value" value={homeValue('estimatedValue')} onChange={setHomeValue('estimatedValue')} readOnly={!subject} hint={subject ? FROM_PROPERTY : NEEDS_PROPERTY} span={2} />
                   <CurrencyInput
                     label="1st lien balance"
-                    value={result.firstLienBalance}
-                    readOnly
+                    value={homeValue('firstLienBalance')}
+                    onChange={setHomeValue('firstLienBalance')}
+                    readOnly={!subject}
                     required
                     span={2}
-                    hint={FROM_PROPERTY}
-                    error={subject && result.firstLienBalance === null ? 'Required: add the 1st lien on the Properties tab' : undefined}
+                    hint={subject ? `${FROM_PROPERTY} (the 1st mortgage that stays)` : NEEDS_PROPERTY}
+                    error={subject && homeValue('firstLienBalance') === null ? 'Required for CLTV' : undefined}
                   />
+                  <CurrencyInput label="1st lien P&I" value={homeValue('firstLienPayment')} onChange={setHomeValue('firstLienPayment')} readOnly={!subject} hint={subject ? FROM_PROPERTY : NEEDS_PROPERTY} span={2} />
                   <CurrencyInput
-                    label={purpose === 'heloc' ? 'HELOC line amount' : 'HELOAN amount'}
+                    label={purpose === 'heloc' ? 'HELOC line amount (2nd lien)' : '2nd lien amount (HELOAN)'}
                     value={form.loanAmount}
                     onChange={set('loanAmount')}
                     required
                     span={2}
                   />
+                  <CurrencyInput label="Cash-out amount" value={form.cashOutAmount} onChange={set('cashOutAmount')} hint="Cash to the borrower at closing" span={2} />
                   <PercentInput label="CLTV (qualifying)" value={result.cltv} readOnly hint="1st lien + new 2nd, over value" span={2} />
                   <CurrencyInput
                     label={purpose === 'heloc' ? 'Interest-only payment' : 'Monthly payment'}
@@ -381,12 +442,12 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
         action={
           <div className="flex items-center gap-2">
             {dirty && (
-              <Button variant="ghost" onClick={() => setForm(saved)}>
+              <Button variant="ghost" onClick={() => (setForm(saved), setHome({}))}>
                 Discard
               </Button>
             )}
-            <Button onClick={save} disabled={!dirty || updateDetails.isPending}>
-              {updateDetails.isPending ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
+            <Button onClick={save} disabled={!dirty || saving}>
+              {saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
             </Button>
           </div>
         }

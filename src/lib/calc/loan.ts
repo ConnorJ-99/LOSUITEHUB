@@ -79,14 +79,15 @@ export function combinedLienAmounts(
   hasPurchasePrice = false,
 ): number[] {
   const remaining = liens.filter((l) => !l.toBePaidOff)
-  const first = remaining.filter((l) => l.position === 'first').map((l) => l.balance)
+  // A 2nd lien sits behind the 1st, so the 1st always counts (a "paid off" mark left from a refi doesn't apply).
+  const firstStays = liens.filter((l) => l.position === 'first').map((l) => l.balance)
   const seconds = remaining.filter((l) => l.position === 'second').map((l) => l.balance)
   switch (purpose) {
     case 'purchase':
       return [loanAmount]
     case 'heloc':
     case 'heloan':
-      return [...first, loanAmount]
+      return [...firstStays, loanAmount]
     case 'investment_dscr':
       return hasPurchasePrice ? [loanAmount] : [loanAmount, ...seconds]
     default:

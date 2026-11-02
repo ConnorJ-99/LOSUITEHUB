@@ -68,7 +68,12 @@ describe('combinedLienAmounts', () => {
   it('liens being paid off at closing drop out of CLTV', () => {
     const payingOffSecond = [liens[0], { ...liens[1], toBePaidOff: true }]
     expect(combinedLienAmounts('refinance_cash_out', 300_000, payingOffSecond)).toEqual([300_000])
-    expect(combinedLienAmounts('heloc', 100_000, [{ ...liens[0], toBePaidOff: true }])).toEqual([100_000])
+  })
+
+  it('a 2nd lien never pays off the 1st, even if an old refi mark says so', () => {
+    const markedPaidOff = [{ ...liens[0], toBePaidOff: true }]
+    expect(combinedLienAmounts('heloc', 100_000, markedPaidOff)).toEqual([250_000, 100_000])
+    expect(cltv(combinedLienAmounts('heloan', 350_000, markedPaidOff), 600_000)).toBe(100)
   })
 
   it('DSCR follows purchase or refinance depending on price', () => {

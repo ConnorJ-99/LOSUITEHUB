@@ -215,6 +215,41 @@ export function useSaveLien(loanId: string, organizationId: string) {
   })
 }
 
+/** What the Overview's Loan details card can change about the subject home: its value and its 1st lien. */
+export interface HomeFigures {
+  estimatedValue?: number | null
+  firstLienBalance?: number | null
+  firstLienPayment?: number | null
+  /** The 1st mortgage stays (a 2nd lien file): clears a "paid off at closing" mark left from a refi. */
+  firstLienStays?: true
+}
+
+/**
+ * Saves the home's value and 1st lien from the Loan details card, into the
+ * same property and lien the Properties tab edits (one place for each). A
+ * 1st lien is added if the home has none yet.
+ */
+export function useSaveHomeFigures(loanId: string, organizationId: string) {
+  const invalidate = useInvalidateLoanProperties(loanId)
+  return useMutation({
+    mutationFn: async ({ propertyId, firstLienId, figures }: { propertyId: string; firstLienId: string | null; figures: HomeFigures }) => {
+      if (figures.estimatedValue !== undefined) {
+        const rows = unwrap<{ id: string }[]>(await db().from('properties').update({ estimated_value: figures.estimatedValue }).eq('id', propertyId).select('id'))
+        if (rows.length === 0) throw new Error('You do not have permission to edit this property.')
+      }
+      const lien = {
+        ...(figures.firstLienBalance !== undefined ? { balance: figures.firstLienBalance } : {}),
+        ...(figures.firstLienPayment !== undefined ? { monthly_payment: figures.firstLienPayment } : {}),
+        ...(figures.firstLienStays ? { to_be_paid_off: false } : {}),
+      }
+      if (Object.keys(lien).length === 0) return
+      if (firstLienId) unwrap(await db().from('property_liens').update(lien).eq('id', firstLienId).select('id'))
+      else unwrap(await db().from('property_liens').insert({ ...lien, position: 'first', property_id: propertyId, organization_id: organizationId }).select('id'))
+    },
+    onSuccess: invalidate,
+  })
+}
+
 export function useDeleteLien(loanId: string) {
   const invalidate = useInvalidateLoanProperties(loanId)
   return useMutation({
