@@ -24,6 +24,7 @@ import { LENDER_STATUSES, PRODUCT_FAMILIES, type ProductFamily } from '@/lib/pro
 import { joinNames, missingForBorrowerPdf, productLabel, worksheetFileName } from '@/lib/documents/feeWorksheet'
 import { LOAN_COMPARISON_TEMPLATE, loanComparison, MAX_COMPARISON_OPTIONS } from '@/lib/documents/loanComparison'
 import { useSavePdf } from '@/components/pdf/useSavePdf'
+import { SendSavedPdf } from '@/components/messages/SendDocumentDialog'
 
 const SORTS: [QuoteSort, string, string][] = [
   ['rate', 'Best rate', 'Best rate'],
@@ -228,6 +229,7 @@ function Comparison({ loan, scenario, options, property, templates, earnestMoney
 
   return (
     <div className="space-y-4">
+      <SendSavedPdf loan={loan} docId={pdf.sendingId} onClose={pdf.closeSend} />
       {quoted.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           {quoted.length > 1 && (

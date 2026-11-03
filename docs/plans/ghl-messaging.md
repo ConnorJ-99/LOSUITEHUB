@@ -174,7 +174,7 @@ Each phase is tested, shown to you, and committed separately. Every database scr
 Built in three steps, each tested and committed:
 - **2a. Database and inbound function (done):** `20261203000000_ghl_messages.sql` and the `ghl-inbound` Edge Function (Verify JWT off; it reuses `ghl/match.ts`). The paste builder now also follows `../ghl/` imports.
 - **2b. Screens (done):** the Messages tab, the panels, Needs matching, the Inbox count, and a "Check for new messages" button. `20261204000000_ghl_message_senders.sql` keeps GHL's sender name, email and phone on each message for matching.
-- **2c. Automation:** the scheduled check, and the GHL workflow Connor builds by hand.
+- **2c. Automation (built 2026-11-02, next build Session 2):** the scheduled check (`20261214000000_ghl_scheduler_opportunities.sql`: pg_cron every 10 minutes → pg_net → ghl-inbound catch-up, with the project address and key in Supabase Vault), and the GHL workflow Connor builds by hand (section 2A).
 
 **Test mode (new, default on).** `messaging_settings.inbound_mode = 'test_only'` saves only GHL contacts with TEST in their name. Others are skipped by the name GHL lists, before their record is even read, so real clients' messages stay out of the dev database. Connor switches it to `all` at cutover.
 

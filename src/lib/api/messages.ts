@@ -53,10 +53,12 @@ export interface Message {
   ghlContactName: string | null
   ghlContactEmail: string | null
   ghlContactPhone: string | null
+  /** Documents sent with it from LOSuite. */
+  attachments: { documentId: string; fileName: string }[]
 }
 
 const MESSAGE_SELECT =
-  'id, contact_id, loan_id, channel, direction, subject, body, from_address, to_address, status, sent_at, read_at, match_status, matched_by, match_reason, candidate_ids, ghl_contact_id, ghl_contact_name, ghl_contact_email, ghl_contact_phone'
+  'id, contact_id, loan_id, channel, direction, subject, body, from_address, to_address, status, sent_at, read_at, match_status, matched_by, match_reason, candidate_ids, ghl_contact_id, ghl_contact_name, ghl_contact_email, ghl_contact_phone, attachments'
 
 interface MessageRow {
   id: string
@@ -79,6 +81,7 @@ interface MessageRow {
   ghl_contact_name: string | null
   ghl_contact_email: string | null
   ghl_contact_phone: string | null
+  attachments: { documentId: string; fileName: string }[] | null
 }
 
 const toMessage = (r: MessageRow): Message => ({
@@ -102,6 +105,7 @@ const toMessage = (r: MessageRow): Message => ({
   ghlContactName: r.ghl_contact_name,
   ghlContactEmail: r.ghl_contact_email,
   ghlContactPhone: r.ghl_contact_phone,
+  attachments: r.attachments ?? [],
 })
 
 /** A borrower on the file, with what messaging needs to know about them. */
@@ -381,7 +385,7 @@ export function useSendMessage() {
   const { state } = useAuth()
   const orgId = state.status === 'signedIn' ? state.user.organizationId : null
   return useMutation({
-    mutationFn: async (v: { contactId: string; loanId: string; channel: MessageChannel; body: string; subject: string | null; idempotencyKey: string }) => {
+    mutationFn: async (v: { contactId: string; loanId: string; channel: MessageChannel; body: string; subject: string | null; idempotencyKey: string; documentIds?: string[] }) => {
       const { data, error } = await db().functions.invoke<SendResult>('ghl', { body: { task: 'send', organizationId: orgId, ...v } })
       if (error) {
         const detail = error instanceof FunctionsHttpError ? await error.context.json().catch(() => null) : null

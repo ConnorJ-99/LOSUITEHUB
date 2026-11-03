@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { TextArea, ToggleChip, ToggleChipGroup } from '@/components/shared'
+import { useGhlOpportunity } from '@/components/messaging/useGhlOpportunity'
 import { useUpdateStage } from '@/lib/api/loans'
 import { LOST_REASONS, stageLabel, type PipelineStage } from '@/lib/pipeline/stages'
 
@@ -14,18 +15,24 @@ interface PendingLost {
 /**
  * Shared stage-change logic for the board, list and record page. Moving to
  * Lost first asks for a reason (the database requires one); every other
- * stage saves immediately. Render `dialog` once in the calling component.
+ * stage saves immediately. Moving to Closed also moves the borrower's GHL
+ * opportunity to Closed / Recently Closed. Render `dialog` once in the
+ * calling component.
  */
 export function useStageChanger() {
   const updateStage = useUpdateStage()
+  const ghl = useGhlOpportunity()
   const [pendingLost, setPendingLost] = useState<PendingLost | null>(null)
   const [reason, setReason] = useState('')
 
-  const save = (loanId: string, stage: PipelineStage, lostReason?: string) => {
+  const save = (loanId: string, stage: PipelineStage, borrowerName: string, lostReason?: string) => {
     updateStage.mutate(
       { loanId, stage, lostReason },
       {
-        onSuccess: () => toast.success(`Moved to ${stageLabel(stage)}`),
+        onSuccess: () => {
+          toast.success(`Moved to ${stageLabel(stage)}`)
+          if (stage === 'closed') void ghl.move(loanId, 'closed', borrowerName)
+        },
         onError: (error) => toast.error(`Could not change stage: ${error.message}`),
       },
     )
@@ -38,12 +45,12 @@ export function useStageChanger() {
       setPendingLost({ loanId: loan.id, borrowerName: loan.borrowerName })
       return
     }
-    save(loan.id, stage)
+    save(loan.id, stage, loan.borrowerName)
   }
 
   const confirmLost = () => {
     if (!pendingLost || !reason.trim()) return
-    save(pendingLost.loanId, 'lost', reason.trim())
+    save(pendingLost.loanId, 'lost', pendingLost.borrowerName, reason.trim())
     setPendingLost(null)
   }
 

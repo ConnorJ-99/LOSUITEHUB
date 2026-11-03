@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ToggleChip, ToggleChipGroup } from '@/components/shared'
+import { useGhlOpportunity } from '@/components/messaging/useGhlOpportunity'
 import { useCopyToNewLead, type ClosedLoan } from '@/lib/api/closed'
 import { useAuth } from '@/lib/auth/context'
 import { mortgageToday } from '@/lib/calc'
@@ -21,6 +22,7 @@ export function CopyToLeadDialog({ closed: c, organizationId, onClose }: { close
   const navigate = useNavigate()
   const { state } = useAuth()
   const copy = useCopyToNewLead()
+  const ghl = useGhlOpportunity()
   const [purpose, setPurpose] = useState<LoanPurpose>('refinance_rate_term')
   const [withCoBorrowers, setWithCoBorrowers] = useState(true)
   const [withHome, setWithHome] = useState(true)
@@ -38,6 +40,8 @@ export function CopyToLeadDialog({ closed: c, organizationId, onClose }: { close
       {
         onSuccess: (id) => {
           toast.success(`New lead for ${name}, linked to this closed loan${forOther ? ` and assigned to ${c.lo!.name}` : ''}`)
+          // The same GHL opportunity goes back to the active pipeline (never a second one).
+          void ghl.move(id, 'comeback', name)
           onClose()
           navigate(`/loans/${id}`)
         },

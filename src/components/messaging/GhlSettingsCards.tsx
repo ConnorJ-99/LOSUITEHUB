@@ -6,6 +6,7 @@ import { Card, confirmAction, Input, ToggleChip } from '@/components/shared'
 import {
   useGhlCheck,
   useGhlLinks,
+  useGhlPipelines,
   useGhlStatus,
   useLastGhlCheck,
   useLinkGhlUser,
@@ -15,7 +16,9 @@ import {
   type CheckResult,
   type GhlCheckResult,
   type GhlLink,
+  type GhlPipeline,
   type GhlUser,
+  type PipelineStageChoice,
 } from '@/lib/api/ghl'
 import type { OrgMember } from '@/lib/api/types'
 import { roleLabels } from '@/lib/auth/context'
@@ -290,6 +293,116 @@ export function SendingCard({ canEdit }: { canEdit: boolean }) {
             </p>
             <ToggleChip className="mt-2" label="mps.mortgage is verified for sending in GHL" pressed={s.emailDomainVerified} onChange={setVerified} disabled={!canEdit || save.isPending} />
           </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+const PAIR = '::'
+const pairValue = (c: { pipelineId: string; stageId: string } | null) => (c ? `${c.pipelineId}${PAIR}${c.stageId}` : '')
+
+/** Every stage of every pipeline, as "Pipeline · Stage". */
+function StagePicker({ label, pipelines, value, onChange, disabled }: { label: string; pipelines: GhlPipeline[]; value: string; onChange: (v: string) => void; disabled: boolean }) {
+  return (
+    <BaseSelect value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger size="sm" className="w-72" aria-label={label}>
+        <SelectValue placeholder="Pick a pipeline and stage" />
+      </SelectTrigger>
+      <SelectContent>
+        {pipelines.flatMap((p) =>
+          p.stages.map((st) => (
+            <SelectItem key={`${p.id}${PAIR}${st.id}`} value={`${p.id}${PAIR}${st.id}`}>
+              {p.name} · {st.name}
+            </SelectItem>
+          )),
+        )}
+      </SelectContent>
+    </BaseSelect>
+  )
+}
+
+/**
+ * Which GHL pipeline and stage each person's ONE opportunity goes to
+ * (decisions 2–3 in docs/plans/next-build.md): Closed / Recently Closed when
+ * a loan closes, and the active pipeline when a closed client starts a new
+ * loan. Picked from GHL's own list, so names aren't hard-coded. Owners and
+ * admins change it; the 10-minute message check is shown here too.
+ */
+export function GhlPipelinesCard({ canEdit }: { canEdit: boolean }) {
+  const status = useGhlStatus()
+  const ready = status.data?.ready === true
+  const settings = useMessagingSettings()
+  const [load, setLoad] = useState(false)
+  const pipelines = useGhlPipelines(ready && canEdit && load)
+  const save = useSaveMessagingSettings()
+  const s = settings.data
+  const list = pipelines.data?.pipelines ?? []
+
+  const toChoice = (v: string): PipelineStageChoice | null => {
+    const [pipelineId, stageId] = v.split(PAIR)
+    const p = list.find((x) => x.id === pipelineId)
+    const st = p?.stages.find((x) => x.id === stageId)
+    return p && st ? { pipelineId, stageId, label: `${p.name} · ${st.name}` } : null
+  }
+  const pick = (which: 'closedStage' | 'comebackStage') => (v: string) => {
+    const c = toChoice(v)
+    if (!c) return
+    save.mutate({ [which]: c }, { onSuccess: () => toast.success(`Saved: ${c.label}`), onError: (e) => toast.error(e.message) })
+  }
+  const suggested = pipelines.data?.suggestedClosed ?? null
+  const showSuggestion = !!suggested && !s?.closedStage && canEdit
+
+  const row = (title: string, help: string, saved: PipelineStageChoice | null, which: 'closedStage' | 'comebackStage') => (
+    <div className="flex flex-wrap items-center justify-between gap-2 py-2">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-xs text-muted-foreground">{help}</p>
+      </div>
+      {load && list.length ? (
+        <StagePicker label={title} pipelines={list} value={pairValue(saved)} onChange={pick(which)} disabled={save.isPending} />
+      ) : (
+        <span className={saved ? 'text-sm' : chip.warn}>{saved ? saved.label ?? 'Picked' : 'Not picked yet'}</span>
+      )}
+    </div>
+  )
+
+  return (
+    <Card
+      title="GHL pipelines"
+      description="Each person has one opportunity in GHL, however many loans they have here. LOSuite moves it when a loan closes and when a closed client starts a new loan."
+      action={
+        ready && canEdit && (
+          <Button size="sm" variant="outline" disabled={pipelines.isFetching} onClick={() => (load ? pipelines.refetch() : setLoad(true))}>
+            {pipelines.isFetching ? 'Loading…' : load ? 'Reload from GHL' : 'Change…'}
+          </Button>
+        )
+      }
+    >
+      {!ready ? (
+        <p className="text-sm text-muted-foreground">Turns on once GHL is connected.</p>
+      ) : !s ? (
+        <p className="text-sm text-muted-foreground">{settings.error ? settings.error.message : 'Loading…'}</p>
+      ) : (
+        <div className="space-y-2">
+          {pipelines.error && <Note tone="bad">{pipelines.error.message}</Note>}
+          {load && pipelines.data && !list.length && <Note tone="warn">GHL has no pipelines in this sub-account.</Note>}
+          {showSuggestion && (
+            <Note tone="warn">
+              GHL has a "Closed" pipeline with a "Recently Closed" stage.{' '}
+              <button type="button" className="font-medium text-primary hover:underline" onClick={() => pick('closedStage')(pairValue(suggested))}>
+                Use it
+              </button>
+            </Note>
+          )}
+          <div className="divide-y">
+            {row('When a loan closes', "The borrower's opportunity moves here (made, if they have none). Nothing in GHL fires on it.", s.closedStage, 'closedStage')}
+            {row('When a closed client comes back', '"Copy to a new lead" moves the same opportunity here, reopened.', s.comebackStage, 'comebackStage')}
+          </div>
+          {s.testMode && <p className="text-xs text-muted-foreground">Test mode: only people with TEST in their name are changed in GHL.</p>}
+          <p className="border-t pt-2 text-xs text-muted-foreground">
+            New messages: LOSuite checks GHL every 10 minutes{s.lastSyncedAt ? `; last checked ${relativeTime(s.lastSyncedAt)}` : '; not checked yet'}.
+          </p>
         </div>
       )}
     </Card>

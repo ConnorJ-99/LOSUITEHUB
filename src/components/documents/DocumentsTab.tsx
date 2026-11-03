@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { FileTextIcon, FolderIcon, UploadIcon } from 'lucide-react'
+import { FileTextIcon, FolderIcon, SendIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,8 @@ import { useProperties } from '@/lib/api/properties'
 import type { LoanProfile } from '@/lib/api/types'
 import { useApplication } from '@/lib/api/urla'
 import { formatIsoDate } from '@/lib/dates'
+import { SendDocumentDialog } from '@/components/messages/SendDocumentDialog'
+import { isSendableKind } from '@/lib/messaging/documentMessages'
 import { RequestChecklist } from './RequestChecklist'
 
 const KIND_OPTIONS = DOCUMENT_KIND_GROUPS.flatMap((g) => g.kinds.map(([value, label]) => ({ value: value as DocumentKind, label })))
@@ -27,12 +29,14 @@ const NOBODY = '__nobody__'
 
 type Person = { contactId: string; name: string }
 
-function DocRow({ doc, people, loanId, home }: { doc: LoanDocument; people: Person[]; loanId: string; home: string | null }) {
+function DocRow({ doc, people, loan, home }: { doc: LoanDocument; people: Person[]; loan: LoanProfile; home: string | null }) {
+  const loanId = loan.id
   const update = useUpdateDocument(loanId)
   const remove = useDeleteDocument(loanId)
+  const [sending, setSending] = useState(false)
   const fail = (e: Error) => toast.error(e.message)
   return (
-    <li className="grid gap-2 py-2 sm:grid-cols-[minmax(0,1fr)_12rem_10rem_auto] sm:items-end">
+    <li className="grid gap-2 py-2 sm:grid-cols-[minmax(0,1fr)_12rem_10rem_auto_auto] sm:items-end">
       <div className="min-w-0">
         <button type="button" className="flex max-w-full items-center gap-2 text-left text-sm font-medium text-primary hover:underline" onClick={() => openDocument(doc).catch(fail)}>
           <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
@@ -56,6 +60,15 @@ function DocRow({ doc, people, loanId, home }: { doc: LoanDocument; people: Pers
       ) : (
         <span />
       )}
+      {isSendableKind(doc.kind) ? (
+        <Button size="sm" variant="outline" onClick={() => setSending(true)} title="Email it to the borrower with the PDF attached">
+          <SendIcon />
+          Send…
+        </Button>
+      ) : (
+        <span />
+      )}
+      {sending && isSendableKind(doc.kind) && <SendDocumentDialog loan={loan} doc={{ ...doc, kind: doc.kind }} onClose={() => setSending(false)} />}
       <Button
         size="sm"
         variant="ghost"
@@ -165,7 +178,7 @@ export function DocumentsTab({ loan }: { loan: LoanProfile }) {
                 </h3>
                 <ul className="divide-y">
                   {g.docs.map((d) => (
-                    <DocRow key={d.id} doc={d} people={people} loanId={loan.id} home={homeOf(d.propertyId)} />
+                    <DocRow key={d.id} doc={d} people={people} loan={loan} home={homeOf(d.propertyId)} />
                   ))}
                 </ul>
               </section>

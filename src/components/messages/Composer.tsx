@@ -1,15 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { MailIcon, MessageSquareIcon, SendIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { confirmAction, Input, TextArea } from '@/components/shared'
-import { useGhlLinks, useMessagingSettings } from '@/lib/api/ghl'
 import { useSendMessage, type FilePerson } from '@/lib/api/messages'
 import type { LoanProfile } from '@/lib/api/types'
 import { formatPhone } from '@/lib/pipeline/helpers'
-import { MAX_TEXT_LENGTH, planSend, sendWindow } from '../../../supabase/functions/ghl/sendRules'
+import { MAX_TEXT_LENGTH } from '../../../supabase/functions/ghl/sendRules'
 import { TONE_CLASS } from './tone'
+import { useSendPlan } from './useSendPlan'
 
 const newKey = () => crypto.randomUUID()
 
@@ -19,8 +19,7 @@ const newKey = () => crypto.randomUUID()
  * from the same rules the server checks again on send.
  */
 export function Composer({ loan, people }: { loan: LoanProfile; people: FilePerson[] }) {
-  const settings = useMessagingSettings()
-  const links = useGhlLinks()
+  const rules = useSendPlan(loan)
   const send = useSendMessage()
   const [channel, setChannel] = useState<'text' | 'email'>('text')
   const [personId, setPersonId] = useState(people[0]?.id ?? '')
@@ -28,42 +27,15 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
   const [subject, setSubject] = useState('')
   // One key per message being written: a double click or retry reuses it, so it can't go twice.
   const [key, setKey] = useState(newKey)
-  // The sending-hours chip follows the clock (the server checks the hours again on send).
-  const [now, setNow] = useState(() => new Date())
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60_000)
-    return () => clearInterval(id)
-  }, [])
 
   const person = people.find((p) => p.id === personId) ?? people[0]
-  if (!person || !settings.data) return null
-  const lo = loan.assignedLo
-  const link = lo ? links.data?.find((l) => l.profileId === lo.id) : undefined
-  const plan = planSend({
-    channel,
-    body,
-    subject,
-    person: {
-      firstName: person.firstName,
-      lastName: person.lastName,
-      phone: person.phone,
-      email: person.email,
-      smsConsent: person.smsConsent,
-      emailConsent: person.emailConsent,
-      smsOptedOutAt: person.smsOptedOutAt,
-      emailOptedOutAt: person.emailOptedOutAt,
-    },
-    testMode: settings.data.testMode,
-    hours: settings.data.sendHours,
-    now,
-    lo: lo ? { name: lo.name, ghlNumber: link?.ghlNumber ?? null, numberConfirmed: !!link?.numberConfirmedAt, ghlEmail: link?.ghlEmail ?? null } : null,
-    emailDomainVerified: settings.data.emailDomainVerified,
-  })
-  const window = sendWindow(settings.data.sendHours, now)
+  if (!person || !rules) return null
+  const plan = rules.plan(person, channel, body, subject)
+  const window = rules.window
   // "Write a message first" and the subject aren't worth a warning before you've typed.
   const blockers = plan.problems.filter((p) => !(p === 'Write a message first.' || (p === 'An email needs a subject.' && !body.trim())))
   const to = channel === 'text' ? (person.phone ? formatPhone(person.phone) : 'no mobile') : (person.email ?? 'no email')
-  const from = channel === 'text' ? (plan.fromNumber ? `${lo?.name} · ${formatPhone(plan.fromNumber)}` : '—') : (plan.fromEmail ?? '—')
+  const from = channel === 'text' ? (plan.fromNumber ? `${rules.loName} · ${formatPhone(plan.fromNumber)}` : '—') : (plan.fromEmail ?? '—')
 
   const submit = async () => {
     if (plan.problems.length) return toast.error(plan.problems[0])
@@ -132,7 +104,7 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground tabular-nums">
           {channel === 'text' ? `${body.trim().length} / ${MAX_TEXT_LENGTH}` : 'Sent as plain text'}
-          {settings.data.testMode && ' · Test mode: only people named TEST'}
+          {rules.testMode && ' · Test mode: only people named TEST'}
         </span>
         <Button onClick={submit} disabled={send.isPending || plan.problems.length > 0}>
           <SendIcon />

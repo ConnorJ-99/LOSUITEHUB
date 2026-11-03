@@ -16,6 +16,7 @@ import { formatCurrency, formatPercent } from '@/lib/format'
 import { cashFigure, homeDifferences, loanChangesFrom, otherFinancingFor, payoffsFor, priceScenario, remainingLiensFor, scenarioChanges, type PricingScenario, type ScenarioDraft } from '@/lib/pricing/scenario'
 import { FEE_WORKSHEET_TEMPLATE, feeWorksheet, joinNames, missingForBorrowerPdf, worksheetFileName } from '@/lib/documents/feeWorksheet'
 import { useSavePdf } from '@/components/pdf/useSavePdf'
+import { SendSavedPdf } from '@/components/messages/SendDocumentDialog'
 import { ReviewFees } from './ReviewFees'
 
 const AMORTIZATION_OPTIONS = [
@@ -141,6 +142,7 @@ export function ScenarioEditor({ loan, scenario, properties, templates, earnestM
 
   return (
     <div className="space-y-4">
+      <SendSavedPdf loan={loan} docId={pdf.sendingId} onClose={pdf.closeSend} />
       {differences.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <p className="mr-auto">

@@ -14,7 +14,7 @@ export const GHL_BASE = 'https://services.leadconnectorhq.com'
 /** A made-up id no GHL record has; the write checks aim at it. */
 export const NO_SUCH_ID = 'losuite-token-check-does-not-exist'
 
-export type CheckKey = 'location' | 'users' | 'phone_numbers' | 'contacts_read' | 'contacts_write' | 'conversations_read' | 'messages_read' | 'messages_write'
+export type CheckKey = 'location' | 'users' | 'phone_numbers' | 'contacts_read' | 'contacts_write' | 'conversations_read' | 'messages_read' | 'messages_write' | 'opportunities_read' | 'opportunities_write'
 
 export interface CheckPlan {
   key: CheckKey
@@ -35,6 +35,8 @@ export const CHECKS: CheckPlan[] = [
   { key: 'conversations_read', label: 'Read conversations', scope: 'conversations.readonly', method: 'GET', version: '2021-04-15', dryRun: false },
   { key: 'messages_read', label: 'Read messages', scope: 'conversations/message.readonly', method: 'GET', version: '2021-04-15', dryRun: false },
   { key: 'messages_write', label: 'Send a message (blank test with no recipient, sends nothing)', scope: 'conversations/message.write', method: 'POST', version: '2021-04-15', dryRun: true },
+  { key: 'opportunities_read', label: 'Read pipelines and opportunities', scope: 'opportunities.readonly', method: 'GET', version: '2021-07-28', dryRun: false },
+  { key: 'opportunities_write', label: 'Update an opportunity (blank test, changes nothing)', scope: 'opportunities.write', method: 'PUT', version: '2021-07-28', dryRun: true },
 ]
 
 export type CheckResult = 'works' | 'missing_scope' | 'bad_token' | 'failed'

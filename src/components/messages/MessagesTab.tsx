@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { MailIcon, MessageSquareIcon, RefreshCwIcon } from 'lucide-react'
+import { MailIcon, MessageSquareIcon, PaperclipIcon, RefreshCwIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -71,6 +71,16 @@ function Bubble({ m, who, isNew }: { m: Message; who: string | null; isNew: bool
           </>
         )}
         <p className={m.channel === 'email' ? 'mt-1.5 text-muted-foreground' : undefined}>{m.body || <span className="italic text-muted-foreground">(no text)</span>}</p>
+        {m.attachments.length > 0 && (
+          <ul className="mt-2 space-y-0.5 text-xs">
+            {m.attachments.map((a) => (
+              <li key={a.documentId} className="flex items-center gap-1">
+                <PaperclipIcon className="size-3 text-muted-foreground" />
+                {a.fileName}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
         {m.channel === 'text' ? <MessageSquareIcon className="size-3" /> : <MailIcon className="size-3" />}

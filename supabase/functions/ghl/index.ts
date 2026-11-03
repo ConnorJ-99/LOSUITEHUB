@@ -14,8 +14,19 @@
 //   rule first (sendRules.ts: consent, opt-outs, sending hours, test mode, the
 //   LO's confirmed number), re-checks GHL's Do Not Disturb live, and saves the
 //   message with its idempotency key before calling GHL so it can't go twice.
-//   It uses the person's existing GHL contact (found by phone or email) and
-//   never creates GHL contacts or adds tags (tags start Connor's workflows).
+//   It uses the person's GHL contact (found by phone or email), and creates
+//   one, assigned to the file's loan officer, only when GHL has no one with
+//   that phone or email (next build Session 2). It never adds tags (tags start
+//   Connor's workflows).
+//   An email can carry up to 3 saved PDFs from the file (estimates and
+//   pre-approval letters): they're uploaded into the person's GHL conversation
+//   and attached from there. Documents never go by text.
+// - "pipelines" (owners and admins): GHL's pipelines and stages, for the
+//   Settings picker, with "Closed" / "Recently Closed" suggested by name.
+// - "opportunity" (Session 2, decisions 2–3 in docs/plans/next-build.md):
+//   moves the borrower's ONE GHL opportunity to Closed / Recently Closed when
+//   their loan closes (making it if they have none), or back to the active
+//   pipeline when a closed client starts a new loan. Never a second one.
 //
 // The token and location id live in Edge Function secrets (GHL_PRIVATE_TOKEN,
 // GHL_LOCATION_ID) and never reach the browser or the logs. Requests run as
@@ -42,10 +53,15 @@ import {
   type GhlNumber,
   type GhlUser,
 } from './checks.ts'
-import { e164, planSend, textToHtml, type SendHoursValue } from './sendRules.ts'
+import { e164, hasTestName, planSend, textToHtml, type SendHoursValue } from './sendRules.ts'
+import { chooseOpportunity, newContactBody, pickOpportunities, pickOpportunity, pickPipelines, planMove, suggestClosed, type OpportunityMove } from './opportunities.ts'
 import { pickContact } from '../ghl-inbound/sync.ts'
 
 const TIMEOUT_MS = 10_000
+const UPLOAD_TIMEOUT_MS = 30_000
+/** PDFs attached to one email, and their size, sent from LOSuite. */
+const MAX_ATTACHMENTS = 3
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -81,6 +97,8 @@ class Ghl {
   /** Errors come back as an answer, never thrown, so one failed call doesn't stop the rest. */
   async call(p: CheckPlan, path: string, body?: unknown): Promise<Answer & { outcome: ReturnType<typeof classify> }> {
     let answer: Answer
+    // A file upload goes as multipart form data (fetch sets its own Content-Type).
+    const isForm = body instanceof FormData
     try {
       const res = await fetch(`${GHL_BASE}${path}`, {
         method: p.method,
@@ -88,10 +106,10 @@ class Ghl {
           Authorization: `Bearer ${this.token}`,
           Version: p.version,
           Accept: 'application/json',
-          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          ...(body === undefined || isForm ? {} : { 'Content-Type': 'application/json' }),
         },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
+        signal: AbortSignal.timeout(isForm ? UPLOAD_TIMEOUT_MS : TIMEOUT_MS),
       })
       const text = await res.text()
       let parsed: unknown = text
@@ -186,6 +204,12 @@ async function otherChecks(g: Ghl): Promise<CheckOutcome[]> {
 
   // POST /conversations/messages (conversations/message.write) with only a type: no contact, no text, so nothing can be sent.
   record('messages_write', await g.call(plan('messages_write'), '/conversations/messages', { type: 'SMS' }))
+
+  // GET /opportunities/pipelines (opportunities.readonly): pipeline and stage names only.
+  record('opportunities_read', await g.call(plan('opportunities_read'), `/opportunities/pipelines?locationId=${loc}`))
+
+  // PUT /opportunities/{id} (opportunities.write): a blank update to an opportunity that doesn't exist.
+  record('opportunities_write', await g.call(plan('opportunities_write'), `/opportunities/${NO_SUCH_ID}`, {}))
   return outcomes
 }
 
@@ -300,6 +324,8 @@ interface SendRequest {
   body: string
   subject: string | null
   idempotencyKey: string
+  /** Saved documents on this file to attach (email only): estimates and pre-approval letters. */
+  documentIds: string[]
 }
 
 function parseSend(body: Record<string, unknown>): SendRequest {
@@ -309,10 +335,13 @@ function parseSend(body: Record<string, unknown>): SendRequest {
   const key = s(body.idempotencyKey).trim()
   if (key.length < 8 || key.length > 100) throw new UserError('Missing send key; refresh the page and try again.')
   if (!s(body.contactId) || !s(body.loanId)) throw new UserError('Which person and file?')
-  return { contactId: s(body.contactId), loanId: s(body.loanId), channel, body: s(body.body), subject: s(body.subject).trim() || null, idempotencyKey: key }
+  const documentIds = Array.isArray(body.documentIds) ? [...new Set(body.documentIds.filter((d): d is string => typeof d === 'string' && d.length > 0))] : []
+  if (documentIds.length && channel !== 'email') throw new UserError('Documents go by email only, never by text.')
+  if (documentIds.length > MAX_ATTACHMENTS) throw new UserError(`Attach at most ${MAX_ATTACHMENTS} documents to one email.`)
+  return { contactId: s(body.contactId), loanId: s(body.loanId), channel, body: s(body.body), subject: s(body.subject).trim() || null, idempotencyKey: key, documentIds }
 }
 
-/** The person's GHL contact: GHL's match for their phone, then email. Never creates one. */
+/** GHL's match for a phone, then an email (not LOSuite's own match; see ensureGhlContact). */
 async function findGhlContact(g: Ghl, phone: string | null, email: string | null): Promise<string | null> {
   const loc = encodeURIComponent(g.locationId)
   const number = e164(phone)
@@ -324,6 +353,92 @@ async function findGhlContact(g: Ghl, phone: string | null, email: string | null
     if (a.outcome.result === 'works' && typeof id === 'string' && id) return id
   }
   return null
+}
+
+interface GhlPerson {
+  first_name: string | null
+  last_name: string | null
+  email: string | null
+  phone: string | null
+  ghl_contact_id: string | null
+}
+
+/**
+ * The person's GHL contact, linked to them the first time: the stored link,
+ * else GHL's match for their phone or email, else a new GHL contact assigned
+ * to the loan officer's GHL user (POST /contacts/, contacts.write, Version
+ * 2021-07-28; no tags). A found contact nobody is assigned to gets the loan
+ * officer; one assigned to someone else keeps them. A GHL contact already
+ * linked to another LOSuite person stops here for an admin to check.
+ */
+async function ensureGhlContact(admin: SupabaseClient, g: Ghl, organizationId: string, contactId: string, p: GhlPerson, assignTo: string | null): Promise<{ id: string; created: boolean }> {
+  if (p.ghl_contact_id) return { id: p.ghl_contact_id, created: false }
+  const first = p.first_name || 'This person'
+  if (!p.email?.trim() && !e164(p.phone)) throw new UserError(`${first} needs an email or a 10-digit phone before LOSuite can add them to GHL.`)
+
+  let id = await findGhlContact(g, p.phone, p.email)
+  let created = false
+  if (id) {
+    const taken = await admin.from('contacts').select('id').eq('organization_id', organizationId).eq('ghl_contact_id', id).neq('id', contactId).maybeSingle()
+    if (taken.error) throw new Error(taken.error.message)
+    if (taken.data) throw new UserError('That phone or email belongs to a GHL contact already linked to someone else in LOSuite. An admin should check who is who first.')
+    if (assignTo) {
+      // GET /contacts/{id} (contacts.readonly), then PUT (contacts.write) only when nobody is assigned.
+      const live = await g.call(plan('contacts_read'), `/contacts/${encodeURIComponent(id)}`)
+      const assigned = (live.body as { contact?: { assignedTo?: unknown } } | null)?.contact?.assignedTo
+      if (live.outcome.result === 'works' && !(typeof assigned === 'string' && assigned)) {
+        await g.call({ ...plan('contacts_write'), dryRun: false }, `/contacts/${encodeURIComponent(id)}`, { assignedTo: assignTo })
+      }
+    }
+  } else {
+    const made = await g.call(
+      { ...plan('contacts_write'), method: 'POST', dryRun: false },
+      '/contacts/',
+      newContactBody({ locationId: g.locationId, firstName: p.first_name, lastName: p.last_name, email: p.email, phoneE164: e164(p.phone), assignedTo: assignTo }),
+    )
+    const newId = (made.body as { contact?: { id?: unknown } } | null)?.contact?.id
+    if (made.outcome.result !== 'works' || typeof newId !== 'string' || !newId) throw new UserError(`GHL didn't add ${first} as a contact: ${made.outcome.detail}`)
+    id = newId
+    created = true
+  }
+  const linked = await admin.from('contacts').update({ ghl_contact_id: id }).eq('id', contactId).eq('organization_id', organizationId).is('ghl_contact_id', null)
+  if (linked.error) throw new Error(linked.error.message)
+  return { id, created }
+}
+
+/**
+ * Puts the PDFs into the person's GHL conversation and returns GHL's links to
+ * them, so the email carries files GHL hosts (no expiring LOSuite links).
+ * Finds the conversation, or starts one (POST /conversations/, conversations.write),
+ * then POST /conversations/messages/upload (conversations/message.write,
+ * Version 2021-04-15; multipart, the file under "fileAttachment"; PDFs allowed).
+ */
+async function uploadDocuments(admin: SupabaseClient, g: Ghl, ghlContactId: string, docs: { file_name: string; storage_path: string }[]): Promise<string[]> {
+  const loc = encodeURIComponent(g.locationId)
+  const search = await g.call(plan('conversations_read'), `/conversations/search?locationId=${loc}&contactId=${encodeURIComponent(ghlContactId)}`)
+  let conversationId = ((search.body as { conversations?: { id?: unknown }[] } | null)?.conversations ?? [])[0]?.id
+  if (typeof conversationId !== 'string') {
+    const made = await g.call({ ...plan('conversations_read'), method: 'POST', scope: 'conversations.write' }, '/conversations/', { locationId: g.locationId, contactId: ghlContactId })
+    conversationId = (made.body as { conversation?: { id?: unknown }; id?: unknown } | null)?.conversation?.id ?? (made.body as { id?: unknown } | null)?.id
+    if (made.outcome.result !== 'works' || typeof conversationId !== 'string') throw new Error(`GHL couldn't start a conversation for the attachment (${made.outcome.detail})`)
+  }
+
+  const urls: string[] = []
+  for (const d of docs) {
+    const file = await admin.storage.from('loan-files').download(d.storage_path)
+    if (file.error || !file.data) throw new Error(`${d.file_name} could not be read from LOSuite.`)
+    const form = new FormData()
+    form.append('fileAttachment', new File([file.data], d.file_name, { type: 'application/pdf' }))
+    form.append('conversationId', conversationId)
+    form.append('contactId', ghlContactId)
+    form.append('locationId', g.locationId)
+    const up = await g.call({ ...plan('messages_write'), dryRun: false }, '/conversations/messages/upload', form)
+    const uploaded = (up.body as { uploadedFiles?: Record<string, unknown> } | null)?.uploadedFiles ?? {}
+    const links = Object.values(uploaded).filter((u): u is string => typeof u === 'string' && /^https:\/\//.test(u))
+    if (up.outcome.result !== 'works' || !links.length) throw new Error(`GHL didn't take ${d.file_name} (${up.outcome.detail})`)
+    urls.push(...links)
+  }
+  return urls
 }
 
 const DEFAULT_HOURS: SendHoursValue = { mon: ['09:00', '21:00'], tue: ['09:00', '21:00'], wed: ['09:00', '21:00'], thu: ['09:00', '21:00'], fri: ['09:00', '21:00'], sat: ['09:00', '21:00'], sun: ['12:00', '21:00'] }
@@ -366,13 +481,15 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   if (settings.error) throw new Error(settings.error.message)
   const s = settings.data as { send_hours: SendHoursValue; inbound_mode: string; email_domain_verified: boolean } | null
   let lo: { name: string; ghlNumber: string | null; numberConfirmed: boolean; ghlEmail: string | null } | null = null
+  let loGhlUserId: string | null = null
   if (loId) {
     const prof = await db.from('profiles').select('full_name, email').eq('id', loId).maybeSingle()
-    const link = await admin.from('ghl_user_links').select('ghl_number, ghl_email, number_confirmed_at').eq('organization_id', organizationId).eq('profile_id', loId).maybeSingle()
+    const link = await admin.from('ghl_user_links').select('ghl_user_id, ghl_number, ghl_email, number_confirmed_at').eq('organization_id', organizationId).eq('profile_id', loId).maybeSingle()
     if (prof.error || link.error) throw new Error((prof.error ?? link.error)!.message)
     const pr = prof.data as { full_name: string | null; email: string } | null
-    const l = link.data as { ghl_number: string | null; ghl_email: string | null; number_confirmed_at: string | null } | null
+    const l = link.data as { ghl_user_id: string; ghl_number: string | null; ghl_email: string | null; number_confirmed_at: string | null } | null
     lo = { name: pr?.full_name || pr?.email || 'The loan officer', ghlNumber: l?.ghl_number ?? null, numberConfirmed: !!l?.number_confirmed_at, ghlEmail: l?.ghl_email ?? null }
+    loGhlUserId = l?.ghl_user_id ?? null
   }
 
   const sendPlan = planSend({
@@ -398,17 +515,21 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   })
   if (sendPlan.problems.length) throw new UserError(sendPlan.problems.join(' '))
 
-  // The person's GHL contact (found, never created), linked to them the first time.
-  let ghlContactId = p.ghl_contact_id
-  if (!ghlContactId) {
-    ghlContactId = await findGhlContact(g, p.phone, p.email)
-    if (!ghlContactId) throw new UserError(`${first} isn't a contact in GHL yet. Add them in GHL (no tags needed), then send again. LOSuite doesn't create GHL contacts.`)
-    const taken = await admin.from('contacts').select('id').eq('organization_id', organizationId).eq('ghl_contact_id', ghlContactId).neq('id', req.contactId).maybeSingle()
-    if (taken.error) throw new Error(taken.error.message)
-    if (taken.data) throw new UserError('That phone or email belongs to a GHL contact already linked to someone else in LOSuite. An admin should check who is who first.')
-    const linked = await admin.from('contacts').update({ ghl_contact_id: ghlContactId }).eq('id', req.contactId).is('ghl_contact_id', null)
-    if (linked.error) throw new Error(linked.error.message)
+  // Documents to attach: on this file, PDFs, a sensible size. Read as the sender (Row Level Security).
+  let docs: { id: string; file_name: string; storage_path: string; content_type: string | null; size_bytes: number | null }[] = []
+  if (req.documentIds.length) {
+    const found = await db.from('loan_documents').select('id, file_name, storage_path, content_type, size_bytes').eq('loan_id', req.loanId).in('id', req.documentIds)
+    if (found.error) throw new Error(found.error.message)
+    docs = (found.data ?? []) as typeof docs
+    if (docs.length !== req.documentIds.length) throw new UserError('A document to attach was not found on this file.')
+    for (const d of docs) {
+      if (d.content_type !== 'application/pdf' && !d.file_name.toLowerCase().endsWith('.pdf')) throw new UserError(`${d.file_name} isn't a PDF. Only PDFs are sent.`)
+      if ((d.size_bytes ?? 0) > MAX_ATTACHMENT_BYTES) throw new UserError(`${d.file_name} is over 10 MB.`)
+    }
   }
+
+  // The person's GHL contact: found, or created and assigned to the loan officer; linked to them the first time.
+  const ghlContactId = (await ensureGhlContact(admin, g, organizationId, req.contactId, p, loGhlUserId)).id
 
   // GHL's Do Not Disturb, checked live: GET /contacts/{contactId} (contacts.readonly).
   const live = await g.call(plan('contacts_read'), `/contacts/${encodeURIComponent(ghlContactId)}`)
@@ -447,6 +568,7 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
       read_at: now,
       idempotency_key: req.idempotencyKey,
       sent_by: userId,
+      attachments: docs.map((d) => ({ documentId: d.id, fileName: d.file_name })),
     })
     .select('id')
     .single()
@@ -456,12 +578,32 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   }
   const rowId = (saved.data as { id: string }).id
 
+  let attachmentUrls: string[] = []
+  if (docs.length) {
+    try {
+      attachmentUrls = await uploadDocuments(admin, g, ghlContactId, docs)
+    } catch (e) {
+      const why = (e as Error).message
+      await admin.from('messages').update({ status: 'failed', send_error: why }).eq('id', rowId)
+      throw new UserError(`Nothing was sent: ${why}`)
+    }
+  }
+
   // POST /conversations/messages (conversations/message.write, Version 2021-04-15).
   const text = req.body.trim()
   const payload =
     req.channel === 'text'
       ? { type: 'SMS', contactId: ghlContactId, message: text, fromNumber: sendPlan.fromNumber, toNumber: sendPlan.to }
-      : { type: 'Email', contactId: ghlContactId, subject: req.subject, html: textToHtml(text), message: text, emailFrom: sendPlan.fromEmail, emailTo: sendPlan.to }
+      : {
+          type: 'Email',
+          contactId: ghlContactId,
+          subject: req.subject,
+          html: textToHtml(text),
+          message: text,
+          emailFrom: sendPlan.fromEmail,
+          emailTo: sendPlan.to,
+          ...(attachmentUrls.length ? { attachments: attachmentUrls } : {}),
+        }
   const sent = await g.call({ ...plan('messages_write'), dryRun: false }, '/conversations/messages', payload)
   const result = (sent.body ?? {}) as { messageId?: unknown; conversationId?: unknown; status?: unknown }
   if (sent.outcome.result !== 'works' || typeof result.messageId !== 'string') {
@@ -480,6 +622,107 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
     await admin.from('messages').update({ sent_by: userId, idempotency_key: req.idempotencyKey, read_at: now }).eq('organization_id', organizationId).eq('ghl_message_id', result.messageId)
   } else if (done.error) throw new Error(done.error.message)
   return { sent: true, status, from: sendPlan.fromNumber ?? sendPlan.fromEmail, to: sendPlan.to }
+}
+
+/** GHL's pipelines for the Settings picker: GET /opportunities/pipelines (opportunities.readonly, Version 2021-07-28). */
+async function listPipelines(g: Ghl) {
+  const a = await g.call(plan('opportunities_read'), `/opportunities/pipelines?locationId=${encodeURIComponent(g.locationId)}`)
+  if (a.outcome.result !== 'works') throw new UserError(`GHL's pipelines couldn't be read: ${a.outcome.detail}`)
+  const pipelines = pickPipelines(a.body)
+  return { pipelines, suggestedClosed: suggestClosed(pipelines) }
+}
+
+/**
+ * Puts the file's borrower's ONE GHL opportunity where it belongs (decision 3):
+ * "closed" → the Closed pipeline's stage from Settings, made if they have none;
+ * "comeback" → the active pipeline and stage from Settings, reopened. Anyone
+ * who can see the file may run it. Test mode only touches people named TEST.
+ * A step that can't run yet (nothing picked in Settings, test mode) comes back
+ * as `skipped` with the reason, never as an error.
+ */
+async function moveOpportunity(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, body: Record<string, unknown>) {
+  const loanId = typeof body.loanId === 'string' ? body.loanId : null
+  const move: OpportunityMove | null = body.move === 'closed' || body.move === 'comeback' ? body.move : null
+  if (!loanId || !move) throw new UserError('Which file, and closed or coming back?')
+
+  // What the user can see (Row Level Security): the file and its borrower.
+  const loan = await db.from('loans').select('id, stage, loan_amount, purchase_price, assigned_lo_id').eq('id', loanId).eq('organization_id', organizationId).maybeSingle()
+  if (loan.error) throw new Error(loan.error.message)
+  if (!loan.data) throw new UserError('That file was not found, or it is not yours.')
+  const l = loan.data as { stage: string; loan_amount: number | null; purchase_price: number | null; assigned_lo_id: string | null }
+  if (move === 'closed' && l.stage !== 'closed') throw new UserError('This file is not Closed, so its GHL opportunity stays where it is.')
+  const borrower = await db
+    .from('loan_borrowers')
+    .select('contact:contacts ( id, first_name, last_name, email, phone, ghl_contact_id, ghl_opportunity_id )')
+    .eq('loan_id', loanId)
+    .eq('role', 'primary')
+    .maybeSingle()
+  if (borrower.error) throw new Error(borrower.error.message)
+  const person = (borrower.data as unknown as { contact: (GhlPerson & { id: string; ghl_opportunity_id: string | null }) | null } | null)?.contact
+  if (!person) throw new UserError('This file has no borrower.')
+  const name = [person.first_name, person.last_name].filter(Boolean).join(' ') || 'Borrower'
+
+  const settings = await admin
+    .from('messaging_settings')
+    .select('inbound_mode, closed_pipeline_id, closed_stage_id, closed_label, comeback_pipeline_id, comeback_stage_id, comeback_label')
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+  if (settings.error) throw new Error(settings.error.message)
+  const s = settings.data as Record<string, string | null> | null
+  const target = move === 'closed'
+    ? s?.closed_pipeline_id && s.closed_stage_id ? { pipelineId: s.closed_pipeline_id, stageId: s.closed_stage_id, label: s.closed_label } : null
+    : s?.comeback_pipeline_id && s.comeback_stage_id ? { pipelineId: s.comeback_pipeline_id, stageId: s.comeback_stage_id, label: s.comeback_label } : null
+  if (!target) return { skipped: `Pick the ${move === 'closed' ? 'Closed' : '"client came back"'} pipeline and stage in Settings → GoHighLevel first, so GHL wasn't changed.` }
+  if ((s?.inbound_mode ?? 'test_only') === 'test_only' && !hasTestName(person.first_name, person.last_name)) {
+    return { skipped: 'Test mode: LOSuite only changes GHL for people with TEST in their name, so GHL wasn\'t changed.' }
+  }
+
+  let assignTo: string | null = null
+  if (l.assigned_lo_id) {
+    const link = await admin.from('ghl_user_links').select('ghl_user_id').eq('organization_id', organizationId).eq('profile_id', l.assigned_lo_id).maybeSingle()
+    if (link.error) throw new Error(link.error.message)
+    assignTo = (link.data as { ghl_user_id: string } | null)?.ghl_user_id ?? null
+  }
+  const contact = await ensureGhlContact(admin, g, organizationId, person.id, person, assignTo)
+
+  // Their opportunities: GET /opportunities/search?location_id&contact_id (opportunities.readonly).
+  const search = await g.call(
+    plan('opportunities_read'),
+    `/opportunities/search?location_id=${encodeURIComponent(g.locationId)}&contact_id=${encodeURIComponent(contact.id)}&status=all&limit=20`,
+  )
+  if (search.outcome.result !== 'works') throw new UserError(`GHL's opportunities couldn't be read: ${search.outcome.detail}`)
+  const chosen = chooseOpportunity(pickOpportunities(search.body), person.ghl_opportunity_id)
+
+  const step = planMove({
+    move,
+    existing: chosen?.opportunity ?? null,
+    target,
+    locationId: g.locationId,
+    ghlContactId: contact.id,
+    personName: name,
+    amount: l.loan_amount ?? l.purchase_price,
+    assignedTo: assignTo,
+  })
+  const done = await g.call({ ...plan('opportunities_write'), method: step.method, dryRun: false }, step.path, step.body)
+  const opportunity = pickOpportunity((done.body as { opportunity?: Record<string, unknown> } | null)?.opportunity)
+  const opportunityId = opportunity?.id ?? chosen?.opportunity.id
+  if (done.outcome.result !== 'works' || !opportunityId) throw new UserError(`GHL didn't ${chosen ? 'move' : 'add'} the opportunity: ${done.outcome.detail}`)
+
+  if (person.ghl_opportunity_id !== opportunityId) {
+    const saved = await admin.from('contacts').update({ ghl_opportunity_id: opportunityId }).eq('id', person.id).eq('organization_id', organizationId)
+    if (saved.error) {
+      if (saved.error.code === '23505') throw new UserError(`GHL moved it, but that opportunity is already linked to someone else in LOSuite. An admin should check who is who.`)
+      throw new Error(saved.error.message)
+    }
+  }
+  return {
+    moved: true,
+    created: !chosen,
+    contactCreated: contact.created,
+    to: target.label,
+    // More than one opportunity in GHL for this person: the newest was used; the rest are for someone to tidy in GHL.
+    otherOpportunities: chosen?.others ?? 0,
+  }
 }
 
 Deno.serve(async (request) => {
@@ -525,7 +768,21 @@ Deno.serve(async (request) => {
         if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'send', ...c })))
       }
     }
+    if (task === 'opportunity') {
+      // Anyone who can see the file.
+      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+      try {
+        return reply(200, await moveOpportunity(db, admin, g, organizationId, body))
+      } finally {
+        if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'opportunity', ...c })))
+      }
+    }
     if (!['owner', 'admin'].includes((role.data as { role: string }).role)) return reply(403, { error: 'Only an owner or admin can manage the GHL connection.' })
+    if (task === 'pipelines') {
+      const result = await listPipelines(g)
+      const logError = await saveLog(db, organizationId, userId, 'pipelines', g)
+      return reply(200, { ...result, logError })
+    }
     if (task === 'token_check') return reply(200, await tokenCheck(db, g, organizationId, userId))
     if (task === 'link_user') return reply(200, await linkUser(db, g, organizationId, userId, body))
     throw new UserError('Unknown task.')

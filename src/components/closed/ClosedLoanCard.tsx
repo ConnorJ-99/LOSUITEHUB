@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { CalendarPlusIcon, CheckIcon, UserPlusIcon } from 'lucide-react'
+import { CalendarPlusIcon, CheckIcon, RefreshCwIcon, UserPlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CurrencyInput, DateInput, FormGrid, Input, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { MORTGAGE_TYPE_OPTIONS, OCCUPANCY_OPTIONS } from '@/components/profile/options'
 import { useAddFollowUp, useClosedLoan, useSaveClosedFacts, type ClosedLoan } from '@/lib/api/closed'
+import { useGhlOpportunity } from '@/components/messaging/useGhlOpportunity'
 import { CopyToLeadDialog } from './CopyToLeadDialog'
 import { MortgageCard } from './MortgageCard'
 import { useLoanTasks } from '@/lib/api/tasks'
@@ -39,6 +40,7 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
   const tasks = useLoanTasks(loan.id)
   const addFollowUp = useAddFollowUp(loan.id, loan.organizationId)
   const [copying, setCopying] = useState(false)
+  const ghl = useGhlOpportunity()
   const [form, setForm] = useState({
     lenderName: c.lenderName,
     programName: c.programName,
@@ -87,10 +89,18 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
       title="Closed loan"
       description={c.closingDate ? `Closed ${formatIsoDate(c.closingDate)}` : 'No closing date yet'}
       action={
-        <Button size="sm" variant="outline" disabled={!c.borrower} onClick={() => setCopying(true)}>
-          <UserPlusIcon />
-          Copy to a new lead
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {ghl.ready && loan.stage === 'closed' && (
+            <Button size="sm" variant="outline" disabled={!c.borrower || ghl.pending} onClick={() => ghl.move(loan.id, 'closed', name)} title="Put this client's GHL opportunity in the Closed pipeline (it happens on its own when a file moves to Closed)">
+              <RefreshCwIcon />
+              {ghl.pending ? 'Updating GHL…' : 'Update GHL'}
+            </Button>
+          )}
+          <Button size="sm" variant="outline" disabled={!c.borrower} onClick={() => setCopying(true)}>
+            <UserPlusIcon />
+            Copy to a new lead
+          </Button>
+        </div>
       }
     >
       <div className="space-y-5">

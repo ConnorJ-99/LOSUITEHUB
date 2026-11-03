@@ -9,6 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Card, CurrencyInput, DateInput, EmptyState, FormGrid, Select, TextArea, ToggleChip, confirmAction } from '@/components/shared'
 import { MORTGAGE_TYPE_OPTIONS, OCCUPANCY_OPTIONS, TERM_OPTIONS } from '@/components/profile/options'
 import { useSavePdf } from '@/components/pdf/useSavePdf'
+import { SendSavedPdf } from '@/components/messages/SendDocumentDialog'
 import { keys } from '@/lib/api/client'
 import { openDocument, useLoanDocuments } from '@/lib/api/documents'
 import { useUpdateLoanDetails } from '@/lib/api/loans'
@@ -55,6 +56,8 @@ export function LettersTab({ loan }: { loan: LoanProfile }) {
   const docs = useLoanDocuments(loan.id)
   const [params, setParams] = useSearchParams()
   const [editing, setEditing] = useState<Editing | null>(null)
+  // A letter just issued, being emailed ("Send…" on the saved toast; the editor has closed by then).
+  const [sendingId, setSendingId] = useState<string | null>(null)
   const today = todayIso()
   const d = loan.details
   const max: ApprovedMax = { maxPrice: d.preapprovalMaxPrice, maxLoanAmount: d.preapprovalMaxLoanAmount, expiresOn: d.preapprovalExpiresOn }
@@ -114,9 +117,10 @@ export function LettersTab({ loan }: { loan: LoanProfile }) {
   return (
     <div className="space-y-4">
       <ApprovedMaxCard loan={loan} max={max} />
+      <SendSavedPdf loan={loan} docId={sendingId} onClose={() => setSendingId(null)} />
 
       {editing ? (
-        <LetterEditor key={`${editing.referenceNumber}-${editing.version}`} loan={loan} editing={editing} max={max} homes={homes} borrowerNames={borrowerNames} place={place} onDone={closeEditor} />
+        <LetterEditor key={`${editing.referenceNumber}-${editing.version}`} loan={loan} editing={editing} max={max} homes={homes} borrowerNames={borrowerNames} place={place} onDone={closeEditor} onSend={setSendingId} />
       ) : (
         <Card
           title="Pre-approval letters"
@@ -225,12 +229,12 @@ function ApprovedMaxCard({ loan, max }: { loan: LoanProfile; max: ApprovedMax })
   )
 }
 
-function LetterEditor({ loan, editing, max, homes, borrowerNames, place, onDone }: { loan: LoanProfile; editing: Editing; max: ApprovedMax; homes: Property[]; borrowerNames: string[]; place: string | null; onDone: () => void }) {
+function LetterEditor({ loan, editing, max, homes, borrowerNames, place, onDone, onSend }: { loan: LoanProfile; editing: Editing; max: ApprovedMax; homes: Property[]; borrowerNames: string[]; place: string | null; onDone: () => void; onSend: (documentId: string) => void }) {
   const [draft, setDraft] = useState(editing.draft)
   const [conditions, setConditions] = useState(editing.draft.extraConditions.join('\n'))
   const [preview, setPreview] = useState<{ url: string } | { error: string } | null>(null)
   const [issuing, setIssuing] = useState(false)
-  const pdf = useSavePdf(loan)
+  const pdf = useSavePdf(loan, onSend)
   const queryClient = useQueryClient()
   const set = <K extends keyof LetterDraft>(key: K) => (value: LetterDraft[K]) => setDraft((x) => ({ ...x, [key]: value }))
   const full: LetterDraft = { ...draft, extraConditions: conditions.split('\n') }

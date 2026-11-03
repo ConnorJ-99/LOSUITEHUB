@@ -9,6 +9,7 @@ import type { LoanProfile } from '@/lib/api/types'
 import { useAuth } from '@/lib/auth/context'
 import { brandProblems, docBrand, type DocBrand } from '@/lib/documents/brand'
 import type { FitResult } from '@/lib/documents/fit'
+import { isSendableKind } from '@/lib/messaging/documentMessages'
 
 type RenderLib = typeof import('./render')
 
@@ -19,8 +20,14 @@ export interface PdfRequest extends Omit<GeneratedPdf, 'file'> {
   tooLong: string
 }
 
-/** Makes a one-page PDF with the company and LO letterhead, saves it to the file's Documents, and offers to open it. */
-export function useSavePdf(loan: LoanProfile) {
+/**
+ * Makes a one-page PDF with the company and LO letterhead, saves it to the
+ * file's Documents, and offers to open it, or (estimates and pre-approval
+ * letters) to email it to the borrower: render <SendSavedPdf> with
+ * `sendingId` and `closeSend` once in the calling tab, or pass `onSend`
+ * when the tab closes before the toast does (the Letters editor).
+ */
+export function useSavePdf(loan: LoanProfile, onSend?: (documentId: string) => void) {
   const { state } = useAuth()
   const me = state.status === 'signedIn' ? state.user.id : null
   const org = useOrganization()
@@ -31,6 +38,7 @@ export function useSavePdf(loan: LoanProfile) {
   const brandNow = () => docBrand(org.data ?? null, lo.data ?? null, { logo: logo.data, signature: signature.data })
   const queryClient = useQueryClient()
   const [saving, setSaving] = useState(false)
+  const [sendingId, setSendingId] = useState<string | null>(null)
 
   /** Returns the saved document's id, or null when it wasn't saved (the reason is shown). */
   const save = async ({ render, tooLong, ...doc }: PdfRequest): Promise<string | null> => {
@@ -50,7 +58,11 @@ export function useSavePdf(loan: LoanProfile) {
       const id = await saveGeneratedPdf(loan.id, loan.organizationId, { ...doc, file: fit.file })
       await queryClient.invalidateQueries({ queryKey: keys.documents(loan.id) })
       const url = URL.createObjectURL(fit.file)
-      toast.success(`Saved "${doc.fileName}" to Documents`, { action: { label: 'Open', onClick: () => window.open(url, '_blank') }, duration: 10000 })
+      const open = { label: 'Open', onClick: () => window.open(url, '_blank') }
+      toast.success(
+        `Saved "${doc.fileName}" to Documents`,
+        isSendableKind(doc.kind) ? { action: { label: 'Send…', onClick: () => (onSend ?? setSendingId)(id) }, cancel: open, duration: 10000 } : { action: open, duration: 10000 },
+      )
       return id
     } catch (e) {
       toast.error((e as Error).message)
@@ -64,5 +76,5 @@ export function useSavePdf(loan: LoanProfile) {
     const fit = await render(await import('./render'), brandNow())
     return fit.ok ? { url: URL.createObjectURL(fit.file) } : { error: `Too long for one page even at 82% (${fit.pages} pages). Shorten the conditions or what was reviewed.` }
   }
-  return { save, preview, saving, ready: org.isSuccess && (lo.isSuccess || !lo.isEnabled) && !logo.isLoading && !signature.isLoading }
+  return { save, preview, saving, sendingId, closeSend: () => setSendingId(null), ready: org.isSuccess && (lo.isSuccess || !lo.isEnabled) && !logo.isLoading && !signature.isLoading }
 }

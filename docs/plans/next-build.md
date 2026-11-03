@@ -18,14 +18,15 @@
 
 ## Sessions (do ONE per chat, in order)
 - Session 1: ghl-messaging.md Step A (test-mode privacy fix); Loans tab; Conditions tab (list, statuses, paste, workflow tie-in; no reminders yet).
-- Session 2: pg_cron scheduler + ghl-messaging Phase 2c (scheduled catch-up); GHL contact create + assign to the LO; GHL opportunities (decisions 2–3; tell me which token scopes to add); email with PDF attachment (Step B).
+- Session 2 (built 2026-11-02, `20261214000000_ghl_scheduler_opportunities.sql`): pg_cron scheduler + ghl-messaging Phase 2c (scheduled catch-up); GHL contact create + assign to the LO; GHL opportunities (decisions 2–3; scopes `opportunities.readonly` and `opportunities.write`); email with PDF attachment (Step B).
 - Session 3: prequal results (decision 7).
 - Launch: migrate old data + switch the website forms to lead-intake on the same day. Before then, compare the live mps.mortgage form payload with lead-intake/normalize.ts and list any mismatches.
 - Session 4: drafting engine: key-date drafts + automate switch (decision 6), condition reminder drafts (decision 8).
 - Session 5: weekly email (decision 5).
 
 ## Still open (Connor)
-- Active pipeline and stage for a closed client who comes back: picked in LOSuite Settings from GHL's list (Session 2).
+- Active pipeline and stage for a closed client who comes back: picked in Settings → GoHighLevel pipelines from GHL's list (built in Session 2; Connor picks it).
 - Prequal results content and scope: the defaults in decision 7 unless Connor changes them (Session 3).
 - Condition reminders: borrowers only until the partner center is used for them, every 3 days while outstanding (Session 4).
-- Before Session 2, add the GHL Opportunities read and write permissions to the Private Integration token; Session 2 confirms the exact names.
+- GHL token scopes for opportunities: `opportunities.readonly` and `opportunities.write` (confirmed from GHL's API spec in Session 2; Check connection tests both).
+- Does anything in GHL fire on Contact Created? LOSuite now creates contacts (no tags) when someone is first messaged or their loan closes.

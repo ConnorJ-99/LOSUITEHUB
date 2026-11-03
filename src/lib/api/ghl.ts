@@ -13,6 +13,7 @@ const ghlKeys = {
   links: ['ghl', 'links'] as const,
   lastCheck: ['ghl', 'lastCheck'] as const,
   settings: ['ghl', 'settings'] as const,
+  pipelines: ['ghl', 'pipelines'] as const,
 }
 
 export interface GhlStatus {
@@ -214,7 +215,23 @@ export interface MessagingSettings {
   testMode: boolean
   /** False when the company has no saved row yet (defaults apply). */
   saved: boolean
+  /** Where a closed client's GHL opportunity goes (decision 2: "Closed" / "Recently Closed"); null = not picked yet. */
+  closedStage: PipelineStageChoice | null
+  /** Where it goes back to when a closed client starts a new loan; null = not picked yet. */
+  comebackStage: PipelineStageChoice | null
+  /** The last time GHL was checked for new messages (the 10-minute scheduler, or Check for new messages). */
+  lastSyncedAt: string | null
 }
+
+/** A GHL pipeline and stage, with the names as GHL had them when picked. */
+export interface PipelineStageChoice {
+  pipelineId: string
+  stageId: string
+  label: string | null
+}
+
+const choice = (pipelineId: string | null, stageId: string | null, label: string | null): PipelineStageChoice | null =>
+  pipelineId && stageId ? { pipelineId, stageId, label } : null
 
 export function useMessagingSettings() {
   const orgId = useOrgId()
@@ -222,8 +239,18 @@ export function useMessagingSettings() {
     queryKey: ghlKeys.settings,
     enabled: !!orgId,
     queryFn: async (): Promise<MessagingSettings> => {
-      const row = unwrap<{ send_hours: unknown; time_zone: string; email_domain_verified: boolean; inbound_mode: string | null } | null>(
-        await db().from('messaging_settings').select('send_hours, time_zone, email_domain_verified, inbound_mode').eq('organization_id', orgId!).maybeSingle(),
+      const row = unwrap<
+        | ({ send_hours: unknown; time_zone: string; email_domain_verified: boolean; inbound_mode: string | null; last_synced_at: string | null } & Record<
+            'closed_pipeline_id' | 'closed_stage_id' | 'closed_label' | 'comeback_pipeline_id' | 'comeback_stage_id' | 'comeback_label',
+            string | null
+          >)
+        | null
+      >(
+        await db()
+          .from('messaging_settings')
+          .select('send_hours, time_zone, email_domain_verified, inbound_mode, last_synced_at, closed_pipeline_id, closed_stage_id, closed_label, comeback_pipeline_id, comeback_stage_id, comeback_label')
+          .eq('organization_id', orgId!)
+          .maybeSingle(),
       )
       return {
         sendHours: readSendHours(row?.send_hours),
@@ -231,6 +258,9 @@ export function useMessagingSettings() {
         emailDomainVerified: row?.email_domain_verified ?? false,
         testMode: (row?.inbound_mode ?? 'test_only') === 'test_only',
         saved: !!row,
+        closedStage: choice(row?.closed_pipeline_id ?? null, row?.closed_stage_id ?? null, row?.closed_label ?? null),
+        comebackStage: choice(row?.comeback_pipeline_id ?? null, row?.comeback_stage_id ?? null, row?.comeback_label ?? null),
+        lastSyncedAt: row?.last_synced_at ?? null,
       }
     },
   })
@@ -242,16 +272,54 @@ export function useSaveMessagingSettings() {
   const userId = state.status === 'signedIn' ? state.user.id : null
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (v: { sendHours?: SendHours; emailDomainVerified?: boolean }) => {
+    mutationFn: async (v: { sendHours?: SendHours; emailDomainVerified?: boolean; closedStage?: PipelineStageChoice; comebackStage?: PipelineStageChoice }) => {
       const row = {
         organization_id: orgId,
         updated_by: userId,
         ...(v.sendHours ? { send_hours: v.sendHours } : {}),
         ...(v.emailDomainVerified === undefined ? {} : { email_domain_verified: v.emailDomainVerified }),
+        ...(v.closedStage ? { closed_pipeline_id: v.closedStage.pipelineId, closed_stage_id: v.closedStage.stageId, closed_label: v.closedStage.label } : {}),
+        ...(v.comebackStage ? { comeback_pipeline_id: v.comebackStage.pipelineId, comeback_stage_id: v.comebackStage.stageId, comeback_label: v.comebackStage.label } : {}),
       }
       const rows = unwrap<{ organization_id: string }[]>(await db().from('messaging_settings').upsert(row, { onConflict: 'organization_id' }).select('organization_id'))
       if (rows.length === 0) throw new Error('Only owners and admins can change sending settings.')
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ghlKeys.settings }),
   })
+}
+
+export interface GhlPipeline {
+  id: string
+  name: string
+  stages: { id: string; name: string }[]
+}
+
+/** GHL's pipelines and stages for the Settings picker (owners and admins), loaded when asked. */
+export function useGhlPipelines(enabled: boolean) {
+  const orgId = useOrgId()
+  return useQuery({
+    queryKey: ghlKeys.pipelines,
+    enabled: enabled && !!orgId,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    queryFn: () =>
+      invokeGhl<{ pipelines: GhlPipeline[]; suggestedClosed: { pipelineId: string; stageId: string } | null; logError: string | null }>(
+        { task: 'pipelines', organizationId: orgId },
+        "GHL's pipelines could not be loaded.",
+      ),
+  })
+}
+
+/** What happened to the borrower's GHL opportunity. `skipped` = GHL wasn't changed, and why. */
+export type OpportunityResult =
+  | { skipped: string }
+  | { moved: true; created: boolean; contactCreated: boolean; to: string | null; otherOpportunities: number }
+
+/**
+ * Moves the file's borrower's one GHL opportunity: "closed" when the loan
+ * closes, "comeback" when a closed client starts a new loan (decision 3).
+ */
+export function moveGhlOpportunity(organizationId: string, loanId: string, move: 'closed' | 'comeback') {
+  return invokeGhl<OpportunityResult>({ task: 'opportunity', organizationId, loanId, move }, 'The GHL opportunity was not moved.')
 }
