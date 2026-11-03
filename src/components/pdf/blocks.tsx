@@ -40,6 +40,10 @@ export function pdfStyles(scale: number) {
     column: { flex: 1 },
     row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: z(1), fontSize: z(8.3) },
     subRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: z(4.5), paddingBottom: z(1), fontSize: z(8), color: COLORS.muted, fontFamily: 'Helvetica-Bold' },
+    /** A fee section's heading and total (A. Origination charges … $1,250): a tinted band, set apart from its fee lines. */
+    sectionRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: z(5), marginBottom: z(1.5), paddingVertical: z(2.5), paddingHorizontal: z(4), backgroundColor: COLORS.tint, borderLeftWidth: 2, borderLeftColor: COLORS.navy, fontSize: z(8.3), color: COLORS.navy, fontFamily: 'Helvetica-Bold' },
+    /** A fee line under its section heading. */
+    feeRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: z(1), paddingLeft: z(8), paddingRight: z(4), fontSize: z(8.1) },
     totalRow: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: COLORS.line, marginTop: z(2), paddingTop: z(4), fontSize: z(8.3), fontFamily: 'Helvetica-Bold' },
     label: { flex: 1, paddingRight: z(6) },
     note: { color: COLORS.muted, fontSize: z(7.4) },
@@ -106,9 +110,9 @@ export function FactGrid({ facts, s }: { facts: { label: string; value: string }
   )
 }
 
-export function AmountRow({ label, note, amount, negative, bold, kind = 'row', s }: { label: string; note?: string | null; amount: number | null; negative?: boolean; bold?: boolean; kind?: 'row' | 'sub' | 'total'; s: PdfStyles }) {
+export function AmountRow({ label, note, amount, negative, bold, kind = 'row', s }: { label: string; note?: string | null; amount: number | null; negative?: boolean; bold?: boolean; kind?: 'row' | 'sub' | 'total' | 'section' | 'fee'; s: PdfStyles }) {
   return (
-    <View style={[kind === 'sub' ? s.subRow : kind === 'total' ? s.totalRow : s.row, ...(bold ? [{ fontFamily: 'Helvetica-Bold' }] : [])]} wrap={false}>
+    <View style={[kind === 'sub' ? s.subRow : kind === 'total' ? s.totalRow : kind === 'section' ? s.sectionRow : kind === 'fee' ? s.feeRow : s.row, ...(bold ? [{ fontFamily: 'Helvetica-Bold' }] : [])]} wrap={false}>
       <Text style={s.label}>
         {label}
         {note ? <Text style={s.note}> ({note})</Text> : null}

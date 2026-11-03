@@ -5,8 +5,8 @@ import { AmountRow, EhoFooter, FactGrid, Letterhead, pdfStyles, TitleRow, type D
 function Sections({ sections, s }: { sections: WorksheetSection[]; s: PdfStyles }) {
   return sections.map((sec) => (
     <View key={sec.letter}>
-      <AmountRow kind="sub" label={`${sec.letter}. ${sec.title}`} amount={sec.total} s={s} />
-      {sec.rows.length === 0 ? <AmountRow label="None" amount={null} s={s} /> : sec.rows.map((r, i) => <AmountRow key={i} label={r.label} note={r.note} amount={r.amount} s={s} />)}
+      <AmountRow kind="section" label={`${sec.letter}. ${sec.title}`} amount={sec.total} s={s} />
+      {sec.rows.length === 0 ? <AmountRow kind="fee" label="None" amount={null} s={s} /> : sec.rows.map((r, i) => <AmountRow key={i} kind="fee" label={r.label} note={r.note} amount={r.amount} s={s} />)}
     </View>
   ))
 }
