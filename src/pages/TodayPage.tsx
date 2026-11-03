@@ -20,6 +20,7 @@ import { cardAmount, pipelineInfo, stageLabelFor } from '@/lib/pipeline/pipeline
 import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
 import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 import { WebLeadsCard } from '@/components/queue/WebLeadsCard'
+import { PriorityListCard } from '@/components/queue/PriorityList'
 import { NewMessagesCard } from '@/components/messages/NewMessages'
 import { buildToday, groupToday, type TodayEntry } from '@/lib/queue/today'
 
@@ -191,7 +192,8 @@ export function TodayPage() {
   const files = new Map((data.data?.actions ?? []).map((a) => [a.id, a]))
   const entries = buildToday(
     data.data?.actions ?? [],
-    (tasks.data ?? []).map((t) => ({ id: t.id, loanId: t.loanId, borrowerName: t.borrowerName, title: t.title, dueOn: t.dueOn })),
+    // Priority items have their own card, so they aren't listed twice.
+    (tasks.data ?? []).filter((t) => !t.action).map((t) => ({ id: t.id, loanId: t.loanId, borrowerName: t.borrowerName, title: t.title, dueOn: t.dueOn })),
     data.data?.loans ?? [],
     today,
   )
@@ -231,6 +233,7 @@ export function TodayPage() {
         </div>
         <div className="min-w-0 space-y-5 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <SectionTitle eyebrow="Today" title="Your day," highlight="at a glance" />
+          {tasks.isSuccess && <PriorityListCard tasks={tasks.data} />}
           <NewMessagesCard />
           <WebLeadsCard />
           {loading ? (

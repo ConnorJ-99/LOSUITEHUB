@@ -1,5 +1,6 @@
 import type { OrgRole } from '@/lib/auth/context'
 import type { LoanPurpose, PipelineStage } from '@/lib/pipeline/stages'
+import type { PriorityAction } from '@/lib/queue/priorityList'
 
 export interface Contact {
   id: string
@@ -238,4 +239,11 @@ export interface Task {
   createdAt: string
   /** Set when the task was made from a contract deadline (e.g. "contract:option_end"). */
   sourceKey: string | null
+  /** Set = an item on the Today page's priority list (Lock, Call, Get documents…). */
+  action: PriorityAction | null
+  starred: boolean
+  /** The order set with the priority list's up/down buttons. */
+  sortOrder: number | null
+  /** Hidden from the priority list until this day. */
+  snoozedUntil: string | null
 }

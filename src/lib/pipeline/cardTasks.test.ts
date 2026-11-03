@@ -3,7 +3,7 @@ import { sortTasks } from '@/lib/api/tasks'
 import type { Task } from '@/lib/api/types'
 import { cardTasks } from './cardTasks'
 
-const task = (id: string, dueOn: string | null): Task => ({ id, loanId: 'l1', title: `Task ${id}`, dueOn, completedAt: null, assignedTo: null, createdAt: '2026-10-01T00:00:00Z', sourceKey: null })
+const task = (id: string, dueOn: string | null): Task => ({ id, loanId: 'l1', title: `Task ${id}`, dueOn, completedAt: null, assignedTo: null, createdAt: '2026-10-01T00:00:00Z', sourceKey: null, action: null, starred: false, sortOrder: null, snoozedUntil: null })
 const today = '2026-10-27'
 
 describe('tasks under a card', () => {

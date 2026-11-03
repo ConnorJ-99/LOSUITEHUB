@@ -9,6 +9,8 @@ import { Card } from '@/components/shared'
 import { useAddTask, useDeleteTask, useLoanTasks, useToggleTask } from '@/lib/api/tasks'
 import type { Task } from '@/lib/api/types'
 import { dueLabel, todayIso } from '@/lib/dates'
+import { ActionChip } from '@/components/queue/PriorityList'
+import { PRIORITY_ACTIONS, itemNote, itemTitle, type PriorityAction } from '@/lib/queue/priorityList'
 
 function TaskRow({ task, onToggle, onDelete }: { task: Task; onToggle: () => void; onDelete: () => void }) {
   const done = !!task.completedAt
@@ -28,7 +30,10 @@ function TaskRow({ task, onToggle, onDelete }: { task: Task; onToggle: () => voi
         {done && <CheckIcon className="size-3" />}
       </button>
       <div className="min-w-0 flex-1">
-        <p className={cn('text-sm', done && 'text-muted-foreground line-through')}>{task.title}</p>
+        <p className={cn('flex items-center gap-1.5 text-sm', done && 'text-muted-foreground line-through')}>
+          {task.action && <ActionChip action={task.action} />}
+          {task.action ? itemNote({ action: task.action, title: task.title }) : task.title}
+        </p>
         {due && !done && <p className={cn('text-xs', due.overdue ? 'font-medium text-destructive' : 'text-muted-foreground')}>{due.text}</p>}
       </div>
       <Button
@@ -44,13 +49,14 @@ function TaskRow({ task, onToggle, onDelete }: { task: Task; onToggle: () => voi
   )
 }
 
-/** Follow-ups for this loan. The first open one is the "next task". */
+/** Follow-ups for this loan. The first open one is the "next task". Picking an action puts it on the Today page's priority list. */
 export function TasksCard({ loanId, organizationId }: { loanId: string; organizationId: string }) {
   const tasks = useLoanTasks(loanId)
   const addTask = useAddTask(loanId, organizationId)
   const toggleTask = useToggleTask(loanId)
   const deleteTask = useDeleteTask(loanId)
   const [title, setTitle] = useState('')
+  const [action, setAction] = useState<PriorityAction | ''>('')
   const [dueOn, setDueOn] = useState<string>(todayIso())
   const [showDone, setShowDone] = useState(false)
 
@@ -59,11 +65,15 @@ export function TasksCard({ loanId, organizationId }: { loanId: string; organiza
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title.trim()) return
+    if (!title.trim() && !action) return
     addTask.mutate(
-      { title, dueOn },
+      { title: action ? itemTitle(action, title) : title, dueOn, action: action || null },
       {
-        onSuccess: () => setTitle(''),
+        onSuccess: () => {
+          setTitle('')
+          setAction('')
+          if (action) toast.success('Added to your priority list')
+        },
         onError: (error) => toast.error(`Could not add task: ${error.message}`),
       },
     )
@@ -73,9 +83,23 @@ export function TasksCard({ loanId, organizationId }: { loanId: string; organiza
   return (
     <Card title="Tasks">
       <form onSubmit={submit} className="flex gap-2">
-        <BaseInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a task…" aria-label="New task" className="min-w-0 flex-1" />
+        <select
+          aria-label="Priority list action"
+          title="Pick an action to put this on the Today page's priority list"
+          value={action}
+          onChange={(e) => setAction(e.target.value as PriorityAction | '')}
+          className={cn('h-8 w-28 shrink-0 rounded-md border bg-card px-2 text-sm focus:border-ring focus:outline-none', !action && 'text-muted-foreground')}
+        >
+          <option value="">Task</option>
+          {PRIORITY_ACTIONS.map((a) => (
+            <option key={a.value} value={a.value}>
+              {a.label}
+            </option>
+          ))}
+        </select>
+        <BaseInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder={action ? 'Note (optional)' : 'Add a task…'} aria-label="New task" className="min-w-0 flex-1" />
         <BaseInput type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} aria-label="Due date" className="w-34 shrink-0 tabular-nums" />
-        <Button type="submit" size="icon" disabled={!title.trim() || addTask.isPending} aria-label="Add task">
+        <Button type="submit" size="icon" disabled={(!title.trim() && !action) || addTask.isPending} aria-label="Add task">
           <PlusIcon />
         </Button>
       </form>

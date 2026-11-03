@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
 import { fullName } from '@/lib/pipeline/helpers'
+import type { PipelineStage } from '@/lib/pipeline/stages'
+import { isPriorityAction, type PriorityAction } from '@/lib/queue/priorityList'
 import { db, keys, unwrap } from './client'
 import type { Task } from './types'
 
@@ -12,10 +14,14 @@ interface TaskRow {
   completed_at: string | null
   created_at: string
   source_key: string | null
+  action: string | null
+  starred: boolean
+  sort_order: number | null
+  snoozed_until: string | null
   assigned: { id: string; full_name: string | null; email: string } | null
 }
 
-const TASK_SELECT = 'id, loan_id, title, due_on, completed_at, created_at, source_key, assigned:profiles!tasks_assigned_to_fkey ( id, full_name, email )'
+const TASK_SELECT = 'id, loan_id, title, due_on, completed_at, created_at, source_key, action, starred, sort_order, snoozed_until, assigned:profiles!tasks_assigned_to_fkey ( id, full_name, email )'
 
 function toTask(r: TaskRow): Task {
   return {
@@ -26,6 +32,10 @@ function toTask(r: TaskRow): Task {
     completedAt: r.completed_at,
     createdAt: r.created_at,
     sourceKey: r.source_key,
+    action: isPriorityAction(r.action) ? r.action : null,
+    starred: r.starred,
+    sortOrder: r.sort_order,
+    snoozedUntil: r.snoozed_until,
     assignedTo: r.assigned ? { id: r.assigned.id, name: r.assigned.full_name || r.assigned.email } : null,
   }
 }
@@ -64,6 +74,8 @@ export function useOpenTasks() {
 
 export interface MyTask extends Task {
   borrowerName: string
+  /** The file's stage, so a priority item opens the right tab. */
+  stage: PipelineStage | null
 }
 
 /** Open tasks assigned to the signed-in user, for the dashboard. */
@@ -74,10 +86,10 @@ export function useMyOpenTasks() {
     queryKey: keys.myTasks,
     enabled: !!userId,
     queryFn: async () => {
-      const rows = unwrap<(TaskRow & { loan: { borrowers: { role: string; contact: { first_name: string; last_name: string } | null }[] } | null })[]>(
+      const rows = unwrap<(TaskRow & { loan: { stage: PipelineStage; borrowers: { role: string; contact: { first_name: string; last_name: string } | null }[] } | null })[]>(
         await db()
           .from('tasks')
-          .select(`${TASK_SELECT}, loan:loans!tasks_loan_id_fkey ( borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( first_name, last_name ) ) )`)
+          .select(`${TASK_SELECT}, loan:loans!tasks_loan_id_fkey ( stage, borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( first_name, last_name ) ) )`)
           .eq('assigned_to', userId!)
           .is('completed_at', null),
       )
@@ -86,6 +98,7 @@ export function useMyOpenTasks() {
         return {
           ...toTask(row),
           borrowerName: primary ? fullName({ firstName: primary.first_name, lastName: primary.last_name }) : 'No borrower',
+          stage: row.loan?.stage ?? null,
         }
       })
       return sortTasks(tasks)
@@ -105,11 +118,11 @@ function useInvalidateTasks(loanId: string) {
 export function useAddTask(loanId: string, organizationId: string) {
   const invalidate = useInvalidateTasks(loanId)
   return useMutation({
-    mutationFn: async (input: { title: string; dueOn: string | null }) => {
+    mutationFn: async (input: { title: string; dueOn: string | null; action?: PriorityAction | null }) => {
       unwrap(
         await db()
           .from('tasks')
-          .insert({ organization_id: organizationId, loan_id: loanId, title: input.title.trim(), due_on: input.dueOn || null })
+          .insert({ organization_id: organizationId, loan_id: loanId, title: input.title.trim(), due_on: input.dueOn || null, action: input.action ?? null })
           .select('id'),
       )
     },
@@ -134,5 +147,38 @@ export function useDeleteTask(loanId: string) {
       unwrap(await db().from('tasks').delete().eq('id', id))
     },
     onSuccess: invalidate,
+  })
+}
+
+/** A priority item added from the Today page, where the file is picked in the form. */
+export function useAddPriorityItem() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { loanId: string; organizationId: string; action: PriorityAction; title: string; dueOn: string | null }) => {
+      unwrap(
+        await db()
+          .from('tasks')
+          .insert({ organization_id: input.organizationId, loan_id: input.loanId, title: input.title.trim(), due_on: input.dueOn || null, action: input.action })
+          .select('id'),
+      )
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+  })
+}
+
+/** Star, snooze or reorder priority items; each change is one row. */
+export function useUpdatePriorityItems() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (changes: { id: string; starred?: boolean; sortOrder?: number | null; snoozedUntil?: string | null }[]) => {
+      for (const c of changes) {
+        const patch: Record<string, unknown> = {}
+        if (c.starred !== undefined) patch.starred = c.starred
+        if (c.sortOrder !== undefined) patch.sort_order = c.sortOrder
+        if (c.snoozedUntil !== undefined) patch.snoozed_until = c.snoozedUntil
+        unwrap(await db().from('tasks').update(patch).eq('id', c.id).select('id'))
+      }
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
   })
 }
