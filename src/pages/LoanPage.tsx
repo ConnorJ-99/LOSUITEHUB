@@ -8,6 +8,7 @@ import {
   FolderIcon,
   HomeIcon,
   LandmarkIcon,
+  LayersIcon,
   MailIcon,
   MessagesSquareIcon,
   NotebookPenIcon,
@@ -24,6 +25,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, confirmAction } from '@/components/shared'
 import { ClosedLoanCard } from '@/components/closed/ClosedLoanCard'
+import { LoansTab } from '@/components/closed/LoansTab'
 import { ContractTab } from '@/components/contract/ContractTab'
 import { DocumentsTab } from '@/components/documents/DocumentsTab'
 import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
@@ -64,11 +66,11 @@ import { pipelineFor, pipelineInfo } from '@/lib/pipeline/pipelines'
 import { applicationSummary } from '@/lib/urla/summary'
 import { useAuth } from '@/lib/auth/context'
 
-const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'messages', 'loan', 'properties', 'letters'] as const
+const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'messages', 'loan', 'properties', 'letters', 'loans'] as const
 type Section = (typeof SECTIONS)[number]
-const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'messages', 'loan', 'properties', 'letters']
+const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'messages', 'loan', 'properties', 'letters', 'loans']
 /** A closed file's profile: the closed loan (Overview), its 1003, the home, documents, notes and messages. */
-const CLOSED_SECTIONS: Section[] = ['overview', '1003', 'properties', 'documents', 'notes', 'messages']
+const CLOSED_SECTIONS: Section[] = ['overview', 'loans', '1003', 'properties', 'documents', 'notes', 'messages']
 
 /** Team roles shown in the header, in order. The loan officer is the file's Assigned LO. */
 const TEAM: { role: TeamRole | 'loan_officer'; label: string; group: string; purchaseOnly?: boolean; company?: boolean }[] = [
@@ -204,6 +206,8 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     { id: 'loan', label: 'Loan · Pricing', icon: LandmarkIcon },
     { id: 'properties', label: 'Properties', icon: HomeIcon },
     ...(isPurchase ? [{ id: 'letters', label: 'Letters', icon: MailIcon }] : []),
+    // Closed files only: every loan this person is on.
+    ...(closedFile ? [{ id: 'loans', label: 'Loans', icon: LayersIcon }] : []),
   ]
   const nav = closedFile
     ? CLOSED_SECTIONS.map((id) => allNav.find((n) => n.id === id)!).map((n) => (n.id === 'properties' ? { ...n, label: 'Property' } : n.id === 'messages' ? n : { ...n, marker: undefined }))
@@ -334,6 +338,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           {section === 'notes' && <NotesTab loan={loan} />}
           {section === 'messages' && <MessagesTab loan={loan} />}
           {section === 'properties' && <PropertiesTab loan={loan} />}
+          {section === 'loans' && closedFile && <LoansTab loan={loan} />}
         </div>
       </div>
 
