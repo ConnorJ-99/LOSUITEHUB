@@ -18,7 +18,15 @@ const msgKeys = {
   inbox: ['messages', 'inbox'] as const,
   needsMatching: ['messages', 'needsMatching'] as const,
   consent: (ids: string) => ['messages', 'consent', ids] as const,
+  fresh: ['messages', 'fresh'] as const,
 }
+
+/**
+ * How often open screens look for messages that arrived. GHL's reply alert
+ * and the 10-minute check save them on their own; this only refreshes what's
+ * on screen (and stops while the tab is in the background).
+ */
+const LIVE_MS = 30_000
 
 export type MatchedBy = 'ghl_id' | 'email' | 'phone' | 'admin'
 export type MatchReason = 'shared_email' | 'shared_phone' | 'email_phone_differ' | 'linked_to_other_ghl' | 'no_match'
@@ -182,6 +190,7 @@ export function useThread(contactIds: string[]) {
   return useQuery({
     queryKey: msgKeys.thread(ids),
     enabled: contactIds.length > 0,
+    refetchInterval: LIVE_MS,
     queryFn: async () => {
       const rows = unwrap<MessageRow[]>(await db().from('messages').select(MESSAGE_SELECT).in('contact_id', contactIds).order('sent_at', { ascending: false }).limit(300))
       return rows.map(toMessage).reverse()
@@ -195,7 +204,7 @@ export function useUnreadCount() {
   return useQuery({
     queryKey: msgKeys.unread,
     enabled: state.status === 'signedIn',
-    refetchInterval: 60_000,
+    refetchInterval: LIVE_MS,
     queryFn: async () => {
       const { count, error } = await db().from('messages').select('id', { count: 'exact', head: true }).eq('direction', 'inbound').is('read_at', null)
       if (error) throw new Error(error.message)
@@ -231,6 +240,7 @@ export interface InboxRow {
 export function useInbox() {
   return useQuery({
     queryKey: msgKeys.inbox,
+    refetchInterval: LIVE_MS,
     queryFn: async () => {
       const rows = unwrap<(MessageRow & { contact: { first_name: string; last_name: string } | null })[]>(
         await db()
@@ -249,6 +259,55 @@ export function useInbox() {
         byPerson.set(m.contactId, row)
       }
       return [...byPerson.values()]
+    },
+  })
+}
+
+export interface FreshMessage {
+  id: string
+  contactId: string
+  loanId: string | null
+  name: string
+  channel: MessageChannel
+  /** The subject for an email, else the start of the text. */
+  preview: string
+  sentAt: string
+}
+
+/** Received messages nobody has opened yet, newest first (the home page box and the "new text" pop-ups). */
+export function useNewMessages() {
+  const { state } = useAuth()
+  return useQuery({
+    queryKey: msgKeys.fresh,
+    enabled: state.status === 'signedIn',
+    refetchInterval: LIVE_MS,
+    queryFn: async () => {
+      const rows = unwrap<(MessageRow & { contact: { first_name: string; last_name: string } | null })[]>(
+        await db()
+          .from('messages')
+          .select(`${MESSAGE_SELECT}, contact:contacts!messages_contact_id_fkey ( first_name, last_name )`)
+          .eq('direction', 'inbound')
+          .eq('match_status', 'matched')
+          .is('read_at', null)
+          .order('sent_at', { ascending: false })
+          .limit(20),
+      )
+      return rows.flatMap((r): FreshMessage[] => {
+        const m = toMessage(r)
+        if (!m.contactId) return []
+        const text = (m.channel === 'email' && m.subject ? m.subject : m.body ?? '').replace(/s+/g, ' ').trim()
+        return [
+          {
+            id: m.id,
+            contactId: m.contactId,
+            loanId: m.loanId,
+            name: [r.contact?.first_name, r.contact?.last_name].filter(Boolean).join(' ') || 'Unknown',
+            channel: m.channel,
+            preview: text.length > 90 ? `${text.slice(0, 89)}…` : text,
+            sentAt: m.sentAt,
+          },
+        ]
+      })
     },
   })
 }

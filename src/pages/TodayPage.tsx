@@ -20,6 +20,7 @@ import { cardAmount, pipelineInfo, stageLabelFor } from '@/lib/pipeline/pipeline
 import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
 import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 import { WebLeadsCard } from '@/components/queue/WebLeadsCard'
+import { NewMessagesCard } from '@/components/messages/NewMessages'
 import { buildToday, groupToday, type TodayEntry } from '@/lib/queue/today'
 
 function TaskRow({ entry }: { entry: Extract<TodayEntry, { type: 'task' }> }) {
@@ -230,6 +231,7 @@ export function TodayPage() {
         </div>
         <div className="min-w-0 space-y-5 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <SectionTitle eyebrow="Today" title="Your day," highlight="at a glance" />
+          <NewMessagesCard />
           <WebLeadsCard />
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>

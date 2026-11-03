@@ -5,6 +5,7 @@ import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { NewLeadContext, type NewLeadPreset } from '@/components/leads/new-lead-context'
 import { NewLeadDialog } from '@/components/leads/NewLeadDialog'
+import { useNewMessageAlerts } from '@/components/messages/useNewMessageAlerts'
 import type { CurrentUser } from '@/lib/auth/context'
 import { BrandMark } from './BrandMark'
 import { Sidebar } from './Sidebar'
@@ -32,6 +33,8 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
   const [mobileOpen, setMobileOpen] = useState(false)
   const [newLeadOpen, setNewLeadOpen] = useState(false)
   const [newLeadPreset, setNewLeadPreset] = useState<NewLeadPreset | null>(null)
+  // A pop-up for each text or email that comes in while LOSuite is open.
+  useNewMessageAlerts()
 
   const toggleCollapsed = () => {
     setCollapsed((value) => {
