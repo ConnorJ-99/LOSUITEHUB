@@ -8,7 +8,8 @@ import type { Task } from './types'
 
 interface TaskRow {
   id: string
-  loan_id: string
+  /** Null for a no-file task (office or personal), which only its owner sees. */
+  loan_id: string | null
   title: string
   due_on: string | null
   completed_at: string | null
@@ -23,7 +24,7 @@ interface TaskRow {
 
 const TASK_SELECT = 'id, loan_id, title, due_on, completed_at, created_at, source_key, action, starred, sort_order, snoozed_until, assigned:profiles!tasks_assigned_to_fkey ( id, full_name, email )'
 
-function toTask(r: TaskRow): Task {
+function toTask(r: TaskRow & { loan_id: string }): Task {
   return {
     id: r.id,
     loanId: r.loan_id,
@@ -41,7 +42,7 @@ function toTask(r: TaskRow): Task {
 }
 
 /** Open tasks first (soonest due first, undated last), then completed ones. */
-export function sortTasks<T extends Task>(tasks: T[]): T[] {
+export function sortTasks<T extends Pick<Task, 'completedAt' | 'dueOn' | 'createdAt'>>(tasks: T[]): T[] {
   return [...tasks].sort((a, b) => {
     if (!!a.completedAt !== !!b.completedAt) return a.completedAt ? 1 : -1
     if (a.completedAt && b.completedAt) return b.completedAt.localeCompare(a.completedAt)
@@ -53,7 +54,7 @@ export function useLoanTasks(loanId: string) {
   return useQuery({
     queryKey: keys.loanTasks(loanId),
     queryFn: async () => {
-      const rows = unwrap<TaskRow[]>(await db().from('tasks').select(TASK_SELECT).eq('loan_id', loanId))
+      const rows = unwrap<(TaskRow & { loan_id: string })[]>(await db().from('tasks').select(TASK_SELECT).eq('loan_id', loanId))
       return sortTasks(rows.map(toTask))
     },
   })
@@ -64,7 +65,7 @@ export function useOpenTasks() {
   return useQuery({
     queryKey: keys.openTasks,
     queryFn: async () => {
-      const rows = unwrap<TaskRow[]>(await db().from('tasks').select(TASK_SELECT).is('completed_at', null))
+      const rows = unwrap<(TaskRow & { loan_id: string })[]>(await db().from('tasks').select(TASK_SELECT).is('completed_at', null).not('loan_id', 'is', null))
       const byLoan = new Map<string, Task[]>()
       for (const t of sortTasks(rows.map(toTask))) byLoan.set(t.loanId, [...(byLoan.get(t.loanId) ?? []), t])
       return byLoan
@@ -72,8 +73,11 @@ export function useOpenTasks() {
   })
 }
 
-export interface MyTask extends Task {
-  borrowerName: string
+export interface MyTask extends Omit<Task, 'loanId'> {
+  /** Null for a no-file task. */
+  loanId: string | null
+  /** Null for a no-file task. */
+  borrowerName: string | null
   /** The file's stage, so a priority item opens the right tab. */
   stage: PipelineStage | null
 }
@@ -96,8 +100,9 @@ export function useMyOpenTasks() {
       const tasks = rows.map((row): MyTask => {
         const primary = row.loan?.borrowers.find((b) => b.role === 'primary')?.contact
         return {
-          ...toTask(row),
-          borrowerName: primary ? fullName({ firstName: primary.first_name, lastName: primary.last_name }) : 'No borrower',
+          ...toTask({ ...row, loan_id: row.loan_id ?? '' }),
+          loanId: row.loan_id,
+          borrowerName: !row.loan_id ? null : primary ? fullName({ firstName: primary.first_name, lastName: primary.last_name }) : 'No borrower',
           stage: row.loan?.stage ?? null,
         }
       })
@@ -106,10 +111,10 @@ export function useMyOpenTasks() {
   })
 }
 
-function useInvalidateTasks(loanId: string) {
+function useInvalidateTasks(loanId: string | null) {
   const queryClient = useQueryClient()
   return () => {
-    queryClient.invalidateQueries({ queryKey: keys.loanTasks(loanId) })
+    if (loanId) queryClient.invalidateQueries({ queryKey: keys.loanTasks(loanId) })
     queryClient.invalidateQueries({ queryKey: keys.myTasks })
     queryClient.invalidateQueries({ queryKey: keys.openTasks })
   }
@@ -130,7 +135,8 @@ export function useAddTask(loanId: string, organizationId: string) {
   })
 }
 
-export function useToggleTask(loanId: string) {
+/** loanId is null for a no-file task. */
+export function useToggleTask(loanId: string | null) {
   const invalidate = useInvalidateTasks(loanId)
   return useMutation({
     mutationFn: async ({ id, done }: { id: string; done: boolean }) => {
@@ -150,11 +156,11 @@ export function useDeleteTask(loanId: string) {
   })
 }
 
-/** A priority item added from the Today page, where the file is picked in the form. */
+/** A priority item added from the Today page, where the file is picked in the form (none = an office or personal to-do). */
 export function useAddPriorityItem() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (input: { loanId: string; organizationId: string; action: PriorityAction; title: string; dueOn: string | null }) => {
+    mutationFn: async (input: { loanId: string | null; organizationId: string; action: PriorityAction; title: string; dueOn: string | null }) => {
       unwrap(
         await db()
           .from('tasks')

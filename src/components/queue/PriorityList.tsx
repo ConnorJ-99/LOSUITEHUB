@@ -14,7 +14,7 @@ import { useAuth } from '@/lib/auth/context'
 import { dueLabel, formatIsoDate, todayIso } from '@/lib/dates'
 import { fullName } from '@/lib/pipeline/helpers'
 import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
-import { PRIORITY_ACTIONS, actionLabel, itemLink, itemNote, itemTitle, moveItem, priorityList, snoozeDate, type PriorityAction, type PriorityItem } from '@/lib/queue/priorityList'
+import { PRIORITY_ACTIONS, actionLabel, itemHeading, itemLink, itemNote, itemTitle, moveItem, priorityList, snoozeDate, type PriorityAction, type PriorityItem } from '@/lib/queue/priorityList'
 
 type Item = MyTask & PriorityItem
 
@@ -33,7 +33,10 @@ export function ActionChip({ action }: { action: PriorityAction }) {
 
 const control = 'h-8 rounded-md border bg-card px-2 text-sm focus:border-ring focus:outline-none'
 
-/** Pick a file and an action; the date and note are optional. */
+/** The file picker's choice for an office or personal to-do. */
+const NO_FILE = 'none'
+
+/** Pick a file (or no file) and an action; the date is optional, and so is the note unless there's no file. */
 function AddItem() {
   const { state } = useAuth()
   const organizationId = state.status === 'signedIn' ? state.user.organizationId : null
@@ -50,11 +53,13 @@ function AddItem() {
     .map((l) => ({ id: l.id, name: l.borrower ? fullName(l.borrower) : 'No borrower', star: l.priority }))
     .sort((a, b) => Number(b.star) - Number(a.star) || a.name.localeCompare(b.name))
 
+  const canAdd = !!loanId && (loanId !== NO_FILE || !!note.trim())
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!loanId || !organizationId) return
+    if (!canAdd || !organizationId) return
     add.mutate(
-      { loanId, organizationId, action, title: itemTitle(action, note), dueOn: dueOn || null },
+      { loanId: loanId === NO_FILE ? null : loanId, organizationId, action, title: itemTitle(action, note), dueOn: dueOn || null },
       {
         onSuccess: () => {
           setLoanId('')
@@ -70,6 +75,7 @@ function AddItem() {
     <form onSubmit={submit} className="flex flex-wrap gap-2">
       <select aria-label="File" value={loanId} onChange={(e) => setLoanId(e.target.value)} className={cn(control, 'min-w-40 flex-1', !loanId && 'text-muted-foreground')}>
         <option value="">Pick a file…</option>
+        <option value={NO_FILE}>No file (office / personal)</option>
         {files.map((f) => (
           <option key={f.id} value={f.id}>
             {f.star ? '★ ' : ''}
@@ -85,8 +91,8 @@ function AddItem() {
         ))}
       </select>
       <BaseInput type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} aria-label="Due date (optional)" className="h-8 w-34 shrink-0 tabular-nums" />
-      <BaseInput value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" aria-label="Note" className="h-8 min-w-40 flex-[2]" />
-      <Button type="submit" size="sm" disabled={!loanId || !organizationId || add.isPending}>
+      <BaseInput value={note} onChange={(e) => setNote(e.target.value)} placeholder={loanId === NO_FILE ? 'What needs doing? *' : 'Note (optional)'} aria-label="Note" className="h-8 min-w-40 flex-[2]" />
+      <Button type="submit" size="sm" disabled={!canAdd || !organizationId || add.isPending}>
         <PlusIcon />
         Add
       </Button>
@@ -94,11 +100,25 @@ function AddItem() {
   )
 }
 
+/** A file's item opens the file; a no-file to-do has nowhere to go. */
+function ItemBody({ link, children }: { link: string | null; children: React.ReactNode }) {
+  const className = 'flex min-w-0 flex-1 items-center gap-2.5'
+  return link ? (
+    <Link to={link} className={cn(className, 'hover:underline')}>
+      {children}
+    </Link>
+  ) : (
+    <div className={className}>{children}</div>
+  )
+}
+
 function ItemRow({ item, today, showing, snoozed }: { item: Item; today: string; showing: Item[]; snoozed?: boolean }) {
   const update = useUpdatePriorityItems()
   const toggle = useToggleTask(item.loanId)
   const [pickDate, setPickDate] = useState(false)
-  const note = itemNote(item)
+  const { heading, showNote } = itemHeading(item)
+  const note = showNote ? itemNote(item) : null
+  const link = itemLink(item.loanId, item.action, item.stage)
   const due = item.dueOn ? dueLabel(item.dueOn, today) : null
   const onError = (e: Error) => toast.error(e.message)
   const snooze = (until: string | null) => update.mutate([{ id: item.id, snoozedUntil: until }], { onSuccess: () => toast.success(until ? `Snoozed until ${formatIsoDate(until)}` : 'Back on the list'), onError })
@@ -114,7 +134,7 @@ function ItemRow({ item, today, showing, snoozed }: { item: Item; today: string;
       <Button
         variant="ghost"
         size="icon-xs"
-        aria-label={item.starred ? `Unstar ${item.borrowerName}` : `Star ${item.borrowerName}`}
+        aria-label={item.starred ? `Unstar ${heading}` : `Star ${heading}`}
         aria-pressed={item.starred}
         disabled={update.isPending || snoozed}
         onClick={() => update.mutate([{ id: item.id, starred: !item.starred, sortOrder: null }], { onError })}
@@ -122,10 +142,10 @@ function ItemRow({ item, today, showing, snoozed }: { item: Item; today: string;
       >
         <StarIcon className={cn(item.starred && 'fill-current')} />
       </Button>
-      <Link to={itemLink(item.loanId, item.action, item.stage)} className="flex min-w-0 flex-1 items-center gap-2.5 hover:underline">
+      <ItemBody link={link}>
         <ActionChip action={item.action} />
         <span className="min-w-0">
-          <span className="block truncate text-sm font-medium">{item.borrowerName}</span>
+          <span className="block truncate text-sm font-medium">{heading}</span>
           {(note || due || snoozed) && (
             <span className="block truncate text-xs text-muted-foreground">
               {snoozed && item.snoozedUntil && <span>Back {formatIsoDate(item.snoozedUntil)}</span>}
@@ -136,7 +156,7 @@ function ItemRow({ item, today, showing, snoozed }: { item: Item; today: string;
             </span>
           )}
         </span>
-      </Link>
+      </ItemBody>
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
         {snoozed ? (
           <Button size="xs" variant="outline" disabled={update.isPending} onClick={() => snooze(null)}>
@@ -144,10 +164,10 @@ function ItemRow({ item, today, showing, snoozed }: { item: Item; today: string;
           </Button>
         ) : (
           <>
-            <Button variant="ghost" size="icon-xs" aria-label={`Move ${item.borrowerName} up`} disabled={update.isPending || index <= 0} onClick={() => move('up')}>
+            <Button variant="ghost" size="icon-xs" aria-label={`Move ${heading} up`} disabled={update.isPending || index <= 0} onClick={() => move('up')}>
               <ArrowUpIcon />
             </Button>
-            <Button variant="ghost" size="icon-xs" aria-label={`Move ${item.borrowerName} down`} disabled={update.isPending || index >= group.length - 1} onClick={() => move('down')}>
+            <Button variant="ghost" size="icon-xs" aria-label={`Move ${heading} down`} disabled={update.isPending || index >= group.length - 1} onClick={() => move('down')}>
               <ArrowDownIcon />
             </Button>
             {pickDate ? (
@@ -168,7 +188,7 @@ function ItemRow({ item, today, showing, snoozed }: { item: Item; today: string;
             ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon-xs" aria-label={`Snooze ${item.borrowerName}`} disabled={update.isPending}>
+                  <Button variant="ghost" size="icon-xs" aria-label={`Snooze ${heading}`} disabled={update.isPending}>
                     <AlarmClockIcon />
                   </Button>
                 </DropdownMenuTrigger>
@@ -185,7 +205,7 @@ function ItemRow({ item, today, showing, snoozed }: { item: Item; today: string;
           size="xs"
           variant="outline"
           disabled={toggle.isPending}
-          onClick={() => toggle.mutate({ id: item.id, done: true }, { onSuccess: () => toast.success(`${actionLabel(item.action)} · ${item.borrowerName}: done`), onError })}
+          onClick={() => toggle.mutate({ id: item.id, done: true }, { onSuccess: () => toast.success(`${actionLabel(item.action)} · ${heading}: done`), onError })}
         >
           <CheckIcon />
           Done

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { itemLink, itemNote, itemTitle, moveItem, priorityList, snoozeDate, sortPriority, type PriorityItem } from './priorityList'
+import { itemHeading, itemLink, itemNote, itemTitle, moveItem, priorityList, snoozeDate, sortPriority, type PriorityItem } from './priorityList'
 
 const today = '2026-11-03'
 
@@ -61,6 +61,10 @@ describe('titles and notes', () => {
     expect(itemTitle('lock', '  ')).toBe('Lock')
     expect(itemTitle('documents', ' Pay stubs ')).toBe('Pay stubs')
   })
+  it('shows the note in bold for a no-file to-do, the borrower otherwise', () => {
+    expect(itemHeading({ loanId: null, title: 'Office photos for the credit agency', borrowerName: null })).toEqual({ heading: 'Office photos for the credit agency', showNote: false })
+    expect(itemHeading({ loanId: 'L', title: 'Pay stubs', borrowerName: 'Marcus TEST' })).toEqual({ heading: 'Marcus TEST', showNote: true })
+  })
   it('shows a note only when the title says more than the action', () => {
     expect(itemNote({ action: 'lock', title: 'Lock' })).toBeNull()
     expect(itemNote({ action: 'lock', title: 'Lock before Friday' })).toBe('Lock before Friday')
@@ -88,5 +92,8 @@ describe('where a click goes', () => {
   it('opens Messages for a call and Overview for anything else', () => {
     expect(itemLink('L', 'call', 'lead')).toBe('/loans/L?tab=messages')
     expect(itemLink('L', 'other', 'lead')).toBe('/loans/L?tab=overview')
+  })
+  it('goes nowhere for a no-file to-do', () => {
+    expect(itemLink(null, 'call', null)).toBeNull()
   })
 })

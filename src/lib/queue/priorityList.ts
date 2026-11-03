@@ -20,7 +20,8 @@ export const isPriorityAction = (v: unknown): v is PriorityAction => PRIORITY_AC
 
 export interface PriorityItem {
   id: string
-  loanId: string
+  /** Null for an office or personal to-do with no file. */
+  loanId: string | null
   action: PriorityAction
   title: string
   dueOn: string | null
@@ -38,6 +39,11 @@ export function itemTitle(action: PriorityAction, note: string): string {
 /** The note to show under the action, or null when the title is just the action's name. */
 export function itemNote(item: Pick<PriorityItem, 'action' | 'title'>): string | null {
   return item.title.trim() === actionLabel(item.action) ? null : item.title
+}
+
+/** The line in bold: the borrower, or for a no-file to-do the note itself. */
+export function itemHeading(item: Pick<PriorityItem, 'loanId' | 'title'> & { borrowerName: string | null }): { heading: string; showNote: boolean } {
+  return item.loanId ? { heading: item.borrowerName ?? 'No borrower', showNote: true } : { heading: item.title, showNote: false }
 }
 
 /** Snoozed until a day after today = hidden today. */
@@ -92,8 +98,9 @@ export function snoozeDate(today: string, length: keyof typeof SNOOZE_DAYS): str
 /** From Submitted / Processing on, documents are asked for as loan conditions. */
 const CONDITION_STAGES: PipelineStage[] = ['processing', 'clear_to_close']
 
-/** Where clicking an item goes: the file, opened on the tab that action needs. */
-export function itemLink(loanId: string, action: PriorityAction, stage: PipelineStage | null): string {
+/** Where clicking an item goes: the file, opened on the tab that action needs (nowhere for a no-file to-do). */
+export function itemLink(loanId: string | null, action: PriorityAction, stage: PipelineStage | null): string | null {
+  if (!loanId) return null
   const tab =
     action === 'lock' || action === 'price'
       ? 'estimates'

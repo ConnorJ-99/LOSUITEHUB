@@ -193,7 +193,7 @@ export function TodayPage() {
   const entries = buildToday(
     data.data?.actions ?? [],
     // Priority items have their own card, so they aren't listed twice.
-    (tasks.data ?? []).filter((t) => !t.action).map((t) => ({ id: t.id, loanId: t.loanId, borrowerName: t.borrowerName, title: t.title, dueOn: t.dueOn })),
+    (tasks.data ?? []).flatMap((t) => (!t.action && t.loanId ? [{ id: t.id, loanId: t.loanId, borrowerName: t.borrowerName ?? 'No borrower', title: t.title, dueOn: t.dueOn }] : [])),
     data.data?.loans ?? [],
     today,
   )
