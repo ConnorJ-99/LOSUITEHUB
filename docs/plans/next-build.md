@@ -21,7 +21,7 @@
 - Session 2 (built 2026-11-02, `20261214000000_ghl_scheduler_opportunities.sql`): pg_cron scheduler + ghl-messaging Phase 2c (scheduled catch-up); GHL contact create + assign to the LO; GHL opportunities (decisions 2–3; scopes `opportunities.readonly` and `opportunities.write`); email with PDF attachment (Step B).
 - Session 3 (built 2026-11-02, `20261215000000_prequal_results.sql`): prequal results (decision 7).
 - Launch: migrate old data + switch the website forms to lead-intake on the same day. Before then, compare the live mps.mortgage form payload with lead-intake/normalize.ts and list any mismatches. Prepared 2026-11-02 (`20261216000000_launch_intake.sql`): form check, fixes, migration builder and cutover-day steps in `docs/plans/launch.md`. Cutover is a URL and secret swap in the website's `_shared/loanSweet.ts`. Waiting on Connor: the export files.
-- Session 4: drafting engine: key-date drafts + automate switch (decision 6), condition reminder drafts (decision 8).
+- Session 4 (built 2026-11-03, `20261221000000_reminder_drafts.sql`): drafting engine: key-date drafts + automate switch (decision 6), condition reminder drafts (decision 8). Connor chose drafts only: the switch drafts reminders for his approval, it never sends on its own (true auto-send waits for compliance on sending hours).
 - Session 5: weekly email (decision 5).
 
 ## Still open (Connor)

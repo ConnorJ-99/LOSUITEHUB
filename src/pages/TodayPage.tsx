@@ -8,6 +8,7 @@ import { useNewLead } from '@/components/leads/new-lead-context'
 import { ActionEntry } from '@/components/queue/ActionEntry'
 import { usePipeline } from '@/lib/api/loans'
 import { useTodayData, type FileInfo } from '@/lib/api/queue'
+import { useReminderDrafts } from '@/lib/api/drafts'
 import { useMyOpenTasks, useToggleTask } from '@/lib/api/tasks'
 import type { PipelineLoan } from '@/lib/api/types'
 import { useAuth } from '@/lib/auth/context'
@@ -175,6 +176,7 @@ export function TodayPage() {
   const { openNewLead } = useNewLead()
   const data = useTodayData()
   const tasks = useMyOpenTasks()
+  useReminderDrafts(state.status === 'signedIn')
   const name = state.status === 'signedIn' || state.status === 'preview' ? state.user.fullName.split(' ')[0] : ''
 
   if (state.status === 'preview') {

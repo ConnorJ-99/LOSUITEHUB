@@ -19,6 +19,8 @@ export interface ClosedPerson {
   birthday: string | null
   smsConsent: boolean | null
   emailConsent: boolean | null
+  /** The "Automate reminders" switch: key-date reminders are drafted on their own. */
+  automateReminders: boolean
 }
 
 export interface ClosedHome {
@@ -65,6 +67,7 @@ interface PersonRow {
   date_of_birth: string | null
   sms_consent: boolean | null
   email_consent: boolean | null
+  automate_reminders: boolean
 }
 
 interface ClosedRow {
@@ -102,7 +105,7 @@ const CLOSED_SELECT = `
   monthly_payment, lender_name, program_name,
   program:programs!loans_program_id_fkey ( name, lender:lenders ( name ) ),
   lo:profiles!loans_assigned_lo_id_fkey ( id, full_name, email ),
-  borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, email, phone, date_of_birth, sms_consent, email_consent ) ),
+  borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, email, phone, date_of_birth, sms_consent, email_consent, automate_reminders ) ),
   home:properties!loans_subject_property_id_fkey ( id, address_line, city, state, zip, estimated_value, insurance_carrier, insurance_renewal_date, homestead_filed )
 `
 
@@ -115,6 +118,7 @@ const toPerson = (r: PersonRow): ClosedPerson => ({
   birthday: r.date_of_birth,
   smsConsent: r.sms_consent,
   emailConsent: r.email_consent,
+  automateReminders: r.automate_reminders === true,
 })
 
 function toClosed(r: ClosedRow): ClosedLoan {

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CurrencyInput, DateInput, FormGrid, Input, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { MORTGAGE_TYPE_OPTIONS, OCCUPANCY_OPTIONS } from '@/components/profile/options'
 import { useAddFollowUp, useClosedLoan, useSaveClosedFacts, type ClosedLoan } from '@/lib/api/closed'
+import { useSetAutomateReminders } from '@/lib/api/drafts'
 import { useGhlOpportunity } from '@/components/messaging/useGhlOpportunity'
 import { CopyToLeadDialog } from './CopyToLeadDialog'
 import { MortgageCard } from './MortgageCard'
@@ -39,6 +40,7 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
   const save = useSaveClosedFacts(loan.id)
   const tasks = useLoanTasks(loan.id)
   const addFollowUp = useAddFollowUp(loan.id, loan.organizationId)
+  const automate = useSetAutomateReminders()
   const [copying, setCopying] = useState(false)
   const ghl = useGhlOpportunity()
   const [form, setForm] = useState({
@@ -145,7 +147,29 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
         )}
 
         <div>
-          <p className="eyebrow mb-2">Key dates · next 12 months</p>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="eyebrow">Key dates · next 12 months</p>
+            {c.borrower && (
+              <ToggleChip
+                label="Automate reminders"
+                pressed={c.borrower.automateReminders}
+                disabled={automate.isPending}
+                onChange={(on) =>
+                  automate.mutate(
+                    { contactId: c.borrower!.id, on },
+                    { onSuccess: () => toast.success(on ? 'Reminders will be drafted on Today' : 'Automatic reminders off'), onError: (e) => toast.error(e.message) },
+                  )
+                }
+              />
+            )}
+          </div>
+          {c.borrower?.automateReminders && (
+            <p className="mb-2 text-xs text-muted-foreground">
+              {c.borrower.smsConsent || c.borrower.emailConsent
+                ? 'Birthday, anniversary, holiday, insurance, first payment and homestead reminders are drafted on Today on the day, at most 2 a week. Nothing sends until you approve it.'
+                : 'Turn on "OK to text" or "OK to email" first. Reminders are only drafted on a channel the client agreed to.'}
+            </p>
+          )}
           {dates.length === 0 ? (
             <p className="text-sm text-muted-foreground">Add the closing date, birthday or insurance renewal to see follow-up dates.</p>
           ) : (

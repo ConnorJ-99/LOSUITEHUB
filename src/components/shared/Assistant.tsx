@@ -99,10 +99,12 @@ export interface QueueItemProps {
   /** Why Approve isn't available yet, shown instead of the button. */
   approveDisabledReason?: string
   busy?: boolean
+  /** Another button, shown just before Approve (e.g. "Copy instead"). */
+  extra?: React.ReactNode
 }
 
 /** One Action Queue item: what the assistant prepared, where it came from, and the decision buttons. */
-export function QueueItem({ title, context, confidence, sources = [], children, approveLabel = 'Approve', onApprove, onEdit, onDismiss, approveDisabledReason, busy }: QueueItemProps) {
+export function QueueItem({ title, context, confidence, sources = [], children, approveLabel = 'Approve', onApprove, onEdit, onDismiss, approveDisabledReason, busy, extra }: QueueItemProps) {
   return (
     <div className={cn('space-y-2 rounded-lg border bg-card p-3', confidence === 'low' && 'border-amber-300')}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -125,6 +127,7 @@ export function QueueItem({ title, context, confidence, sources = [], children, 
             Edit
           </Button>
         )}
+        {extra}
         {approveDisabledReason ? (
           <span className="text-xs text-muted-foreground">{approveDisabledReason}</span>
         ) : (

@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
-import { MailIcon, MessageSquareIcon } from 'lucide-react'
+import { CopyIcon, MailIcon, MessageSquareIcon } from 'lucide-react'
 import { toast } from 'sonner'
-import { DateInput, FormGrid, Input, QueueItem, TextArea } from '@/components/shared'
+import { Button } from '@/components/ui/button'
+import { confirmAction, DateInput, FormGrid, Input, QueueItem, TextArea } from '@/components/shared'
 import { EditDialog } from '@/components/urla/parts'
+import { useGhlStatus } from '@/lib/api/ghl'
+import { useSendMessage } from '@/lib/api/messages'
 import { useDecideAction, type FileInfo } from '@/lib/api/queue'
+import { draftContactId } from '@/lib/queue/drafts'
 import { formatIsoDate } from '@/lib/dates'
 import { approvalNote, decisionFor, readDraft, readReviewLink, readTask, type ActionItem, type DraftMessage, type TaskSuggestion } from '@/lib/queue/today'
 
@@ -32,6 +36,10 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
   const [editing, setEditing] = useState(false)
   const [editDraft, setEditDraft] = useState<DraftMessage | null>(draft)
   const [editTask, setEditTask] = useState<TaskSuggestion | null>(task)
+  const ghl = useGhlStatus()
+  const send = useSendMessage()
+  // One key per draft: a double click or retry reuses it, so it can't go twice.
+  const [sendKey, setSendKey] = useState(() => `queue:${item.id}`)
 
   const approveDraft = async (final: DraftMessage) => {
     const text = final.channel === 'email' && final.subject ? `Subject: ${final.subject}\n\n${final.body}` : final.body
@@ -44,6 +52,33 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
           setEditing(false)
         },
         onError: (e) => toast.error(e.message),
+      },
+    )
+  }
+  // Drafts that know who they're for can go out through GHL, with every server check (consent, hours, test mode, the LO's number).
+  const sendTo = draft ? draftContactId(item.payload) : null
+  const canSend = !!sendTo && ghl.data?.ready === true
+  const sendDraft = async (final: DraftMessage) => {
+    if (!sendTo) return
+    if (final.channel === 'email' && !final.subject?.trim()) return toast.error('An email needs a subject. Edit it first.')
+    const what = final.channel === 'text' ? 'this text' : 'this email'
+    if (!(await confirmAction(`Send ${what} to ${final.to || file.borrowerName}? It goes out through GHL.`, { confirmLabel: final.channel === 'text' ? 'Send text' : 'Send email' }))) return
+    send.mutate(
+      { contactId: sendTo, loanId: file.loanId, channel: final.channel, body: final.body, subject: final.channel === 'email' ? final.subject : null, idempotencyKey: sendKey },
+      {
+        onSuccess: (r) => {
+          if (r.alreadySent && r.error) return toast.error(`That message already failed: ${r.error}`)
+          decide.mutate(
+            { item, file, status: decisionFor(draft, final), payload: final },
+            { onSuccess: () => setEditing(false), onError: (e) => toast.error(e.message) },
+          )
+          toast.success(r.alreadySent ? 'That message was already sent.' : `${final.channel === 'text' ? 'Text' : 'Email'} sent`)
+        },
+        // GHL refused it, so another try needs a new key; a blocked send (consent, hours) keeps the draft waiting.
+        onError: (e) => {
+          toast.error(e.message)
+          if (/GHL didn't send it/.test(e.message)) setSendKey(crypto.randomUUID())
+        },
       },
     )
   }
@@ -67,7 +102,21 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
     const Icon = draft.channel === 'text' ? MessageSquareIcon : MailIcon
     return (
       <>
-        <QueueItem {...common} approveLabel="Approve and copy" onApprove={() => approveDraft(draft)} onEdit={() => setEditing(true)}>
+        <QueueItem
+          {...common}
+          busy={common.busy || send.isPending}
+          approveLabel={canSend ? (draft.channel === 'text' ? 'Send text' : 'Send email') : 'Approve and copy'}
+          onApprove={() => (canSend ? sendDraft(draft) : approveDraft(draft))}
+          onEdit={() => setEditing(true)}
+          extra={
+            canSend && (
+              <Button size="sm" variant="outline" onClick={() => approveDraft(draft)} disabled={common.busy || send.isPending} title="Copy it to send from your phone or email instead">
+                <CopyIcon />
+                Copy instead
+              </Button>
+            )
+          }
+        >
           <div className="space-y-1 rounded-md bg-muted/50 p-2.5 text-sm">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Icon className="size-3.5" />
@@ -79,7 +128,14 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
           </div>
         </QueueItem>
         {editing && editDraft && (
-          <EditDialog title="Edit the draft" open onOpenChange={setEditing} onSubmit={() => approveDraft(editDraft)} saving={decide.isPending} submitLabel="Approve and copy">
+          <EditDialog
+            title="Edit the draft"
+            open
+            onOpenChange={setEditing}
+            onSubmit={() => (canSend ? sendDraft(editDraft) : approveDraft(editDraft))}
+            saving={decide.isPending || send.isPending}
+            submitLabel={canSend ? (editDraft.channel === 'text' ? 'Send text' : 'Send email') : 'Approve and copy'}
+          >
             <FormGrid>
               <Input label="To" value={editDraft.to} onChange={(to) => setEditDraft({ ...editDraft, to })} span={6} />
               {editDraft.channel === 'email' && <Input label="Subject" value={editDraft.subject ?? ''} onChange={(subject) => setEditDraft({ ...editDraft, subject })} span={6} />}
