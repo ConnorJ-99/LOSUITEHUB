@@ -1,3 +1,4 @@
+import { FHA, USDA, vaFundingFeePct, type VaFeeInput } from './govFees'
 import { round } from './round'
 
 export type MortgageTypeKind = 'conventional' | 'fha' | 'va' | 'usda_rural' | 'other'
@@ -15,18 +16,17 @@ export interface MiRates {
  * USDA follow their published schedules for most borrowers. A blank loan
  * type is treated as conventional.
  */
-export function defaultMiRates(type: MortgageTypeKind | null, ltvPct: number | null): MiRates {
+export function defaultMiRates(type: MortgageTypeKind | null, ltvPct: number | null, va: Pick<VaFeeInput, 'kind' | 'subsequentUse'> = { kind: 'purchase' }): MiRates {
   const ltv = ltvPct ?? 0
   switch (type) {
     case 'fha':
-      return { annualRatePct: ltv > 95 ? 0.55 : 0.5, upfrontFeePct: 1.75 }
+      return { annualRatePct: ltv > 95 ? FHA.annualPctOver95 : FHA.annualPctAtOrUnder95, upfrontFeePct: FHA.upfrontPct }
     case 'va': {
-      // First-use funding fee, by down payment. Veterans with a service-connected disability are exempt (set the fee to 0).
-      const down = 100 - (ltvPct ?? 100)
-      return { annualRatePct: 0, upfrontFeePct: down >= 10 ? 1.25 : down >= 5 ? 1.5 : 2.15 }
+      // Funding fee by down payment (first use unless told otherwise). Veterans with a service-connected disability are exempt (set the fee to 0).
+      return { annualRatePct: 0, upfrontFeePct: vaFundingFeePct({ ...va, downPct: 100 - (ltvPct ?? 100) }) }
     }
     case 'usda_rural':
-      return { annualRatePct: 0.35, upfrontFeePct: 1 }
+      return { annualRatePct: USDA.annualPct, upfrontFeePct: USDA.upfrontPct }
     case 'other':
       return { annualRatePct: 0, upfrontFeePct: 0 }
     default:

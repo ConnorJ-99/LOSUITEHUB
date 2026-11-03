@@ -5,8 +5,9 @@ import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Card, CurrencyInput, FormGrid, Input, PercentInput, Select, ToggleChip, ToggleChipGroup, confirmAction } from '@/components/shared'
-import { MORTGAGE_TYPE_OPTIONS } from '@/components/profile/options'
-import type { AmountType, FeeTemplate, PaidBy } from '@/lib/calc'
+import { MORTGAGE_TYPE_OPTIONS, OCCUPANCY_OPTIONS } from '@/components/profile/options'
+import { FEE_FORMULA_LABEL, type AmountType, type FeeFormula, type FeeTemplate, type FeeTiers, type PaidBy } from '@/lib/calc'
+import { useLenders } from '@/lib/api/lenders'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { PURPOSES, purposeLabel, type LoanPurpose } from '@/lib/pipeline/stages'
 import { AMOUNT_TYPE_LABEL, FEE_SECTION_LABEL, PAID_BY_LABEL, useDeleteFeeTemplate, useFeeTemplates, useSaveFeeTemplate, type FeeTemplateDraft, type SavedFeeTemplate } from '@/lib/api/pricing'
@@ -17,13 +18,31 @@ const AMOUNT_TYPE_OPTIONS = (Object.keys(AMOUNT_TYPE_LABEL) as AmountType[]).map
 const PAID_BY_OPTIONS = (Object.keys(PAID_BY_LABEL) as PaidBy[]).map((p) => ({ value: p, label: PAID_BY_LABEL[p] }))
 const typeLabel = (t: string) => MORTGAGE_TYPE_OPTIONS.find((o) => o.value === t)?.label ?? t
 
-const amountText = (f: FeeTemplate) => (f.amountType === 'fixed' ? formatCurrency(f.amount) : `${formatPercent(f.amount)} of ${f.amountType === 'pct_loan' ? 'loan' : 'price or value'}`)
+const FORMULA_OPTIONS = (['title_owner_tx', 'title_lender_tx'] as FeeFormula[]).map((v) => ({ value: v, label: FEE_FORMULA_LABEL[v] }))
 
-/** "Every loan", or the purposes and loan types it's limited to. */
+function amountText(f: FeeTemplate) {
+  if (f.amountType === 'fixed') return formatCurrency(f.amount)
+  if (f.amountType === 'tiered') return `Tiered by ${f.tiers?.basis === 'value' ? 'price' : 'loan'} (${f.tiers?.brackets.length ?? 0} brackets)`
+  if (f.amountType === 'formula') return f.formula === 'title_owner_tx' ? "TDI owner's rate" : f.formula === 'title_lender_tx' ? "TDI lender's rate" : 'Calculated'
+  return `${formatPercent(f.amount)} of ${f.amountType === 'pct_loan' ? 'loan' : 'price or value'}`
+}
+
+/** "Every loan", or what it's limited to (Smart Fees "Applies when"). */
 function appliesText(f: FeeTemplate) {
-  const parts = [f.purposes?.length ? f.purposes.map((p) => purposeLabel(p as LoanPurpose)).join(', ') : null, f.mortgageTypes?.length ? f.mortgageTypes.map(typeLabel).join(', ') : null].filter(Boolean)
+  const range = f.minLoanAmount != null || f.maxLoanAmount != null ? `loans ${f.minLoanAmount != null ? formatCurrency(f.minLoanAmount) : '$0'} to ${f.maxLoanAmount != null ? formatCurrency(f.maxLoanAmount) : 'any'}` : null
+  const parts = [
+    f.lenderName ? `Lender: ${f.lenderName}` : f.lenderId ? 'One lender' : null,
+    f.counties?.length ? `${f.counties.join(', ')} County` : null,
+    f.states?.length ? f.states.join(', ') : null,
+    f.purposes?.length ? f.purposes.map((p) => purposeLabel(p as LoanPurpose)).join(', ') : null,
+    f.mortgageTypes?.length ? f.mortgageTypes.map(typeLabel).join(', ') : null,
+    f.occupancies?.length ? f.occupancies.map((o) => OCCUPANCY_OPTIONS.find((x) => x.value === o)?.label ?? o).join(', ') : null,
+    range,
+  ].filter(Boolean)
   return parts.length ? parts.join(' · ') : 'Every loan'
 }
+
+const splitList = (text: string) => text.split(',').map((x) => x.trim()).filter(Boolean)
 
 /** Toggle one value in an optional list (null = all). */
 const toggle = (list: string[] | null, value: string, on: boolean) => {
@@ -35,13 +54,16 @@ function FeeDialog({ initial, onClose }: { initial: FeeTemplateDraft; onClose: (
   const [f, setF] = useState(initial)
   const save = useSaveFeeTemplate()
   const set = <K extends keyof FeeTemplateDraft>(key: K) => (value: FeeTemplateDraft[K]) => setF((s) => ({ ...s, [key]: value }))
+  const lenders = useLenders()
+  const tiers: FeeTiers = f.tiers ?? { basis: 'loan', brackets: [{ upTo: 250_000, amount: 0 }, { upTo: null, amount: 0 }] }
+  const setTiers = (t: FeeTiers) => set('tiers')(t)
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{f.id ? 'Edit fee' : 'New fee'}</DialogTitle>
-          <DialogDescription>Added to every Pricing scenario it applies to. It can still be changed on one file.</DialogDescription>
+          <DialogDescription>Smart Fees adds it to every estimate it applies to. It can still be changed on one estimate.</DialogDescription>
         </DialogHeader>
         <FormGrid className="lg:grid-cols-4">
           <Input label="Fee name" value={f.name} onChange={set('name')} required span={4} />
@@ -50,12 +72,50 @@ function FeeDialog({ initial, onClose }: { initial: FeeTemplateDraft; onClose: (
           <Select label="Amount is" value={f.amountType} options={AMOUNT_TYPE_OPTIONS} onChange={set('amountType')} span={2} />
           {f.amountType === 'fixed' ? (
             <CurrencyInput label="Amount" value={f.amount} onChange={(v) => set('amount')(v ?? 0)} span={2} />
+          ) : f.amountType === 'formula' ? (
+            <Select label="Calculator" value={f.formula ?? null} options={FORMULA_OPTIONS} onChange={(v) => set('formula')(v)} span={2} />
+          ) : f.amountType === 'tiered' ? (
+            <Select label="Brackets by" value={tiers.basis} options={[{ value: 'loan', label: 'Loan amount' }, { value: 'value', label: 'Price or value' }]} onChange={(basis) => setTiers({ ...tiers, basis })} span={2} />
           ) : (
             <PercentInput label="Percent" value={f.amount} onChange={(v) => set('amount')(v ?? 0)} span={2} />
+          )}
+          {f.amountType === 'tiered' && (
+            <div className="space-y-1.5 lg:col-span-4">
+              {tiers.brackets.map((b, i) => (
+                <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+                  <CurrencyInput label={i === 0 ? 'Up to' : 'Then up to'} value={b.upTo} onChange={(upTo) => setTiers({ ...tiers, brackets: tiers.brackets.map((x, j) => (j === i ? { ...x, upTo } : x)) })} placeholder="No limit" />
+                  <CurrencyInput label="Fee" value={b.amount} onChange={(amount) => setTiers({ ...tiers, brackets: tiers.brackets.map((x, j) => (j === i ? { ...x, amount: amount ?? 0 } : x)) })} />
+                  <Button size="sm" variant="ghost" disabled={tiers.brackets.length < 2} onClick={() => setTiers({ ...tiers, brackets: tiers.brackets.filter((_, j) => j !== i) })}>
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              <Button size="sm" variant="link" onClick={() => setTiers({ ...tiers, brackets: [...tiers.brackets, { upTo: null, amount: 0 }] })}>
+                <PlusIcon />
+                Add a bracket
+              </Button>
+            </div>
           )}
           <Input label="Paid to" value={f.paidTo ?? ''} onChange={(v) => set('paidTo')(v || null)} hint="Optional, e.g. the title company" span={4} />
         </FormGrid>
         <div className="space-y-3">
+          <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Applies when (blank = always)</p>
+          <FormGrid className="lg:grid-cols-4">
+            <Select label="Lender" value={f.lenderId ?? null} options={(lenders.data ?? []).map((l) => ({ value: l.id, label: l.name }))} onChange={(v) => set('lenderId')(v)} onClear={() => set('lenderId')(null)} placeholder="Any lender" span={2} />
+            <Input label="States" value={(f.states ?? []).join(', ')} onChange={(v) => set('states')(splitList(v).length ? splitList(v) : null)} placeholder="TX" hint="Comma between" />
+            <Input label="Counties" value={(f.counties ?? []).join(', ')} onChange={(v) => set('counties')(splitList(v).length ? splitList(v) : null)} placeholder="Dallas, Collin" />
+            <CurrencyInput label="Loan amount from" value={f.minLoanAmount ?? null} onChange={(v) => set('minLoanAmount')(v)} span={2} />
+            <CurrencyInput label="Loan amount up to" value={f.maxLoanAmount ?? null} onChange={(v) => set('maxLoanAmount')(v)} span={2} />
+          </FormGrid>
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">Occupancy (none picked = any)</p>
+            <ToggleChipGroup>
+              {OCCUPANCY_OPTIONS.map((o) => (
+                <ToggleChip key={o.value} label={o.label} pressed={!!f.occupancies?.includes(o.value)} onChange={(on) => setF((s) => ({ ...s, occupancies: toggle(s.occupancies ?? null, o.value, on) }))} />
+              ))}
+            </ToggleChipGroup>
+          </div>
+          <p className="text-xs text-muted-foreground">When a fee has several rules, the most specific one wins: lender + county, then lender, then county, then state, then the plain one.</p>
           <div>
             <p className="mb-1.5 text-xs font-medium text-muted-foreground">Loan purposes (none picked = every purpose)</p>
             <ToggleChipGroup>
@@ -117,7 +177,7 @@ export function FeeListCard({ canEdit }: { canEdit: boolean }) {
       description={
         fees.isError
           ? 'Run the fees script in Supabase to set up the fee list.'
-          : `Standard fees for the Pricing tab, sections A to H. Points, prepaids (F) and escrows (G) are worked out on each file.${canEdit ? '' : ' Only owners and admins can change the list.'}`
+          : `Smart Fees for every estimate, sections A to H. A fee can have rules by lender, county, state, loan amount and occupancy. Points, the financed FHA/VA/USDA fee, prepaids (F) and escrows (G) are worked out on each estimate.${canEdit ? '' : ' Only owners and admins can change the list.'}`
       }
       action={
         canEdit &&
@@ -157,6 +217,9 @@ export function FeeListCard({ canEdit }: { canEdit: boolean }) {
                         <div className="flex gap-1">
                           <Button size="sm" variant="ghost" onClick={() => edit(f)}>
                             Edit
+                          </Button>
+                          <Button size="sm" variant="ghost" title="Another amount for this fee, e.g. for one lender or county" onClick={() => setEditing({ ...f, id: null, key: f.key })}>
+                            + Rule
                           </Button>
                           <Button
                             size="sm"

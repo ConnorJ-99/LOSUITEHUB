@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { useGhlOpportunity } from '@/components/messaging/useGhlOpportunity'
 import { useCopyToNewLead, type ClosedLoan } from '@/lib/api/closed'
+import { copyEstimatesTo } from '@/lib/api/estimates'
 import { useAuth } from '@/lib/auth/context'
 import { mortgageToday } from '@/lib/calc'
 import { todayIso } from '@/lib/dates'
@@ -38,8 +39,10 @@ export function CopyToLeadDialog({ closed: c, organizationId, onClose }: { close
     copy.mutate(
       { closed: c, organizationId, purpose, withCoBorrowers, withHome: withHome && !!c.home, currentLien: { balance, monthlyPayment: payment } },
       {
-        onSuccess: (id) => {
-          toast.success(`New lead for ${name}, linked to this closed loan${forOther ? ` and assigned to ${c.lo!.name}` : ''}`)
+        onSuccess: async (id) => {
+          // Its saved estimates come along as Drafts ("From previous loan"), for reference.
+          const copied = await copyEstimatesTo(c.id, id, organizationId).catch((e: Error) => (toast.error(`The estimates didn't copy: ${e.message}`), 0))
+          toast.success(`New lead for ${name}, linked to this closed loan${forOther ? ` and assigned to ${c.lo!.name}` : ''}${copied ? `, with ${copied} saved estimate${copied > 1 ? 's' : ''}` : ''}`)
           // The same GHL opportunity goes back to the active pipeline (never a second one).
           void ghl.move(id, 'comeback', name)
           onClose()

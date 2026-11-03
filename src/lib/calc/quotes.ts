@@ -2,6 +2,7 @@
 // to close, cost over a horizon, sorting with tie-breaks, and break-even
 // between two options. Rates are percents (7.5).
 
+import { cashToClose as cashToCloseFor } from './cashToClose'
 import { monthlyPrincipalAndInterest } from './payment'
 import { round } from './round'
 
@@ -50,11 +51,17 @@ export const DEFAULT_HORIZON_YEARS = 5
 
 export function quoteFigures(q: QuoteInput, deal: QuoteDeal, horizonYears = DEFAULT_HORIZON_YEARS): QuoteFigures {
   const pi = monthlyPrincipalAndInterest(deal.loanAmount, q.rate, deal.termMonths)
-  const baseLoan = deal.loanAmount - deal.financedFee
-  const downPayment = deal.purchasePrice != null ? round(deal.purchasePrice - baseLoan) : 0
   // Purchase: down payment + costs − credits. Refinance: payoffs + costs − credits − the new loan (before the financed fee).
-  const base = deal.purchasePrice != null ? downPayment : deal.payoffs - baseLoan
-  const cashToClose = round(base + q.closingCosts - q.lenderCredit - deal.sellerCredits - deal.earnestMoney)
+  const { downPayment, cashToClose } = cashToCloseFor({
+    isPurchase: deal.purchasePrice != null,
+    purchasePrice: deal.purchasePrice,
+    baseLoanAmount: deal.loanAmount - deal.financedFee,
+    closingCosts: q.closingCosts,
+    lenderCredit: q.lenderCredit,
+    earnestMoney: deal.earnestMoney,
+    sellerCredits: deal.sellerCredits,
+    mortgagePayoffs: deal.payoffs,
+  })
   return {
     id: q.id,
     rate: q.rate,

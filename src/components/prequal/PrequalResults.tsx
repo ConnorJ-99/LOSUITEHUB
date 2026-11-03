@@ -110,7 +110,7 @@ export function PrequalResults({
                 <dt className="text-muted-foreground">Cash to close</dt>
                 <dd className="text-right tabular-nums">{formatCurrency(s.cashNeeded ?? s.cash.total)}</dd>
                 <dd className="col-span-2 -mt-1 text-xs text-muted-foreground">
-                  {formatCurrency(s.cash.downPayment)} down + {formatCurrency(s.cash.closingCosts)} closing costs{s.cash.closingCostsEstimated ? ' (est. 3%)' : ''}
+                  {formatCurrency(s.cash.downPayment)} down + {formatCurrency(s.cash.closingCosts)} closing costs{s.closingCostsSource === 'default' ? ' (est. 3%)' : s.closingCostsSource === 'smart_fees' ? ' (est., Smart Fees)' : ' (selected estimate)'}
                   {s.payoffs > 0 && ` + ${formatCurrency(s.payoffs)} payoffs`}
                 </dd>
               </>

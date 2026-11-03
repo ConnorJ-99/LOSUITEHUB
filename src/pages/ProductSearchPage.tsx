@@ -79,7 +79,8 @@ export function ProductSearchPage() {
       const added = await addProgramOptions(loanId, orgId, programIds, searchId)
       await queryClient.invalidateQueries({ queryKey: keys.programOptions(loanId) })
       toast.success(added ? `Added ${added} program${added === 1 ? '' : 's'} to ${borrowerName} for pricing` : 'Those programs are already on the file')
-      navigate(`/loans/${loanId}?tab=loan`)
+      // Build estimates opens with these programs checked: set each one's rate and create the estimates.
+      navigate(`/loans/${loanId}?tab=estimates&view=build&programs=${programIds.join(',')}`)
     } catch (e) {
       toast.error((e as Error).message)
     } finally {

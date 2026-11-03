@@ -5,9 +5,8 @@
 // '@/lib/calc'.
 
 import {
-  cashToBorrower,
+  cashToClose,
   feeSheet,
-  purchaseCashToClose,
   firstMortgagePayment,
   mortgageInsurance,
   pct,
@@ -73,6 +72,11 @@ export interface PricingScenario {
   miReserveMonths: number | null
   aggregateAdjustment: number
   notes: string | null
+  /** The FHA/VA/USDA upfront fee is paid in cash instead of financed (the fee line marked paid by the borrower). Not saved on its own. */
+  financedFeeInCash?: boolean
+  /** The loan's MI and upfront fee overrides (e.g. VA exempt = 0), carried in when priced. Not saved on its own. */
+  upfrontFeePct?: number | null
+  miRatePct?: number | null
 }
 
 export type ScenarioDraft = Omit<PricingScenario, 'id'>
@@ -188,6 +192,9 @@ export interface ScenarioFigures {
   /** Base loan plus any financed FHA/VA/USDA fee: payment, points and interest use it. */
   totalLoanAmount: number
   financedFee: number
+  /** The FHA/VA/USDA upfront fee, financed or paid in cash, and its rate. */
+  upfrontFee: number
+  upfrontFeePct: number
   payment: PaymentLines
   pitia: number
   miCalculated: boolean
@@ -200,9 +207,11 @@ export function scenarioFigures(s: ScenarioDraft, otherFinancing = 0): ScenarioF
   // LTV is on the lower of price and value.
   const basis = s.purchasePrice && value ? Math.min(s.purchasePrice, value) : value
   const ltvPct = basis ? pct(base, basis) : null
-  const mi = mortgageInsurance({ mortgageType: s.mortgageType, baseLoanAmount: base, ltvPct })
+  const mi = mortgageInsurance({ mortgageType: s.mortgageType, baseLoanAmount: base, ltvPct, annualRatePct: s.miRatePct, upfrontFeePct: s.upfrontFeePct })
+  // Paid in cash: the loan stays the base loan, and the fee is a closing cost.
+  const totalLoanAmount = s.financedFeeInCash ? base : mi.totalLoanAmount
   const payment: PaymentLines = {
-    principalAndInterest: s.noteRate != null && s.termMonths ? firstMortgagePayment(mi.totalLoanAmount, s.noteRate, s.termMonths, s.interestOnly) : 0,
+    principalAndInterest: s.noteRate != null && s.termMonths ? firstMortgagePayment(totalLoanAmount, s.noteRate, s.termMonths, s.interestOnly) : 0,
     otherFinancing,
     hoi: toMonthly(s.insuranceValue, s.insuranceFactor, value),
     supplemental: s.supplementalInsuranceMonthly ?? 0,
@@ -211,13 +220,14 @@ export function scenarioFigures(s: ScenarioDraft, otherFinancing = 0): ScenarioF
     hoa: s.monthlyHoa ?? 0,
     other: s.otherPaymentMonthly ?? 0,
   }
-  return { ltvPct, totalLoanAmount: mi.totalLoanAmount, financedFee: mi.financedFee, payment, pitia: totalPitia(payment), miCalculated: s.monthlyMi == null }
+  return { ltvPct, totalLoanAmount, financedFee: s.financedFeeInCash ? 0 : mi.financedFee, upfrontFee: mi.financedFee, upfrontFeePct: mi.upfrontFeePct, payment, pitia: totalPitia(payment), miCalculated: s.monthlyMi == null }
 }
 
 /** What the fee engine needs from a scenario. */
-export function feeContextFor(s: ScenarioDraft, purpose: LoanPurpose, figures: ScenarioFigures): FeeContext {
+export function feeContextFor(s: ScenarioDraft, purpose: LoanPurpose, figures: ScenarioFigures, extra: Partial<FeeContext> = {}): FeeContext {
   const m = defaultMonths(purpose)
   return {
+    ...extra,
     purpose,
     mortgageType: s.mortgageType,
     loanAmount: figures.totalLoanAmount,
@@ -232,17 +242,30 @@ export function feeContextFor(s: ScenarioDraft, purpose: LoanPurpose, figures: S
     hoiPrepaidMonths: s.hoiPrepaidMonths ?? m.hoiPrepaid,
     taxPrepaidMonths: s.taxPrepaidMonths ?? m.taxPrepaid,
     hoiReserveMonths: s.hoiReserveMonths ?? m.hoiReserve,
-    taxReserveMonths: s.taxReserveMonths ?? m.taxReserve,
+    taxReserveMonths: s.taxReserveMonths ?? extra.taxReserveMonths ?? m.taxReserve,
     miReserveMonths: s.miReserveMonths ?? m.miReserve,
     aggregateAdjustment: s.aggregateAdjustment,
     impoundWaiver: s.impoundWaiver,
+    purchasePrice: extra.purchasePrice ?? s.purchasePrice,
+    baseLoanAmount: s.loanAmount ?? 0,
+    financedFee: figures.upfrontFee,
+    financedFeeName: extra.financedFeeName ?? upfrontFeeName(s.mortgageType, figures.upfrontFeePct, s.financedFeeInCash),
   }
 }
 
+/** "FHA upfront MIP (1.75%) · financed", for the fee line. */
+export function upfrontFeeName(type: ScenarioDraft['mortgageType'], pct: number, inCash?: boolean): string {
+  const what = type === 'fha' ? 'FHA upfront MIP' : type === 'va' ? 'VA funding fee' : type === 'usda_rural' ? 'USDA guarantee fee' : 'Upfront fee'
+  return `${what} (${pct}%)${inCash ? '' : ' · financed'}`
+}
+
 /** The whole worksheet for a scenario: payment, fee lines, section totals and closing costs. */
-export function priceScenario(s: ScenarioDraft, purpose: LoanPurpose, templates: FeeTemplate[], overrides: FeeOverride[], otherFinancing = 0) {
-  const figures = scenarioFigures(s, otherFinancing)
-  const lines = feeSheet(templates, overrides, feeContextFor(s, purpose, figures))
+export function priceScenario(s: ScenarioDraft, purpose: LoanPurpose, templates: FeeTemplate[], overrides: FeeOverride[], otherFinancing = 0, extra: Partial<FeeContext> = {}) {
+  // Marking the financed-fee line paid by the borrower pays it in cash instead of financing it.
+  const inCash = overrides.some((o) => o.key === 'financed_fee' && o.paidBy === 'B')
+  const priced = inCash ? { ...s, financedFeeInCash: true } : s
+  const figures = scenarioFigures(priced, otherFinancing)
+  const lines = feeSheet(templates, overrides, feeContextFor(priced, purpose, figures, extra))
   const totals = sectionTotals(lines)
   return { figures, lines, totals, closingCosts: totalClosingCosts(totals, s.lenderCredit) }
 }
@@ -287,10 +310,14 @@ export interface CashFigure {
  * The loan here is the base loan: a financed FHA/VA/USDA fee goes to the agency, so it is never cash.
  */
 export function cashFigure(input: { purpose: LoanPurpose; purchasePrice: number | null; totalLoanAmount: number; financedFee: number; closingCosts: number; payoffs: number; earnestMoney: number; sellerCredits: number }): CashFigure {
-  const loanAmount = round(input.totalLoanAmount - input.financedFee)
-  const brings = isPurchase(input.purpose)
-    ? purchaseCashToClose({ purchasePrice: input.purchasePrice ?? 0, loanAmount, closingCosts: input.closingCosts, earnestMoney: input.earnestMoney, sellerCredits: input.sellerCredits })
-    : -cashToBorrower({ loanAmount, closingCosts: input.closingCosts, payoffs: input.payoffs })
+  const purchase = isPurchase(input.purpose)
+  const brings = cashToClose({
+    isPurchase: purchase,
+    purchasePrice: input.purchasePrice,
+    baseLoanAmount: round(input.totalLoanAmount - input.financedFee),
+    closingCosts: input.closingCosts,
+    ...(purchase ? { earnestMoney: input.earnestMoney, sellerCredits: input.sellerCredits } : { mortgagePayoffs: input.payoffs }),
+  }).cashToClose
   return brings > 0 ? { label: 'Cash to close', amount: brings } : { label: 'Cash to borrower', amount: round(-brings) }
 }
 

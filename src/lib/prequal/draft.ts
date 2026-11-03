@@ -29,6 +29,7 @@ import {
 import type { AssetType, LiabilityType, OtherIncomeType } from '@/lib/urla/options'
 import { ownedProperties, propertyNetRental } from '@/lib/urla/realEstate'
 import { loanScenarioInput } from '@/lib/urla/summary'
+import { selectedClosingCosts, type ClosingCostSource } from '@/lib/estimates/prequal'
 
 // The phone prequal works on a draft of the same records the 1003 uses, so
 // results update live as Connor types, and Save writes only what changed.
@@ -259,6 +260,8 @@ export interface PrequalSummary {
   buyingPower: { dtiPct: number; price: number | null }[]
   depletionIncome: number
   cash: CashToCloseEstimate | null
+  /** Where the closing costs came from: the Selected estimate, Smart Fees on these numbers, or 3% of the price. */
+  closingCostsSource: ClosingCostSource
   /** Balances of debts paid off at closing. */
   payoffs: number
   /** Down payment, closing costs and payoffs together. */
@@ -277,7 +280,7 @@ export interface PrequalSummary {
 }
 
 /** Every live figure on the prequal screen, from the draft. */
-export function prequalSummary(loan: LoanProfile, draft: PrequalDraft, properties: Property[] | undefined): PrequalSummary {
+export function prequalSummary(loan: LoanProfile, draft: PrequalDraft, properties: Property[] | undefined, feeEstimate?: (price: number, loanAmount: number, details: Partial<LoanDetails>) => number): PrequalSummary {
   const isPurchase = loan.purpose === 'purchase'
   const subject = properties?.find((p) => p.id === loan.details.subjectPropertyId) ?? null
   const l = draft.loan
@@ -317,7 +320,11 @@ export function prequalSummary(loan: LoanProfile, draft: PrequalDraft, propertie
   const max = maxAt(l.maxDtiPct)
   const buyingPower = isPurchase ? [43, 45, 50].map((dtiPct) => ({ dtiPct, price: maxAt(dtiPct)?.price ?? null })) : []
 
-  const cash = isPurchase && l.purchasePrice && loanAmount !== null ? estimatedCashToClose(l.purchasePrice, loanAmount, loan.details.estimatedClosingCosts) : null
+  // Closing costs: the Selected estimate's, else Smart Fees on these numbers ("est."), else 3% of the price.
+  const selectedCosts = selectedClosingCosts(loan.details)
+  const smartCosts = selectedCosts == null && feeEstimate && isPurchase && l.purchasePrice && loanAmount !== null ? feeEstimate(l.purchasePrice, loanAmount, draftLoanDetails(isPurchase, l)) : null
+  const closingCostsSource: ClosingCostSource = selectedCosts != null ? 'selected' : smartCosts != null ? 'smart_fees' : 'default'
+  const cash = isPurchase && l.purchasePrice && loanAmount !== null ? estimatedCashToClose(l.purchasePrice, loanAmount, selectedCosts ?? smartCosts) : null
   const payoffs = round(draft.debts.filter((d) => d.toBePaidOff).reduce((s, d) => s + (d.unpaidBalance ?? 0), 0))
   const cashNeeded = cash ? round(cash.total + payoffs) : payoffs > 0 ? payoffs : null
   const savings = fundsByUse(draft.assets)
@@ -342,6 +349,7 @@ export function prequalSummary(loan: LoanProfile, draft: PrequalDraft, propertie
     buyingPower,
     depletionIncome,
     cash,
+    closingCostsSource,
     payoffs,
     cashNeeded,
     savings,

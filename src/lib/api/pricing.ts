@@ -26,6 +26,16 @@ interface TemplateRow {
   paid_to: string | null
   sort_order: number
   active: boolean
+  // Smart Fees (after 20261218000000_smart_fees.sql; missing before it runs).
+  states?: string[] | null
+  counties?: string[] | null
+  lender_id?: string | null
+  lender?: { name: string; short_name: string | null } | null
+  min_loan_amount?: unknown
+  max_loan_amount?: unknown
+  occupancies?: string[] | null
+  tiers?: FeeTemplate['tiers']
+  formula?: FeeTemplate['formula']
 }
 
 export const FEE_SECTION_LABEL: Record<FeeSection, string> = {
@@ -38,15 +48,18 @@ export const FEE_SECTION_LABEL: Record<FeeSection, string> = {
   H: 'H. Other',
 }
 
-export const AMOUNT_TYPE_LABEL: Record<AmountType, string> = { fixed: 'Dollar amount', pct_loan: '% of loan amount', pct_value: '% of price or value' }
+export const AMOUNT_TYPE_LABEL: Record<AmountType, string> = { fixed: 'Dollar amount', pct_loan: '% of loan amount', pct_value: '% of price or value', tiered: 'Tiered (brackets)', formula: 'Formula (calculated)' }
 export const PAID_BY_LABEL: Record<PaidBy, string> = { B: 'Borrower', S: 'Seller', L: 'Lender', O: 'Other' }
 
 /** The fee list, in order. Empty until fees are added (or before the fees script is run). */
 export function useFeeTemplates() {
   return useQuery({
     queryKey: keys.feeTemplates,
-    queryFn: async (): Promise<SavedFeeTemplate[]> =>
-      unwrap<TemplateRow[]>(await db().from('fee_templates').select('id, key, section, name, amount_type, amount, purposes, mortgage_types, paid_by, apr, paid_to, sort_order, active').order('section').order('sort_order')).map((r) => ({
+    queryFn: async (): Promise<SavedFeeTemplate[]> => {
+      // With the Smart Fees columns and the lender's name; before that script runs, the plain list.
+      let result = await db().from('fee_templates').select('*, lender:lenders(name, short_name)').order('section').order('sort_order')
+      if (result.error) result = await db().from('fee_templates').select('*').order('section').order('sort_order')
+      return unwrap<TemplateRow[]>(result).map((r) => ({
         id: r.id,
         key: r.key,
         section: r.section,
@@ -60,7 +73,17 @@ export function useFeeTemplates() {
         paidTo: r.paid_to,
         sortOrder: r.sort_order,
         active: r.active,
-      })),
+        states: r.states ?? null,
+        counties: r.counties ?? null,
+        lenderId: r.lender_id ?? null,
+        lenderName: r.lender?.short_name ?? r.lender?.name ?? null,
+        minLoanAmount: num(r.min_loan_amount),
+        maxLoanAmount: num(r.max_loan_amount),
+        occupancies: r.occupancies ?? null,
+        tiers: r.tiers ?? null,
+        formula: r.formula ?? null,
+      }))
+    },
   })
 }
 
@@ -88,10 +111,23 @@ export function useSaveFeeTemplate() {
         paid_to: f.paidTo?.trim() || null,
         sort_order: f.sortOrder,
         active: f.active,
+        // Smart Fees "Applies when" (sent only when set, so the list still saves before the Smart Fees script runs).
+        ...((f.states?.length || f.counties?.length || f.lenderId || f.minLoanAmount != null || f.maxLoanAmount != null || f.occupancies?.length || f.tiers || f.formula || f.id) && {
+          states: f.states?.length ? f.states.map((x) => x.trim().toUpperCase()) : null,
+          counties: f.counties?.length ? f.counties.map((x) => x.trim()) : null,
+          lender_id: f.lenderId ?? null,
+          min_loan_amount: f.minLoanAmount ?? null,
+          max_loan_amount: f.maxLoanAmount ?? null,
+          occupancies: f.occupancies?.length ? f.occupancies : null,
+          tiers: f.amountType === 'tiered' ? (f.tiers ?? null) : null,
+          formula: f.amountType === 'formula' ? (f.formula ?? null) : null,
+        }),
       }
+      // Another rule for the same fee keeps its key (Smart Fees picks one rule per fee).
       const result = f.id
         ? await db().from('fee_templates').update(row).eq('id', f.id).select('id')
-        : await db().from('fee_templates').insert({ ...row, organization_id: orgId, key: feeKeyFrom(f.name) }).select('id')
+        : await db().from('fee_templates').insert({ ...row, organization_id: orgId, key: f.key ?? feeKeyFrom(f.name) }).select('id')
+      if (result.error?.message.includes('column') && result.error.message.includes('fee_templates')) throw new Error('Run the Smart Fees script (20261218000000_smart_fees.sql) in Supabase to save "Applies when" rules.')
       if (result.error?.code === '23505') throw new Error('A fee with that name is already on the list.')
       if (unwrap<{ id: string }[]>(result).length === 0) throw new Error('Only owners and admins can change the fee list.')
     },
@@ -115,7 +151,9 @@ export function useDeleteFeeTemplate() {
 // ---------------------------------------------------------------------------
 
 /** App field → [column, numeric]. */
-const SCENARIO_COLUMNS: Record<keyof ScenarioDraft, [string, boolean]> = {
+/** Fields worked out when priced, never saved as their own columns. */
+type Transient = 'financedFeeInCash' | 'upfrontFeePct' | 'miRatePct'
+const SCENARIO_COLUMNS: Record<Exclude<keyof ScenarioDraft, Transient>, [string, boolean]> = {
   loanId: ['loan_id', false],
   propertyId: ['property_id', false],
   name: ['name', false],
@@ -155,19 +193,19 @@ const SCENARIO_COLUMNS: Record<keyof ScenarioDraft, [string, boolean]> = {
   aggregateAdjustment: ['aggregate_adjustment', true],
   notes: ['notes', false],
 }
-const NOT_NULL_NUMBERS = new Set<keyof ScenarioDraft>(['pointsPct', 'lenderCredit', 'aggregateAdjustment'])
-const SCENARIO_SELECT = `id, ${Object.values(SCENARIO_COLUMNS).map(([c]) => c).join(', ')}`
+const NOT_NULL_NUMBERS = new Set<keyof typeof SCENARIO_COLUMNS>(['pointsPct', 'lenderCredit', 'aggregateAdjustment'])
+export const SCENARIO_SELECT = `id, ${Object.values(SCENARIO_COLUMNS).map(([c]) => c).join(', ')}`
 
-function toScenario(row: Record<string, unknown>): PricingScenario {
+export function toScenario(row: Record<string, unknown>): PricingScenario {
   const fields = Object.fromEntries(
-    Object.entries(SCENARIO_COLUMNS).map(([key, [column, numeric]]) => [key, numeric ? (num(row[column]) ?? (NOT_NULL_NUMBERS.has(key as keyof ScenarioDraft) ? 0 : null)) : (row[column] ?? null)]),
+    Object.entries(SCENARIO_COLUMNS).map(([key, [column, numeric]]) => [key, numeric ? (num(row[column]) ?? (NOT_NULL_NUMBERS.has(key as keyof typeof SCENARIO_COLUMNS) ? 0 : null)) : (row[column] ?? null)]),
   )
   return { id: row.id as string, ...fields } as PricingScenario
 }
 
 /** Scenario fields as database columns (only the ones given). */
 export function scenarioRow(changes: Partial<ScenarioDraft>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(changes).map(([key, value]) => [SCENARIO_COLUMNS[key as keyof ScenarioDraft][0], value]))
+  return Object.fromEntries(Object.entries(changes).filter(([key]) => key in SCENARIO_COLUMNS).map(([key, value]) => [SCENARIO_COLUMNS[key as keyof typeof SCENARIO_COLUMNS][0], value]))
 }
 
 /** After a home's taxes, insurance or HOA change, updates its scenarios that were following the home (see followHome). */

@@ -1,4 +1,5 @@
 import { mortgageInsurance, type MortgageInsurance, type MortgageTypeKind } from './mortgageInsurance'
+import { cashToClose } from './cashToClose'
 import { piti, type PitiResult } from './payment'
 import { pct, round } from './round'
 
@@ -127,8 +128,8 @@ export interface CashToCloseEstimate {
 export function estimatedCashToClose(price: number, loanAmount: number, closingCosts: number | null): CashToCloseEstimate {
   const closingCostsEstimated = closingCosts === null
   const costs = closingCostsEstimated ? round((price * DEFAULT_CLOSING_COST_PCT) / 100) : closingCosts
-  const downPayment = round(price - loanAmount)
-  return { downPayment, closingCosts: costs, closingCostsEstimated, total: round(downPayment + costs) }
+  const cash = cashToClose({ isPurchase: true, purchasePrice: price, baseLoanAmount: loanAmount, closingCosts: costs })
+  return { downPayment: cash.downPayment, closingCosts: costs, closingCostsEstimated, total: cash.cashToClose }
 }
 
 export type CheckStatus = 'pass' | 'warn' | 'fail' | 'unknown'

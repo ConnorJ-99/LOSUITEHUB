@@ -23,6 +23,8 @@ export interface Lender {
   aeEmail: string | null
   portalUrl: string | null
   compNotes: string | null
+  /** The lender's mortgagee clause (Smart Fees script); shown on its estimates. */
+  mortgageeClause: string | null
   states: string[] | null
   notes: string | null
   programs: { id: string; name: string; family: ProductFamily; lien: Lien; docTypes: DocType[]; features: Feature[]; active: boolean; lastVerifiedOn: string | null }[]
@@ -40,6 +42,7 @@ interface LenderRow {
   ae_email: string | null
   portal_url: string | null
   comp_notes: string | null
+  mortgagee_clause?: string | null
   states: string[] | null
   notes: string | null
   programs: { id: string; name: string; product_family: ProductFamily; lien: Lien; doc_types: DocType[]; features: Feature[]; active: boolean; last_verified_on: string | null }[]
@@ -51,7 +54,7 @@ export function useLenders() {
     queryKey: keys.lenders,
     queryFn: async () =>
       unwrap<LenderRow[]>(
-        await db().from('lenders').select('id, name, short_name, status, channel, ae_name, ae_phone, ae_email, portal_url, comp_notes, states, notes, programs(id, name, product_family, lien, doc_types, features, active, last_verified_on), guideline_documents(count)').order('name'),
+        await db().from('lenders').select('*, programs(id, name, product_family, lien, doc_types, features, active, last_verified_on), guideline_documents(count)').order('name'),
       ).map(
         (r): Lender => ({
           id: r.id,
@@ -64,6 +67,7 @@ export function useLenders() {
           aeEmail: r.ae_email,
           portalUrl: r.portal_url,
           compNotes: r.comp_notes,
+          mortgageeClause: r.mortgagee_clause ?? null,
           states: r.states,
           notes: r.notes,
           programs: r.programs.map((p) => ({ id: p.id, name: p.name, family: p.product_family, lien: p.lien, docTypes: p.doc_types, features: p.features, active: p.active, lastVerifiedOn: p.last_verified_on })).sort((a, b) => a.name.localeCompare(b.name)),
@@ -109,7 +113,7 @@ export function useLenderLoans() {
 
 export type LenderDraft = Omit<Lender, 'id' | 'programs' | 'documentCount'> & { id: string | null }
 
-export const blankLender = (): LenderDraft => ({ id: null, name: '', shortName: null, status: 'not_signed_up', channel: 'wholesale', aeName: null, aePhone: null, aeEmail: null, portalUrl: null, compNotes: null, states: ['TX'], notes: null })
+export const blankLender = (): LenderDraft => ({ id: null, name: '', shortName: null, status: 'not_signed_up', channel: 'wholesale', aeName: null, aePhone: null, aeEmail: null, portalUrl: null, compNotes: null, mortgageeClause: null, states: ['TX'], notes: null })
 
 const invalidateCatalog = (queryClient: ReturnType<typeof useQueryClient>) => {
   queryClient.invalidateQueries({ queryKey: keys.lenders })
@@ -134,6 +138,8 @@ export function useSaveLender() {
         ae_email: l.aeEmail?.trim() || null,
         portal_url: l.portalUrl?.trim() || null,
         comp_notes: l.compNotes?.trim() || null,
+        // Sent only once there is one, so lenders still save before the Smart Fees script runs.
+        ...(l.mortgageeClause?.trim() && { mortgagee_clause: l.mortgageeClause.trim() }),
         states: states.length ? states : null,
         notes: l.notes?.trim() || null,
       }

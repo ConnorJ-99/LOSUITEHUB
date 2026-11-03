@@ -7,7 +7,6 @@ import {
   FileTextIcon,
   FolderIcon,
   HomeIcon,
-  LandmarkIcon,
   LayersIcon,
   ListChecksIcon,
   MailIcon,
@@ -47,8 +46,7 @@ import { PrequalTab } from '@/components/prequal/PrequalTab'
 import { TeamMemberDialog } from '@/components/partners/TeamMemberDialog'
 import { UrlaTab } from '@/components/urla/UrlaTab'
 import { useLoanFile, useSaveTeamMember, useSetLoanOfficer, useStepTemplates, type TeamRole } from '@/lib/api/loanfile'
-import { LoanPricingTab } from '@/components/pricing/LoanPricingTab'
-import { PricingTab } from '@/components/pricing/PricingTab'
+import { EstimatesTab } from '@/components/estimates/EstimatesTab'
 import { LettersTab } from '@/components/letters/LettersTab'
 import { usePreapprovalLetters } from '@/lib/api/preapproval'
 import { useDeleteLead } from '@/lib/api/closed'
@@ -68,11 +66,11 @@ import { pipelineFor, pipelineInfo } from '@/lib/pipeline/pipelines'
 import { applicationSummary } from '@/lib/urla/summary'
 import { useAuth } from '@/lib/auth/context'
 
-const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'messages', 'loan', 'properties', 'letters', 'loans', 'conditions'] as const
+const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions'] as const
 type Section = (typeof SECTIONS)[number]
-const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'messages', 'loan', 'properties', 'letters', 'loans', 'conditions']
+const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions']
 /** A closed file's profile: the closed loan (Overview), its 1003, the home, documents, notes and messages. */
-const CLOSED_SECTIONS: Section[] = ['overview', 'loans', '1003', 'properties', 'documents', 'notes', 'messages']
+const CLOSED_SECTIONS: Section[] = ['overview', 'loans', '1003', 'properties', 'estimates', 'documents', 'notes', 'messages']
 
 /** Team roles shown in the header, in order. The loan officer is the file's Assigned LO. */
 const TEAM: { role: TeamRole | 'loan_officer'; label: string; group: string; purchaseOnly?: boolean; company?: boolean }[] = [
@@ -142,7 +140,9 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const filePeople = useFilePeople(loan.id)
   const thread = useThread((filePeople.data ?? []).map((p) => p.id))
   const unread = (thread.data ?? []).filter((m) => m.direction === 'inbound' && !m.readAt).length
-  const param = searchParams.get('tab') as Section | null
+  // The old Fees and Loan · Pricing tabs are now Scenarios & Estimate.
+  const tab = searchParams.get('tab')
+  const param = (tab === 'fees' || tab === 'loan' ? 'estimates' : tab) as Section | null
   const closedFile = loan.stage === 'closed'
   const section: Section = param && READY.includes(param) && ((param !== 'contract' && param !== 'letters') || isPurchase) && (!closedFile || CLOSED_SECTIONS.includes(param)) ? param : 'overview'
   const goTo = (next: string) => setSearchParams(next === 'overview' ? {} : { tab: next }, { replace: true })
@@ -201,12 +201,11 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     { id: '1003', label: '1003', icon: FileTextIcon, marker: validation ? (validation.totalMissing ? { type: 'count', value: validation.totalMissing } : { type: 'complete' }) : undefined },
     { id: 'income', label: 'Income', icon: BadgeDollarSignIcon },
     ...(isPurchase ? [{ id: 'contract', label: 'Contract', icon: FileSignatureIcon }] : []),
-    { id: 'fees', label: 'Fees', icon: ReceiptIcon },
+    { id: 'estimates', label: 'Scenarios & Estimate', icon: ReceiptIcon },
     { id: 'documents', label: 'Documents', icon: FolderIcon },
     { id: 'conditions', label: 'Conditions', icon: ListChecksIcon, marker: loan.conditions.total && loan.conditions.cleared < loan.conditions.total ? { type: 'count', value: loan.conditions.total - loan.conditions.cleared } : loan.conditions.total ? { type: 'complete' } : undefined },
     { id: 'notes', label: 'Notes', icon: NotebookPenIcon },
     { id: 'messages', label: 'Messages', icon: MessagesSquareIcon, marker: unread ? { type: 'count', value: unread } : undefined },
-    { id: 'loan', label: 'Loan · Pricing', icon: LandmarkIcon },
     { id: 'properties', label: 'Properties', icon: HomeIcon },
     ...(isPurchase ? [{ id: 'letters', label: 'Letters', icon: MailIcon }] : []),
     // Closed files only: every loan this person is on.
@@ -334,8 +333,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           )}
           {section === 'income' && <IncomeTab loan={loan} />}
           {section === 'contract' && <ContractTab loan={loan} />}
-          {section === 'fees' && <PricingTab loan={loan} />}
-          {section === 'loan' && <LoanPricingTab loan={loan} />}
+          {section === 'estimates' && <EstimatesTab loan={loan} />}
           {section === 'letters' && isPurchase && <LettersTab loan={loan} />}
           {section === 'documents' && <DocumentsTab loan={loan} />}
           {section === 'notes' && <NotesTab loan={loan} />}

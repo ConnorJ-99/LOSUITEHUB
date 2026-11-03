@@ -26,6 +26,10 @@ export function headerMetrics(loan: LoanProfile, summary: ApplicationSummary, cr
   return [
     { label: 'Loan amount', value: d.loanAmount === null ? '—' : formatCurrency(d.loanAmount) },
     { label: 'Loan type', value: d.mortgageType ? LOAN_TYPE[d.mortgageType] : '—' },
+    // The estimate Selected for the file (Scenarios & Estimate) names the program, lender and rate.
+    ...(d.pricingScenarioId && (d.programName || d.lenderName)
+      ? [{ label: 'Selected', value: [d.programName, d.lenderName, d.noteRate != null ? formatPercent(d.noteRate, 3) : null].filter(Boolean).join(' · ') }]
+      : []),
     { label: 'Credit score', value: creditScore === null ? '—' : String(creditScore), note: tier?.label, tone: tier?.tone },
     // A 2nd lien qualifies on CLTV, so LTV of the new lien alone isn't shown.
     ...(isSecond ? [] : [{ label: 'LTV', value: pct(summary.scenario.ltv) }]),

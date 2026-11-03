@@ -6,6 +6,8 @@ import { SummaryBar } from '@/components/shared'
 import { CoBorrowerDialog } from '@/components/urla/CoBorrowerDialog'
 import { useUpdateStage } from '@/lib/api/loans'
 import { useSavePrequal } from '@/lib/api/prequal'
+import { useFeeTemplates } from '@/lib/api/pricing'
+import { prequalFeeEstimate } from '@/lib/estimates/prequal'
 import { useProperties } from '@/lib/api/properties'
 import type { LoanProfile, Property } from '@/lib/api/types'
 import { useApplication, type Application } from '@/lib/api/urla'
@@ -40,7 +42,8 @@ function PrequalForm({ loan, app, subject, properties, saved }: { loan: LoanProf
   const updateStage = useUpdateStage()
 
   const isPurchase = loan.purpose === 'purchase'
-  const summary = prequalSummary(loan, draft, properties)
+  const templates = useFeeTemplates()
+  const summary = prequalSummary(loan, draft, properties, prequalFeeEstimate(loan, templates.data ?? []))
   const changes = prequalChanges(isPurchase, saved, draft)
   const dirty = hasChanges(changes)
   const live = useLiveReadiness(loan, app, summary, draft)

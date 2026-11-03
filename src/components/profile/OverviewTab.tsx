@@ -9,7 +9,8 @@ import { StageBadge } from '@/components/pipeline/StageBadge'
 import { lastContact, useNotes } from '@/lib/api/notes'
 import { useLenders } from '@/lib/api/lenders'
 import { useContactLoans, useUpdateLead, useUpdateLoanDetails } from '@/lib/api/loans'
-import { useProgramOptions } from '@/lib/api/loanPricing'
+import { useEstimates } from '@/lib/api/estimates'
+import type { SavedFigures } from '@/lib/estimates/estimate'
 import { useProperties, useSaveHomeFigures, type HomeFigures } from '@/lib/api/properties'
 import type { Lien, LoanDetails, LoanProfile, Property } from '@/lib/api/types'
 import { computeScenario, loanRevenue, texasHomeEquityFlags, type ScenarioResult } from '@/lib/calc'
@@ -35,7 +36,9 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
 }
 
 /** Key figures for the sticky bar, chosen by loan purpose. */
-function summaryItems(loan: LoanProfile, form: EditableDetails, r: ScenarioResult, subject: Property | null, texasCapBreached: boolean): SummaryItem[] {
+function summaryItems(loan: LoanProfile, form: EditableDetails, r: ScenarioResult, subject: Property | null, texasCapBreached: boolean, est: SavedFigures | null): SummaryItem[] {
+  // The estimate Selected for the file has the full payment and cash to close; without one, the loan's own math.
+  const cash: SummaryItem[] = est ? [{ label: est.cashToClose < 0 ? 'Cash to borrower' : 'Cash to close', value: formatCurrency(Math.abs(est.cashToClose)) }] : []
   switch (loan.purpose) {
     case 'purchase':
       return [
@@ -43,7 +46,8 @@ function summaryItems(loan: LoanProfile, form: EditableDetails, r: ScenarioResul
         { label: 'Loan amount', value: formatCurrency(form.loanAmount) },
         { label: 'Down', value: r.downPayment ? `${formatCurrency(r.downPayment.amount)} (${formatPercent(r.downPayment.percent, 2)})` : '—' },
         { label: 'LTV', value: formatPercent(r.ltv) },
-        { label: 'Est. PITI', value: formatCurrency(r.payment?.total) },
+        { label: 'Est. PITI', value: formatCurrency(est?.pitia ?? r.payment?.total) },
+        ...cash,
       ]
     case 'refinance_rate_term':
     case 'refinance_cash_out':
@@ -52,8 +56,9 @@ function summaryItems(loan: LoanProfile, form: EditableDetails, r: ScenarioResul
         { label: 'Loan amount', value: formatCurrency(form.loanAmount) },
         { label: 'LTV', value: formatPercent(r.ltv) },
         { label: 'CLTV', value: formatPercent(r.cltv), warning: texasCapBreached },
-        { label: 'New P&I', value: formatCurrency(r.payment?.principalAndInterest) },
+        { label: 'New P&I', value: formatCurrency(est?.principalAndInterest ?? r.payment?.principalAndInterest) },
         { label: 'Savings / mo', value: formatCurrency(r.refinance?.monthlySavings), warning: (r.refinance?.monthlySavings ?? 0) < 0 },
+        ...cash,
       ]
     case 'heloc':
     case 'heloan':
@@ -63,12 +68,13 @@ function summaryItems(loan: LoanProfile, form: EditableDetails, r: ScenarioResul
         { label: 'New 2nd', value: formatCurrency(form.loanAmount) },
         { label: 'CLTV', value: formatPercent(r.cltv), warning: texasCapBreached },
         { label: loan.purpose === 'heloc' ? 'Interest-only pmt' : 'Payment', value: formatCurrency(r.payment?.total) },
+        ...cash,
       ]
     case 'investment_dscr':
       return [
         { label: 'Loan amount', value: formatCurrency(form.loanAmount) },
         { label: 'LTV', value: formatPercent(r.ltv) },
-        { label: 'PITIA', value: formatCurrency(r.payment?.total) },
+        { label: 'PITIA', value: formatCurrency(est?.pitia ?? r.payment?.total) },
         { label: 'Rent', value: formatCurrency(subject?.monthlyRent) },
         { label: 'DSCR', value: r.dscr?.toFixed(2) ?? '—', warning: r.dscr !== null && r.dscr < 1 },
       ]
@@ -107,13 +113,12 @@ function editable({ subjectPropertyId, ...rest }: LoanDetails): EditableDetails 
  */
 function LenderFields({ loan, lenderName, programName, onLender, onProgram }: { loan: LoanProfile; lenderName: string | null; programName: string | null; onLender: (v: string) => void; onProgram: (v: string) => void }) {
   const lenders = useLenders()
-  const options = useProgramOptions(loan.id)
-  const chosen = loan.details.programId ? options.data?.find((o) => o.programId === loan.details.programId) : undefined
-  if (loan.details.programId)
+  // An estimate Selected for the file names its lender and program (written to the loan when it was selected).
+  if (loan.details.pricingScenarioId && (loan.details.programId || loan.details.lenderName))
     return (
       <>
-        <Input label="Lender" value={chosen?.lenderName ?? ''} readOnly hint="Chosen on Loan · Pricing" span={2} />
-        <Input label="Program" value={chosen?.programName ?? ''} readOnly span={2} />
+        <Input label="Lender" value={loan.details.lenderName ?? ''} readOnly hint="From the selected estimate (Scenarios & Estimate)" span={2} />
+        <Input label="Program" value={loan.details.programName ?? ''} readOnly span={2} />
       </>
     )
   const lender = lenders.data?.find((l) => l.name.toLowerCase() === (lenderName ?? '').trim().toLowerCase())
@@ -195,8 +200,12 @@ function OtherLoans({ loan }: { loan: LoanProfile }) {
   )
 }
 
-export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab: (tab: 'notes' | 'properties') => void }) {
+export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab: (tab: 'notes' | 'properties' | 'estimates') => void }) {
   const properties = useProperties(loan.id)
+  const estimates = useEstimates(loan.id)
+  const activeEstimates = (estimates.data ?? []).filter((e) => !e.archivedAt)
+  const selectedEstimate = activeEstimates.find((e) => e.id === loan.details.pricingScenarioId) ?? null
+  const est = selectedEstimate?.figures ?? null
   const notes = useNotes(loan.borrower?.id)
   const updateDetails = useUpdateLoanDetails(loan.id)
   const readinessResult = useSavedReadiness(loan)
@@ -279,7 +288,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
   const contact = lastContact(notes.data)
   const b = loan.borrower
   const termValue = form.termMonths ? (String(form.termMonths) as (typeof TERM_OPTIONS)[number]['value']) : null
-  const items = summaryItems(loan, form, result, subject, texasCapBreached)
+  const items = summaryItems(loan, form, result, subject, texasCapBreached, est)
 
   return (
     <>
@@ -299,7 +308,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
                   <PercentInput label="LTV" value={result.ltv} readOnly hint="Calculated" span={2} />
                   <CurrencyInput label="Down payment" value={result.downPayment?.amount ?? null} readOnly hint="Calculated" span={2} />
                   <PercentInput label="Down payment %" value={result.downPayment?.percent ?? null} readOnly maxDecimals={2} hint="Calculated" span={2} />
-                  <CurrencyInput label="Est. PITI" value={result.payment?.total ?? null} readOnly hint="Taxes, insurance, HOA from the subject property" span={2} />
+                  <CurrencyInput label="Est. PITI" value={est?.pitia ?? result.payment?.total ?? null} readOnly hint={est ? 'From the selected estimate' : 'Taxes, insurance, HOA from the subject property'} span={2} />
                 </>
               )}
 
@@ -452,6 +461,20 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
                     None logged. Log a call or text in Notes.
                   </button>
                 )}
+              </Detail>
+              <Detail label={`Estimates (${activeEstimates.length})`}>
+                <button type="button" onClick={() => onGoToTab('estimates')} className="text-left hover:underline">
+                  {selectedEstimate ? (
+                    <>
+                      Selected: {selectedEstimate.name}
+                      {est && <span className="block text-xs text-muted-foreground">{formatCurrency(est.pitia)}/mo · {formatCurrency(Math.abs(est.cashToClose))} {est.cashToClose < 0 ? 'back' : 'to close'}</span>}
+                    </>
+                  ) : activeEstimates.length ? (
+                    'None selected yet. Open Scenarios & Estimate.'
+                  ) : (
+                    'None yet. Build estimates.'
+                  )}
+                </button>
               </Detail>
               <Detail label="Assigned LO">{loan.assignedLo?.name ?? 'Unassigned'}</Detail>
               <Detail label="Referral source">{loan.referralSource ?? '—'}</Detail>

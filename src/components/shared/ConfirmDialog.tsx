@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 export interface ConfirmOptions {
   /** The button that goes ahead, e.g. "Delete" or "Choose". */
   confirmLabel?: string
+  /** The button that backs out (default Cancel). */
+  cancelLabel?: string
   /** Red button, for deleting. */
   destructive?: boolean
   title?: string
@@ -55,7 +57,7 @@ export function ConfirmHost() {
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => answer(false)}>
-            Cancel
+            {current?.cancelLabel ?? 'Cancel'}
           </Button>
           <Button variant={current?.destructive ? 'destructive' : 'default'} onClick={() => answer(true)} autoFocus>
             {current?.confirmLabel ?? 'OK'}

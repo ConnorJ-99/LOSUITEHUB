@@ -100,16 +100,34 @@ describe('dti', () => {
 })
 
 describe('cashToClose', () => {
-  it('nets down payment, costs and credits', () => {
-    expect(
-      cashToClose({
-        purchasePrice: 400_000,
-        loanAmount: 380_000,
-        closingCosts: 8_000,
-        prepaidsAndEscrows: 4_000,
-        earnestMoney: 5_000,
-        sellerCredits: 6_000,
-      }),
-    ).toEqual({ downPayment: 20_000, totalCosts: 12_000, totalCredits: 11_000, cashToClose: 21_000 })
+  it('nets down payment, costs and credits on a purchase', () => {
+    const r = cashToClose({ isPurchase: true, purchasePrice: 400_000, baseLoanAmount: 380_000, closingCosts: 12_000, earnestMoney: 5_000, sellerCredits: 6_000 })
+    expect(r).toMatchObject({ downPayment: 20_000, totalCredits: 11_000, cashToClose: 21_000, label: 'Cash to close' })
+  })
+
+  it('counts the lender credit, gift of equity and debts paid at closing', () => {
+    const base = { isPurchase: true, purchasePrice: 385_000, baseLoanAmount: 371_525, closingCosts: 9_586, earnestMoney: 5_000, sellerCredits: 6_000 }
+    const plain = cashToClose(base).cashToClose
+    expect(cashToClose({ ...base, lenderCredit: 500 }).cashToClose).toBe(plain - 500)
+    expect(cashToClose({ ...base, otherCredits: 2_000 }).cashToClose).toBe(plain - 2_000)
+    expect(cashToClose({ ...base, debtsPaidAtClosing: 1_240 }).cashToClose).toBe(plain + 1_240)
+  })
+
+  it('leaves a financed fee out (it is inside the total loan, not the base loan)', () => {
+    // FHA: base 371,525; UFMIP 6,502 financed. Cash uses the base loan only.
+    expect(cashToClose({ isPurchase: true, purchasePrice: 385_000, baseLoanAmount: 371_525, closingCosts: 0 }).downPayment).toBe(13_475)
+  })
+
+  it('cash gifts lower what comes from the borrower, not the cash to close', () => {
+    const r = cashToClose({ isPurchase: true, purchasePrice: 300_000, baseLoanAmount: 290_000, closingCosts: 8_000, cashGifts: 10_000 })
+    expect(r.cashToClose).toBe(18_000)
+    expect(r.fromOwnFunds).toBe(8_000)
+  })
+
+  it('refinance: payoffs + costs − the new loan; negative = cash to the borrower', () => {
+    const r = cashToClose({ isPurchase: false, purchasePrice: null, baseLoanAmount: 465_000, closingCosts: 24_771, mortgagePayoffs: 390_694 })
+    expect(r.cashToClose).toBe(-49_535)
+    expect(r.label).toBe('Cash to borrower')
+    expect(cashToClose({ isPurchase: false, purchasePrice: null, baseLoanAmount: 200_000, closingCosts: 5_000, mortgagePayoffs: 200_000 }).cashToClose).toBe(5_000)
   })
 })

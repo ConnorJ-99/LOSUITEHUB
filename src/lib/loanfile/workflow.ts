@@ -78,7 +78,7 @@ export interface WorkflowFacts {
   hasContract: boolean
   hasLoanAmount: boolean
   hasRate: boolean
-  /** A lender and program were chosen on Loan · Pricing (undefined = not known, e.g. older callers). */
+  /** A lender and program were chosen (an estimate Selected in Scenarios & Estimate, or typed in Loan details; undefined = not known, e.g. older callers). */
   hasProgram?: boolean
   /** A pre-approval letter was issued (undefined = not known). */
   hasPreapprovalLetter?: boolean
@@ -109,7 +109,7 @@ const RULES: Record<string, (f: WorkflowFacts) => RuleResult> = {
   urla_complete: (f) => (f.urlaStarted && f.urlaMissing === 0 ? { done: true } : { note: f.urlaMissing ? `${plural(f.urlaMissing, 'required field')} missing` : 'Not started' }),
   contract: (f) => (f.hasContract ? { done: true } : {}),
   preapproval_letter: (f) => (f.hasPreapprovalLetter ? { done: true } : { note: 'Set the approved maximum and issue a letter on Letters' }),
-  program_chosen: (f) => (f.hasProgram ? { done: true } : { note: 'Add the lender in Loan details, or compare quotes on Loan · Pricing and choose one' }),
+  program_chosen: (f) => (f.hasProgram ? { done: true } : { note: 'Add the lender in Loan details, or select an estimate in Scenarios & Estimate' }),
   ready_to_submit: (f) => {
     if (f.hasProgram === false) return { blocked: "Can't submit: no lender/program selected." }
     if (f.urlaMissing > 0) return { blocked: `Can't submit: the 1003 is missing ${plural(f.urlaMissing, 'required field')}.` }

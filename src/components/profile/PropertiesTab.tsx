@@ -242,7 +242,7 @@ export function PropertiesTab({ loan }: { loan: LoanProfile }) {
   }
 
   const list = properties.data ?? []
-  const openFees = (id: string) => navigate(`/loans/${loan.id}?tab=fees&scenario=${id}`)
+  const openFees = (id: string) => navigate(`/loans/${loan.id}?tab=estimates&estimate=${id}`)
   // Push to pricer: this home's newest scenario, or a new one from its numbers.
   const price = (property: Property) => {
     const existing = (scenarios.data ?? []).filter((x) => x.propertyId === property.id).at(-1)

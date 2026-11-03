@@ -5,6 +5,7 @@ import { MORTGAGE_TYPE_OPTIONS, OCCUPANCY_OPTIONS, TERM_OPTIONS } from '@/compon
 import { useUpdateLoanDetails } from '@/lib/api/loans'
 import type { LoanDetails, LoanProfile, Property } from '@/lib/api/types'
 import type { Asset } from '@/lib/api/urla'
+import { useEstimates } from '@/lib/api/estimates'
 import { cashToClose, type ScenarioResult } from '@/lib/calc'
 import { formatCurrency } from '@/lib/format'
 import { purposeLabel } from '@/lib/pipeline/stages'
@@ -21,12 +22,11 @@ const ESTATE_OPTIONS = [
   { value: 'leasehold', label: 'Leasehold' },
 ] as const
 
-/** The loan-level fields this section edits. All of them live on the loan. */
+/** The loan-level fields this section edits. All of them live on the loan. Closing costs, prepaids, points and lender credits come from the estimate Selected for the file (Scenarios & Estimate). */
 const FIELDS = [
   'loanAmount', 'purchasePrice', 'occupancy', 'mortgageType', 'amortizationType', 'termMonths', 'noteRate',
   'titleNames', 'titleManner', 'estateType', 'hasBalloon', 'hasInterestOnly', 'hasNegativeAmortization',
-  'hasPrepaymentPenalty', 'improvementsAmount', 'estimatedClosingCosts', 'prepaidItemsAmount', 'discountPointsAmount',
-  'sellerCredits', 'lenderCredits',
+  'hasPrepaymentPenalty', 'improvementsAmount', 'sellerCredits',
 ] as const satisfies readonly (keyof LoanDetails)[]
 type LoanInfoForm = Pick<LoanDetails, (typeof FIELDS)[number]>
 
@@ -50,18 +50,24 @@ export function LoanInfoSection({
   const termValue = form.termMonths ? (String(form.termMonths) as (typeof TERM_OPTIONS)[number]['value']) : null
 
   const earnestMoney = assets.filter((a) => a.assetType === 'earnest_money').reduce((s, a) => s + a.amount, 0)
-  const funds =
-    isPurchase && form.purchasePrice !== null && form.loanAmount !== null
+  const d = loan.details
+  const estimates = useEstimates(loan.id)
+  const selected = estimates.data?.find((e) => e.id === d.pricingScenarioId) ?? null
+  // The selected estimate's own cash to close; before one is selected, the loan's figures.
+  const funds = selected?.figures
+    ? { cashToClose: selected.figures.cashToClose, downPayment: selected.figures.downPayment }
+    : isPurchase && form.purchasePrice !== null && form.loanAmount !== null
       ? cashToClose({
+          isPurchase: true,
           purchasePrice: form.purchasePrice,
-          loanAmount: form.loanAmount,
-          closingCosts: (form.estimatedClosingCosts ?? 0) + (form.discountPointsAmount ?? 0) + (form.improvementsAmount ?? 0),
-          prepaidsAndEscrows: form.prepaidItemsAmount ?? 0,
+          baseLoanAmount: form.loanAmount,
+          closingCosts: (d.estimatedClosingCosts ?? 0) + (d.discountPointsAmount ?? 0) + (d.prepaidItemsAmount ?? 0) + (form.improvementsAmount ?? 0),
           earnestMoney,
           sellerCredits: form.sellerCredits ?? 0,
-          lenderCredits: form.lenderCredits ?? 0,
+          lenderCredit: d.lenderCredits ?? 0,
         })
       : null
+  const fromEstimate = selected ? `From "${selected.name}"` : 'Select an estimate first'
 
   const save = () =>
     update.mutate(changes, {
@@ -122,12 +128,12 @@ export function LoanInfoSection({
 
       <SubHeading>L4. Qualifying the borrower: funds</SubHeading>
       <FormGrid>
-        <CurrencyInput label="Estimated closing costs" value={form.estimatedClosingCosts} onChange={set('estimatedClosingCosts')} span={2} />
-        <CurrencyInput label="Prepaid items / escrows" value={form.prepaidItemsAmount} onChange={set('prepaidItemsAmount')} span={2} />
-        <CurrencyInput label="Discount points" value={form.discountPointsAmount} onChange={set('discountPointsAmount')} span={2} />
+        <CurrencyInput label="Estimated closing costs" value={d.estimatedClosingCosts} readOnly hint={fromEstimate} span={2} />
+        <CurrencyInput label="Prepaid items / escrows" value={d.prepaidItemsAmount} readOnly hint={fromEstimate} span={2} />
+        <CurrencyInput label="Discount points" value={d.discountPointsAmount} readOnly hint={fromEstimate} span={2} />
         <CurrencyInput label="Improvements, renovations, repairs" value={form.improvementsAmount} onChange={set('improvementsAmount')} span={2} />
         <CurrencyInput label="Seller credits" value={form.sellerCredits} onChange={set('sellerCredits')} span={2} />
-        <CurrencyInput label="Lender credits" value={form.lenderCredits} onChange={set('lenderCredits')} span={2} />
+        <CurrencyInput label="Lender credits" value={d.lenderCredits} readOnly hint={fromEstimate} span={2} />
         {funds && (
           <>
             <CurrencyInput label="Earnest money (from assets)" value={earnestMoney || null} readOnly span={2} />
@@ -135,6 +141,12 @@ export function LoanInfoSection({
           </>
         )}
       </FormGrid>
+      <p className="mt-2 text-sm">
+        <Link to={`/loans/${loan.id}?tab=estimates${selected ? `&estimate=${selected.id}` : ''}`} className="text-primary hover:underline">
+          Edit in Scenarios & Estimate
+        </Link>
+        <span className="text-muted-foreground"> · closing costs, points, credits and cash to close come from the estimate Selected for this file.</span>
+      </p>
     </SectionCard>
   )
 }

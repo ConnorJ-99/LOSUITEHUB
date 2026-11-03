@@ -5,36 +5,54 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Card, CurrencyInput, FormGrid, Input, NumberInput, Select, ToggleChip } from '@/components/shared'
 import { pointsPct, round, type FeeLine, type FeeOverride, type FeeSection, type PaidBy, type SectionTotals } from '@/lib/calc'
-import { FEE_SECTION_LABEL, PAID_BY_LABEL, useResetFee, useSaveFee } from '@/lib/api/pricing'
+import { FEE_SECTION_LABEL, PAID_BY_LABEL } from '@/lib/api/pricing'
 import { formatCurrency, parseNumber } from '@/lib/format'
 import type { LoanPurpose } from '@/lib/pipeline/stages'
-import { defaultMonths, type PricingScenario, type ScenarioDraft } from '@/lib/pricing/scenario'
+import { defaultMonths, type ScenarioDraft } from '@/lib/pricing/scenario'
 
 const SECTIONS: FeeSection[] = ['A', 'B', 'C', 'E', 'F', 'G', 'H']
 const PAID_BY: PaidBy[] = ['B', 'S', 'L', 'O']
 
-interface Props {
-  scenario: PricingScenario
-  organizationId: string
+interface Props<D extends ScenarioDraft> {
   purpose: LoanPurpose
-  draft: ScenarioDraft
-  setDraft: React.Dispatch<React.SetStateAction<ScenarioDraft>>
+  draft: D
+  setDraft: React.Dispatch<React.SetStateAction<D>>
+  /** Saves an edit to one fee, or an added fee (replacing an earlier edit of it). */
+  onSaveFee: (o: FeeOverride) => Promise<unknown> | void
+  /** Removes an edit (back to the calculated amount) or an added fee. */
+  onResetFee: (key: string) => Promise<unknown> | void
+  /** Where each line's amount came from, by fee key (shown on hover). */
+  sources?: Map<string, string>
+  title?: string
+  description?: string
+  action?: React.ReactNode
   lines: FeeLine[]
   totals: SectionTotals
   overrides: FeeOverride[]
   closingCosts: number
+  /** Lender credit in dollars, when it isn't only the draft's (e.g. negative points). */
+  lenderCredit?: number
   totalLoanAmount: number
   noFeeList: boolean
 }
 
 /** Review Fees: sections A–H. Typing over a fee saves an edit for this scenario (with a reset); points edit the scenario's points. */
-export function ReviewFees({ scenario, organizationId, purpose, draft, setDraft, lines, totals, overrides, closingCosts, totalLoanAmount, noFeeList }: Props) {
-  const saveFee = useSaveFee(scenario, organizationId)
-  const reset = useResetFee(scenario.id)
+export function ReviewFees<D extends ScenarioDraft>({ purpose, draft, setDraft, onSaveFee, onResetFee, sources, title, description, action, lines, totals, overrides, closingCosts, lenderCredit = draft.lenderCredit, totalLoanAmount, noFeeList }: Props<D>) {
   const [adding, setAdding] = useState(false)
+  const [pending, setPending] = useState(false)
   const months = defaultMonths(purpose)
   const set = <K extends keyof ScenarioDraft>(key: K) => (value: ScenarioDraft[K]) => setDraft((d) => ({ ...d, [key]: value }))
-  const done = { onError: (e: Error) => toast.error(e.message) }
+  const run = async (work: () => Promise<unknown> | void) => {
+    setPending(true)
+    try {
+      await work()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setPending(false)
+    }
+  }
+  const reset = { isPending: pending, mutate: (key: string) => run(() => onResetFee(key)) }
 
   /** Saves a change to one line. Amounts not typed keep following the calculation. */
   const change = (line: FeeLine, patch: Partial<Pick<FeeOverride, 'atClosing' | 'beforeClosing' | 'paidBy'>>) => {
@@ -44,7 +62,7 @@ export function ReviewFees({ scenario, organizationId, purpose, draft, setDraft,
     }
     const existing = overrides.find((o) => o.key === line.key)
     const base: FeeOverride = existing ?? { key: line.key, section: line.section, name: line.name, atClosing: null, beforeClosing: null, paidBy: line.paidBy, apr: line.apr, paidTo: line.paidTo, custom: line.custom }
-    saveFee.mutate({ ...base, ...patch }, done)
+    run(() => onSaveFee({ ...base, ...patch }))
   }
 
   const sectionExtras: Partial<Record<FeeSection, React.ReactNode>> = {
@@ -67,13 +85,16 @@ export function ReviewFees({ scenario, organizationId, purpose, draft, setDraft,
 
   return (
     <Card
-      title="Review fees"
-      description={noFeeList ? 'Your fee list in Settings is empty, so only points, prepaids and escrows are shown. Add fees here or in Settings.' : 'Type over a fee to change it for this scenario. Only fees the borrower pays count in the totals.'}
+      title={title ?? 'Review fees'}
+      description={noFeeList ? 'Your fee list in Settings is empty, so only points, prepaids and escrows are shown. Add fees here or in Settings.' : (description ?? 'Type over a fee to change it for this scenario. Only fees the borrower pays count in the totals.')}
       action={
-        <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
-          <PlusIcon />
-          Add fee
-        </Button>
+        <div className="flex gap-2">
+          {action}
+          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+            <PlusIcon />
+            Add fee
+          </Button>
+        </div>
       }
     >
       <div className="space-y-5">
@@ -105,11 +126,13 @@ export function ReviewFees({ scenario, organizationId, purpose, draft, setDraft,
                       {rows.map((l) => (
                         <tr key={l.key} className={l.paidBy !== 'B' ? 'text-muted-foreground' : undefined}>
                           <td className="py-1 pr-3">
-                            <span className="flex items-center gap-1.5">
-                              {l.edited && <span className="size-1.5 shrink-0 rounded-full bg-primary" title="Changed on this scenario" />}
+                            <span className="flex items-center gap-1.5" title={l.edited ? `Edited by you (calculated ${formatCurrency(l.calculated)})` : sources?.get(l.key)}>
+                              {l.edited && <span className="size-1.5 shrink-0 rounded-full bg-primary" title="Changed on this estimate" />}
                               {l.name}
                               {l.apr && <span className="text-[10px] text-muted-foreground">APR</span>}
                               {l.custom && <span className="text-[10px] text-muted-foreground">added</span>}
+                              {!l.edited && !l.custom && sources?.get(l.key) && <span className="hidden rounded bg-sky-50 px-1.5 py-0.5 text-[10px] text-sky-800 sm:inline">{sources.get(l.key)}</span>}
+                              {l.edited && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800">Edited</span>}
                             </span>
                             {l.paidTo && <span className="block text-xs text-muted-foreground">to {l.paidTo}</span>}
                           </td>
@@ -134,13 +157,13 @@ export function ReviewFees({ scenario, organizationId, purpose, draft, setDraft,
                           </td>
                           <td className="py-1 text-right">
                             {l.edited && (
-                              <Button size="sm" variant="ghost" title={`Back to ${formatCurrency(l.calculated)}`} disabled={reset.isPending} onClick={() => reset.mutate(l.key, done)}>
+                              <Button size="sm" variant="ghost" title={`Back to ${formatCurrency(l.calculated)}`} disabled={reset.isPending} onClick={() => reset.mutate(l.key)}>
                                 <RotateCcwIcon />
                                 Reset
                               </Button>
                             )}
                             {l.custom && (
-                              <Button size="sm" variant="ghost" title="Remove this fee" disabled={reset.isPending} onClick={() => reset.mutate(l.key, done)}>
+                              <Button size="sm" variant="ghost" title="Remove this fee" disabled={reset.isPending} onClick={() => reset.mutate(l.key)}>
                                 <XIcon />
                               </Button>
                             )}
@@ -157,11 +180,11 @@ export function ReviewFees({ scenario, organizationId, purpose, draft, setDraft,
         <dl className="ml-auto max-w-xs space-y-1 border-t pt-3 text-sm">
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Total A–H</dt>
-            <dd className="tabular-nums">{formatCurrency(round(closingCosts + draft.lenderCredit))}</dd>
+            <dd className="tabular-nums">{formatCurrency(round(closingCosts + lenderCredit))}</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Lender credit</dt>
-            <dd className="tabular-nums">{draft.lenderCredit ? `−${formatCurrency(draft.lenderCredit)}` : '$0'}</dd>
+            <dd className="tabular-nums">{lenderCredit ? `−${formatCurrency(lenderCredit)}` : '$0'}</dd>
           </div>
           <div className="flex justify-between font-semibold">
             <dt>Total closing costs</dt>
@@ -169,7 +192,7 @@ export function ReviewFees({ scenario, organizationId, purpose, draft, setDraft,
           </div>
         </dl>
       </div>
-      {adding && <AddFeeDialog onClose={() => setAdding(false)} onSave={(o) => saveFee.mutateAsync(o)} />}
+      {adding && <AddFeeDialog onClose={() => setAdding(false)} onSave={async (o) => onSaveFee(o)} />}
     </Card>
   )
 }
@@ -223,7 +246,7 @@ function AddFeeDialog({ onClose, onSave }: { onClose: () => void; onSave: (o: Fe
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add a fee</DialogTitle>
-          <DialogDescription>Added to this scenario only. To add it to every file, use the fee list in Settings.</DialogDescription>
+          <DialogDescription>Added to this estimate only. To add it to every file, use the fee list in Settings.</DialogDescription>
         </DialogHeader>
         <FormGrid className="lg:grid-cols-2">
           <Input label="Fee name" value={f.name} onChange={(name) => setF({ ...f, name })} required span={2} />
