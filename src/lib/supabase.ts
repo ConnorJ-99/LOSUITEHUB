@@ -6,15 +6,14 @@ const environment = import.meta.env.VITE_SUPABASE_ENV as string | undefined
 
 /**
  * Safety tripwire for CLAUDE.md rule 1: the app refuses to start against a
- * Supabase project unless .env.local explicitly marks it as the dev project.
+ * Supabase project unless the environment says which kind it is. The live
+ * site (Vercel) sets "production"; .env.local on a computer sets "development".
  */
-if (url && anonKey && environment !== 'development') {
-  throw new Error(
-    'Refusing to connect: set VITE_SUPABASE_ENV=development in .env.local, and only point it at the DEV Supabase project.',
-  )
+if (url && anonKey && environment !== 'development' && environment !== 'production') {
+  throw new Error('Refusing to connect: set VITE_SUPABASE_ENV to "development" (.env.local) or "production" (the live site).')
 }
 
-/** True once .env.local has the dev project's URL and anon key. */
+/** True once the project's URL and anon key are set. */
 export const isSupabaseConfigured = Boolean(url && anonKey)
 
 /** Null in preview mode (no .env.local yet); the app then runs without a backend. */
