@@ -9,6 +9,9 @@
 // sends a down payment as a dollar amount or a percent (down_payment_mode),
 // credit as a range ("700-739", "Below 620"), refinance home value as
 // current_value, and posts again after each step with the same lead_id.
+// Its loan-sweet-intake function forwards borrower forms flat (source
+// "mps_mortgage") and reshapes partner inquiries for /partner: contact_type,
+// brokerage, and consent only as a line in notes.
 
 export type LoanPurpose = 'purchase' | 'refinance_rate_term' | 'refinance_cash_out' | 'heloc' | 'heloan' | 'investment_dscr'
 
@@ -181,7 +184,8 @@ export function normalizeLead(body: unknown, kind: 'lead' | 'partner'): IntakeLe
     cashOut: parseMoney(pick(o, 'cash_out', 'cash_out_amount', 'cashOut')),
     creditScore: parseCreditScore(pick(o, 'credit_score', 'creditScore', 'credit_range', 'creditRange', 'credit_score_range', 'credit', 'credit_estimate')),
     timeline: text(pick(o, 'timeline', 'timeframe', 'when')).slice(0, 200) || null,
-    smsConsent: yesNo(o.sms_consent),
+    // The website's partner relay sends consent only as a line in notes ("SMS consent: yes").
+    smsConsent: yesNo(o.sms_consent) ?? yesNo(/\bSMS consent:\s*(yes|no)\b/i.exec(text(o.notes))?.[1]),
     formLeadId: text(pick(o, 'lead_id')).slice(0, 200) || null,
     source: (text(pick(o, 'lead_source', 'leadSource', 'source')) || 'mps.mortgage website').slice(0, 200),
     formType,

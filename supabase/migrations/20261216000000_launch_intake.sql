@@ -11,6 +11,10 @@
 --    outcome 'form_update' (already marked handled, so Today shows the form
 --    once), and it only fills blanks on the file (price, loan amount, cash
 --    out, timeline, estimated credit score). Nothing is overwritten.
+-- 3. Partner inquiries. The website's loan-sweet-intake reshapes the partners
+--    page form for /partner and names the type in contact_type ("realtor",
+--    "builder", "other"), so a builder is no longer saved as a realtor. Its
+--    text consent arrives as a line in notes; lead-intake reads it.
 --
 -- Apply to the DEV Supabase project only. Safe to run more than once. A full
 -- run ends with a confirmation row ("LOSuite launch intake installed").
@@ -25,6 +29,51 @@ alter table public.lead_submissions
 alter table public.consent_events drop constraint if exists consent_events_source_check;
 alter table public.consent_events
   add constraint consent_events_source_check check (source in ('stop_reply', 'ghl_dnd', 'person', 'web_form'));
+
+-- partner_from_submission as in 20261210000000_partners.sql, plus contact_type.
+create or replace function public.partner_from_submission(
+  p_org uuid, p_form_type text, p_answers jsonb, p_first text, p_last text, p_email text, p_phone text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  a        jsonb := coalesce(p_answers, '{}'::jsonb);
+  v_first  text := coalesce(nullif(trim(coalesce(p_first, '')), ''), nullif(trim(coalesce(a->>'first_name', a->>'firstName', a->>'fname', '')), ''));
+  v_last   text := coalesce(nullif(trim(coalesce(p_last, '')), ''), nullif(trim(coalesce(a->>'last_name', a->>'lastName', a->>'lname', '')), ''));
+  v_name   text := coalesce(nullif(concat_ws(' ', v_first, v_last), ''), nullif(trim(coalesce(a->>'name', a->>'full_name', a->>'fullName', '')), ''));
+  v_company text := nullif(trim(coalesce(a->>'company', a->>'company_name', a->>'companyName', a->>'brokerage', a->>'business_name', a->>'builder_name', '')), '');
+  v_email  text := coalesce(nullif(trim(coalesce(p_email, '')), ''), nullif(trim(coalesce(a->>'email', a->>'email_address', '')), ''));
+  v_phone  text := coalesce(nullif(trim(coalesce(p_phone, '')), ''), nullif(trim(coalesce(a->>'phone', a->>'phone_number', a->>'mobile', a->>'cell', '')), ''));
+  v_about  text := lower(concat_ws(' ', p_form_type, a->>'partner_type', a->>'partnerType', a->>'contact_type', a->>'role', a->>'type', a->>'company_type', a->>'profession'));
+  v_id     uuid;
+begin
+  if v_email is not null and v_email !~ '^[^\s@]+@[^\s@]+\.[^\s@]+$' then
+    v_email := null;
+  end if;
+  v_id := public.find_or_create_partner(
+    p_org,
+    case
+      when v_about like '%builder%' then 'builder'::public.partner_kind
+      when v_about like '%title%' or v_about like '%escrow%' then 'title'::public.partner_kind
+      else 'realtor'::public.partner_kind
+    end,
+    v_name, v_company, v_email, v_phone, 'website'
+  );
+  if v_id is not null then
+    perform public.fill_partner_blanks(v_id, v_company, v_email, v_phone);
+  end if;
+  return v_id;
+end;
+$$;
+
+revoke all on function public.partner_from_submission(uuid, text, jsonb, text, text, text, text) from public;
+do $$ begin
+  revoke all on function public.partner_from_submission(uuid, text, jsonb, text, text, text, text) from anon, authenticated;
+exception when undefined_object then null;
+end $$;
 
 -- intake_web_lead as in 20261210000000_partners.sql, plus consent and form steps.
 create or replace function public.intake_web_lead(p_lead jsonb)
@@ -233,4 +282,5 @@ select
   (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'lead_submissions' and column_name = 'form_lead_id') as form_lead_id_column,
   (select count(*) from pg_constraint where conname = 'lead_submissions_outcome_check' and pg_get_constraintdef(oid) like '%form_update%') as form_update_outcome,
   (select count(*) from pg_constraint where conname = 'consent_events_source_check' and pg_get_constraintdef(oid) like '%web_form%') as web_form_consent,
-  (select count(*) from pg_proc where proname = 'intake_web_lead' and pronamespace = 'public'::regnamespace and prosrc like '%form_update%') as intake_updated;
+  (select count(*) from pg_proc where proname = 'intake_web_lead' and pronamespace = 'public'::regnamespace and prosrc like '%form_update%') as intake_updated,
+  (select count(*) from pg_proc where proname = 'partner_from_submission' and pronamespace = 'public'::regnamespace and prosrc like '%contact_type%') as partner_type_read;

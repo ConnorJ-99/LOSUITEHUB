@@ -173,6 +173,27 @@ describe('the live website forms', () => {
     expect(r).toMatchObject({ kind: 'partner', formType: 'partner_inquiry', smsConsent: true })
     expect((r as { answers: Record<string, unknown> }).answers.partner_type).toBe('realtor')
   })
+  it('partner form as loan-sweet-intake relays it to /partner', () => {
+    const body = {
+      first_name: 'Bo',
+      last_name: 'TEST',
+      name: 'Bo TEST',
+      contact_type: 'builder',
+      brokerage: 'Sample Homes',
+      email: 'bo.test@example.com',
+      phone: '2145550192',
+      notes: 'Partnership inquiry from mps.mortgage/partners\nSMS consent: yes\nLanding page: https://www.mps.mortgage/partners',
+    }
+    const r = normalizeLead(body, 'partner')
+    expect(r).toMatchObject({ kind: 'partner', firstName: 'Bo', lastName: 'TEST', email: 'bo.test@example.com', phone: '2145550192', smsConsent: true, formType: null })
+    expect((r as { answers: Record<string, unknown> }).answers.contact_type).toBe('builder')
+    expect(normalizeLead({ ...body, notes: 'SMS consent: no' }, 'partner')).toMatchObject({ smsConsent: false })
+    expect(normalizeLead({ ...body, notes: 'Partnership inquiry from mps.mortgage/partners' }, 'partner')).toMatchObject({ smsConsent: null })
+  })
+  it('borrower forms as loan-sweet-intake relays them: flat, source "mps_mortgage"', () => {
+    const r = normalizeLead({ first_name: 'Jane', email: 'jane.test@example.com', lead_source: 'empty', source: 'mps_mortgage', form_type: 'refinance', refinance_goal: 'Take cash out', credit_range: '740+', sms_consent: true }, 'lead')
+    expect(r).toMatchObject({ source: 'mps_mortgage', formType: 'refinance', purpose: 'refinance_cash_out', creditScore: 740, smsConsent: true })
+  })
   it('contact, hard money and chat forms still come in as leads', () => {
     expect(normalizeLead({ form_type: 'contact', payload: { name: 'Lee TEST', email: 'lee@example.com', message: 'Call me' } }, 'lead')).toMatchObject({ kind: 'lead', firstName: 'Lee', lastName: 'TEST', purpose: 'purchase' })
     expect(normalizeLead({ form_type: 'hard_money', payload: { name: 'Lee', phone: '2145550100', scenario: 'Fix and flip, rent it out after', loan_purpose: 'Fix and flip, rent it out after' } }, 'lead')).toMatchObject({ purpose: 'investment_dscr' })
