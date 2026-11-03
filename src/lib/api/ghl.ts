@@ -323,3 +323,11 @@ export type OpportunityResult =
 export function moveGhlOpportunity(organizationId: string, loanId: string, move: 'closed' | 'comeback') {
   return invokeGhl<OpportunityResult>({ task: 'opportunity', organizationId, loanId, move }, 'The GHL opportunity was not moved.')
 }
+
+/** What happened to the borrower's GHL contact. `skipped` = GHL wasn't changed, and why. */
+export type ContactLinkResult = { skipped: string } | { linked: true; created: boolean }
+
+/** Matches or creates the borrower's GHL contact, assigned to the file's loan officer (prequal results, decision 7). */
+export function linkGhlContact(organizationId: string, loanId: string, contactId: string) {
+  return invokeGhl<ContactLinkResult>({ task: 'contact', organizationId, loanId, contactId }, 'The GHL contact was not matched or added.')
+}

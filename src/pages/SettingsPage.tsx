@@ -11,6 +11,7 @@ import { FeeListCard } from '@/components/pricing/FeeListCard'
 import { MessageTemplatesCard } from '@/components/queue/MessageTemplatesCard'
 import { useDraft } from '@/components/urla/useDraft'
 import { useOrgMembers } from '@/lib/api/loans'
+import { phoneDigits } from '@/lib/pipeline/helpers'
 import { useAddMember, useOrganization, useProfile, useRemoveMember, useSetMemberRole, useUpdateMyProfile, useUpdateOrganization, type Organization, type Profile } from '@/lib/api/settings'
 import type { OrgMember } from '@/lib/api/types'
 import { roleLabels, useAuth, type CurrentUser, type OrgRole } from '@/lib/auth/context'
@@ -82,6 +83,8 @@ function MyProfileCard({ profile, organizationId }: { profile: Profile; organiza
   const update = useUpdateMyProfile()
   const { form, set, dirty, reset } = useDraft<Profile>(profile)
   const text = (key: keyof Profile) => (v: string) => set(key)(v || null)
+  const cellDigits = (phoneDigits(form.personalCell) ?? '').replace(/^1(?=\d{10}$)/, '')
+  const cellProblem = form.personalCell?.trim() && cellDigits.length !== 10 ? 'Enter a 10-digit cell number.' : undefined
   return (
     <Card title="My profile" description="Shown as the loan originator on the 1003 (section 9).">
       <FormGrid className="lg:grid-cols-4">
@@ -90,12 +93,16 @@ function MyProfileCard({ profile, organizationId }: { profile: Profile; organiza
         <Input label="Individual NMLS #" value={form.nmls ?? ''} onChange={text('nmls')} />
         <Input label="State license #" value={form.stateLicense ?? ''} onChange={text('stateLicense')} />
         <Input label="Phone" type="tel" value={form.phone ?? ''} onChange={text('phone')} span={2} />
+        <Input label="Personal cell" type="tel" value={form.personalCell ?? ''} onChange={text('personalCell')} hint="Offered to borrowers in the text after you email prequal results." error={cellProblem} span={2} />
       </FormGrid>
       <SaveBar
         dirty={dirty}
         saving={update.isPending}
         onDiscard={reset}
-        onSave={() => update.mutate(form, { onSuccess: () => toast.success('Profile saved'), onError: (e) => toast.error(e.message) })}
+        onSave={() => {
+          if (cellProblem) return toast.error(cellProblem)
+          update.mutate(form, { onSuccess: () => toast.success('Profile saved'), onError: (e) => toast.error(e.message) })
+        }}
       />
       <BrandImageField kind="signature" label="Signature" hint="Shown above your name and NMLS on pre-approval letters. A PNG of your signature in dark ink on a white or clear background works best." path={profile.signaturePath} organizationId={organizationId} userId={profile.id} canEdit />
     </Card>

@@ -10,7 +10,9 @@ import { pdfPageCount } from '@/lib/documents/pdfText'
 import { FeeWorksheetPdf } from './FeeWorksheetPdf'
 import { LoanComparisonPdf } from './LoanComparisonPdf'
 import { PreapprovalLetterPdf } from './PreapprovalLetterPdf'
+import { PrequalResultsPdf } from './PrequalResultsPdf'
 import type { LetterView } from '@/lib/documents/preapproval'
+import type { PrequalResultsView } from '@/lib/documents/prequalResults'
 
 /** Renders the document at the largest scale that fits one page (100% down to 82%). */
 export function renderOnePage(make: (scale: number) => ReactElement<DocumentProps>) {
@@ -25,3 +27,5 @@ export const feeWorksheetPdf = (worksheet: FeeWorksheet, brand: DocBrand) => ren
 export const loanComparisonPdf = (comparison: LoanComparison, brand: DocBrand) => renderOnePage((scale) => <LoanComparisonPdf comparison={comparison} brand={brand} scale={scale} />)
 
 export const preapprovalLetterPdf = (letter: LetterView, brand: DocBrand) => renderOnePage((scale) => <PreapprovalLetterPdf letter={letter} brand={brand} scale={scale} />)
+
+export const prequalResultsPdf = (results: PrequalResultsView, brand: DocBrand) => renderOnePage((scale) => <PrequalResultsPdf results={results} brand={brand} scale={scale} />)

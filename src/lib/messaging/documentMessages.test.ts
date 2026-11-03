@@ -6,6 +6,7 @@ describe('messages that go with a sent document', () => {
     expect(isSendableKind('preapproval_letter')).toBe(true)
     expect(isSendableKind('fee_worksheet')).toBe(true)
     expect(isSendableKind('loan_comparison')).toBe(true)
+    expect(isSendableKind('prequal_results')).toBe(true)
     expect(isSendableKind('paystub')).toBe(false)
   })
 

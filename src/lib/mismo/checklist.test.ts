@@ -61,7 +61,7 @@ describe('export checklist', () => {
       application: { borrowers: [complete], assets: [], liabilities: [] },
       properties: [{ id: 'p', estimatedValue: 320000 } as never],
       organization: { id: 'o', name: 'MPS', nmls: '2501110', addressLine: '1 Office', city: null, state: 'TX', zip: null, phone: null, logoPath: null },
-      originator: { id: 'u', email: 'x', fullName: 'X', nmls: '123', phone: null, stateLicense: null, signaturePath: null },
+      originator: { id: 'u', email: 'x', fullName: 'X', nmls: '123', phone: null, stateLicense: null, signaturePath: null, personalCell: null },
     })
     expect(items).toEqual([])
   })

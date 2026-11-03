@@ -24,6 +24,8 @@ export interface Profile {
   stateLicense: string | null
   /** Signature image for letters, in the brand-files bucket. */
   signaturePath: string | null
+  /** The LO's own cell, offered in the text after prequal results are emailed. */
+  personalCell: string | null
 }
 
 interface OrgRow {
@@ -46,6 +48,7 @@ interface ProfileRow {
   phone: string | null
   state_license: string | null
   signature_path: string | null
+  personal_cell: string | null
 }
 
 const toProfile = (r: ProfileRow): Profile => ({
@@ -56,6 +59,7 @@ const toProfile = (r: ProfileRow): Profile => ({
   phone: r.phone,
   stateLicense: r.state_license,
   signaturePath: r.signature_path,
+  personalCell: r.personal_cell,
 })
 
 /** The signed-in user's organization (company name, NMLS, address). */
@@ -106,7 +110,7 @@ export function useProfile(id: string | null | undefined) {
     enabled: !!id,
     queryFn: async (): Promise<Profile | null> => {
       const r = unwrap<ProfileRow | null>(
-        await db().from('profiles').select('id, email, full_name, nmls, phone, state_license, signature_path').eq('id', id!).maybeSingle(),
+        await db().from('profiles').select('id, email, full_name, nmls, phone, state_license, signature_path, personal_cell').eq('id', id!).maybeSingle(),
       )
       return r ? toProfile(r) : null
     },
@@ -120,7 +124,7 @@ export function useUpdateMyProfile() {
       const rows = unwrap<{ id: string }[]>(
         await db()
           .from('profiles')
-          .update({ full_name: p.fullName?.trim() || null, nmls: p.nmls?.trim() || null, phone: p.phone?.trim() || null, state_license: p.stateLicense?.trim() || null })
+          .update({ full_name: p.fullName?.trim() || null, nmls: p.nmls?.trim() || null, phone: p.phone?.trim() || null, state_license: p.stateLicense?.trim() || null, personal_cell: p.personalCell?.trim() || null })
           .eq('id', p.id)
           .select('id'),
       )

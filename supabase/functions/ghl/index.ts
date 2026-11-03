@@ -725,6 +725,46 @@ async function moveOpportunity(db: SupabaseClient, admin: SupabaseClient, g: Ghl
   }
 }
 
+/**
+ * Matches or creates a borrower's GHL contact before something is drafted
+ * for them (prequal results, decision 7), assigned to the file's loan
+ * officer's GHL user. Test mode only touches GHL for people named TEST;
+ * otherwise it comes back as `skipped` with the reason, never as an error.
+ */
+async function linkContact(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, body: Record<string, unknown>) {
+  const loanId = typeof body.loanId === 'string' ? body.loanId : null
+  const contactId = typeof body.contactId === 'string' ? body.contactId : null
+  if (!loanId || !contactId) throw new UserError('Which file, and which borrower?')
+
+  // What the user can see (Row Level Security): the borrower on this file.
+  const onFile = await db
+    .from('loan_borrowers')
+    .select('loan:loans ( assigned_lo_id ), contact:contacts ( id, first_name, last_name, email, phone, ghl_contact_id )')
+    .eq('loan_id', loanId)
+    .eq('contact_id', contactId)
+    .maybeSingle()
+  if (onFile.error) throw new Error(onFile.error.message)
+  const row = onFile.data as unknown as { loan: { assigned_lo_id: string | null } | null; contact: (GhlPerson & { id: string }) | null } | null
+  if (!row?.contact) throw new UserError('That person is not on this file, or the file is not yours.')
+  const person = row.contact
+  if (person.ghl_contact_id) return { linked: true, created: false }
+
+  const settings = await admin.from('messaging_settings').select('inbound_mode').eq('organization_id', organizationId).maybeSingle()
+  if (settings.error) throw new Error(settings.error.message)
+  if (((settings.data as { inbound_mode: string } | null)?.inbound_mode ?? 'test_only') === 'test_only' && !hasTestName(person.first_name, person.last_name)) {
+    return { skipped: 'Test mode: LOSuite only adds people with TEST in their name to GHL, so GHL wasn\'t changed.' }
+  }
+
+  let assignTo: string | null = null
+  if (row.loan?.assigned_lo_id) {
+    const link = await admin.from('ghl_user_links').select('ghl_user_id').eq('organization_id', organizationId).eq('profile_id', row.loan.assigned_lo_id).maybeSingle()
+    if (link.error) throw new Error(link.error.message)
+    assignTo = (link.data as { ghl_user_id: string } | null)?.ghl_user_id ?? null
+  }
+  const contact = await ensureGhlContact(admin, g, organizationId, person.id, person, assignTo)
+  return { linked: true, created: contact.created }
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (request.method !== 'POST') return reply(405, { error: 'Use POST.' })
@@ -775,6 +815,15 @@ Deno.serve(async (request) => {
         return reply(200, await moveOpportunity(db, admin, g, organizationId, body))
       } finally {
         if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'opportunity', ...c })))
+      }
+    }
+    if (task === 'contact') {
+      // Anyone who can see the file.
+      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+      try {
+        return reply(200, await linkContact(db, admin, g, organizationId, body))
+      } finally {
+        if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'contact', ...c })))
       }
     }
     if (!['owner', 'admin'].includes((role.data as { role: string }).role)) return reply(403, { error: 'Only an owner or admin can manage the GHL connection.' })

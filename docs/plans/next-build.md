@@ -19,7 +19,7 @@
 ## Sessions (do ONE per chat, in order)
 - Session 1: ghl-messaging.md Step A (test-mode privacy fix); Loans tab; Conditions tab (list, statuses, paste, workflow tie-in; no reminders yet).
 - Session 2 (built 2026-11-02, `20261214000000_ghl_scheduler_opportunities.sql`): pg_cron scheduler + ghl-messaging Phase 2c (scheduled catch-up); GHL contact create + assign to the LO; GHL opportunities (decisions 2–3; scopes `opportunities.readonly` and `opportunities.write`); email with PDF attachment (Step B).
-- Session 3: prequal results (decision 7).
+- Session 3 (built 2026-11-02, `20261215000000_prequal_results.sql`): prequal results (decision 7).
 - Launch: migrate old data + switch the website forms to lead-intake on the same day. Before then, compare the live mps.mortgage form payload with lead-intake/normalize.ts and list any mismatches.
 - Session 4: drafting engine: key-date drafts + automate switch (decision 6), condition reminder drafts (decision 8).
 - Session 5: weekly email (decision 5).

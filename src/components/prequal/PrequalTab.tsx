@@ -16,6 +16,7 @@ import { CallNotes } from './CallNotes'
 import { CreditHistorySection } from './CreditHistorySection'
 import { PrequalResults } from './PrequalResults'
 import { ReadinessCard, useLiveReadiness } from './Readiness'
+import { SendPrequalResults } from './SendPrequalResults'
 
 /** The phone prequal: a short 1003 with live qualification, saved into the same records. */
 export function PrequalTab({ loan }: { loan: LoanProfile }) {
@@ -87,6 +88,7 @@ function PrequalForm({ loan, app, subject, properties, saved }: { loan: LoanProf
             canMarkPrequalified={(loan.stage === 'lead' || loan.stage === 'contacted') && !dirty}
             onMarkPrequalified={onMarkPrequalified}
           />
+          <SendPrequalResults loan={loan} app={app} subject={subject} draft={draft} summary={summary} dirty={dirty} />
         </div>
       </div>
 

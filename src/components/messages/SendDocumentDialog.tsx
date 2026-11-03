@@ -6,7 +6,11 @@ import { confirmAction, Input, TextArea, ToggleChip } from '@/components/shared'
 import { EditDialog } from '@/components/urla/parts'
 import { useLoanDocuments, type LoanDocument } from '@/lib/api/documents'
 import { useFilePeople, useSendMessage, type FilePerson } from '@/lib/api/messages'
+import { useQueueDraft } from '@/lib/api/queue'
+import { useProfile } from '@/lib/api/settings'
 import type { LoanProfile } from '@/lib/api/types'
+import { useAuth } from '@/lib/auth/context'
+import { prequalFollowUpText } from '@/lib/documents/prequalResults'
 import { documentMessage, isSendableKind, type SendableKind } from '@/lib/messaging/documentMessages'
 import { TONE_CLASS } from './tone'
 import { useSendPlan } from './useSendPlan'
@@ -19,7 +23,12 @@ function Form({ loan, doc, people, onClose }: { loan: LoanProfile; doc: LoanDocu
   const draft = (p: FilePerson) => documentMessage(doc.kind, p.firstName, rules?.loName ?? loan.assignedLo?.name ?? null)
   const [subject, setSubject] = useState(() => draft(person).subject)
   const [body, setBody] = useState(() => draft(person).body)
-  const [alsoText, setAlsoText] = useState(true)
+  // Prequal results get Connor's follow-up text in the Action Queue instead (decision 7).
+  const isPrequal = doc.kind === 'prequal_results'
+  const [alsoText, setAlsoText] = useState(!isPrequal)
+  const { state } = useAuth()
+  const lo = useProfile(loan.assignedLo?.id ?? (state.status === 'signedIn' ? state.user.id : null))
+  const queueDraft = useQueueDraft(loan.id, loan.organizationId)
   const [text, setText] = useState(() => draft(person).text)
   // One key per message: a double click or retry can't send either one twice.
   const [keys] = useState(() => ({ email: crypto.randomUUID(), text: crypto.randomUUID() }))
@@ -51,7 +60,17 @@ function Form({ loan, doc, people, onClose }: { loan: LoanProfile; doc: LoanDocu
       {
         onSuccess: (r) => {
           if (r.alreadySent) toast.info(r.error ? `That email already failed: ${r.error}` : 'That email was already sent.')
-          else toast.success(`${doc.fileName} emailed to ${person.firstName}`)
+          else {
+            toast.success(`${doc.fileName} emailed to ${person.firstName}`)
+            if (isPrequal) {
+              const cell = lo.data?.personalCell ?? null
+              // A promise, not mutate's callbacks: the dialog closes before it finishes.
+              queueDraft
+                .mutateAsync({ title: `Text ${person.firstName}: prequal results sent`, draft: { channel: 'text', to: `${person.firstName} ${person.lastName} (borrower)`, subject: null, body: prequalFollowUpText(person.firstName, cell) } })
+                .then(() => toast.success(cell ? 'Follow-up text drafted in the Action Queue' : 'Follow-up text drafted in the Action Queue, without a personal cell: add yours in Settings → My profile'))
+                .catch((e: Error) => toast.error(`The email went, but the follow-up text wasn't drafted: ${e.message}`))
+            }
+          }
           if (!withText) return onClose()
           send.mutate(
             { contactId: person.id, loanId: loan.id, channel: 'text', body: text, subject: null, idempotencyKey: keys.text },
@@ -129,7 +148,7 @@ export function SendDocumentDialog({ loan, doc, onClose }: { loan: LoanProfile; 
   return <Form loan={loan} doc={doc} people={people.data} onClose={onClose} />
 }
 
-/** The send dialog for a PDF just saved on the Fees, Pricing or Letters tab ("Send…" on the saved toast). */
+/** The send dialog for a PDF just saved on the Fees, Pricing, Letters or Prequal tab ("Send…" on the saved toast). */
 export function SendSavedPdf({ loan, docId, onClose }: { loan: LoanProfile; docId: string | null; onClose: () => void }) {
   const docs = useLoanDocuments(loan.id)
   const doc = docId ? docs.data?.find((d) => d.id === docId) : undefined

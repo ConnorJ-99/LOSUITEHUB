@@ -12,7 +12,7 @@ export const DOCUMENT_KIND_GROUPS = [
   { label: 'Money', kinds: [['bank_statement', 'Bank statement'], ['investment_statement', 'Investment or retirement statement'], ['gift_letter', 'Gift letter']] },
   { label: 'Credit and ID', kinds: [['photo_id', 'Photo ID'], ['bankruptcy_papers', 'Bankruptcy papers'], ['explanation_letter', 'Letter of explanation']] },
   { label: 'Property', kinds: [['purchase_contract', 'Purchase contract'], ['contract_addendum', 'Addendum'], ['mortgage_statement', 'Mortgage statement'], ['insurance_declarations', 'Insurance declarations'], ['lease', 'Lease'], ['appraisal', 'Appraisal'], ['title_commitment', 'Title commitment']] },
-  { label: 'Made in LOSuite', kinds: [['fee_worksheet', 'Fee Worksheet'], ['loan_comparison', 'Loan comparison'], ['preapproval_letter', 'Pre-approval letter']] },
+  { label: 'Made in LOSuite', kinds: [['fee_worksheet', 'Fee Worksheet'], ['loan_comparison', 'Loan comparison'], ['preapproval_letter', 'Pre-approval letter'], ['prequal_results', 'Prequal results']] },
   { label: 'Other', kinds: [['other', 'Other']] },
 ] as const
 

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { NoteKind } from '@/lib/api/types'
 import { fullName } from '@/lib/pipeline/helpers'
-import { readSources, type ActionItem, type ActionKind, type ActionStatus, type Confidence, type FileRef, type LoanDates } from '@/lib/queue/today'
+import { readSources, type ActionItem, type ActionKind, type ActionStatus, type Confidence, type DraftMessage, type FileRef, type LoanDates } from '@/lib/queue/today'
 import { db, keys, unwrap } from './client'
 
 interface ActionRow {
@@ -70,6 +70,24 @@ export function useLoanQueue(loanId: string) {
         .sort((a, b) => (b.decidedAt ?? '').localeCompare(a.decidedAt ?? ''))
         .slice(0, 5)
       return { pending, decided }
+    },
+  })
+}
+
+/** Puts one message drafted in code (no AI) in a file's Action Queue, for Connor to approve and send himself. */
+export function useQueueDraft(loanId: string, organizationId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ title, draft }: { title: string; draft: DraftMessage }) => {
+      unwrap(
+        await db()
+          .from('action_items')
+          .insert({ organization_id: organizationId, loan_id: loanId, kind: 'draft_message', title, payload: draft, sources: [], confidence: null, due_on: null, ai_run_id: null })
+          .select('id'),
+      )
+    },
+    onSettled: () => {
+      for (const key of [keys.queue(loanId), keys.today]) queryClient.invalidateQueries({ queryKey: key })
     },
   })
 }
