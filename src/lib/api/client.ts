@@ -19,6 +19,7 @@ export const keys = {
   properties: (loanId: string) => ['properties', loanId] as const,
   notes: (contactId: string) => ['notes', contactId] as const,
   loanTasks: (loanId: string) => ['tasks', 'loan', loanId] as const,
+  conditions: (loanId: string) => ['conditions', loanId] as const,
   myTasks: ['tasks', 'mine'] as const,
   openTasks: ['tasks', 'open'] as const,
   application: (loanId: string) => ['application', loanId] as const,

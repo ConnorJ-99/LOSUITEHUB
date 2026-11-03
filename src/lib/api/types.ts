@@ -38,6 +38,8 @@ export interface PipelineLoan {
   /** The primary borrower. */
   borrower: Contact | null
   coBorrowerCount: number
+  /** Underwriting conditions on the file ("4 of 9 cleared" on the card). */
+  conditions: { total: number; cleared: number; allHandedIn: boolean }
 }
 
 export interface StageHistoryEntry {

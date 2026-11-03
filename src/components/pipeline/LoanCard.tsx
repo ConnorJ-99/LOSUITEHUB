@@ -115,6 +115,11 @@ export function LoanCard({ loan, showLo, dragging, onStageSelect, onOpen, tasks 
           <p className="mt-0.5 flex items-center gap-1.5 text-xs">
             <span className={cn('size-1.5 rounded-full', DOT[loan.stage] ?? 'bg-slate-400')} />
             {stageLabelFor(loan.stage, loan.purpose, stageLabel(loan.stage))}
+            {loan.conditions.total > 0 && (
+              <span className={cn('ml-1 rounded-full px-1.5 py-px text-[11px] tabular-nums', loan.conditions.cleared === loan.conditions.total ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground')} title="Underwriting conditions cleared (or waived)">
+                {loan.conditions.cleared} of {loan.conditions.total} cleared
+              </span>
+            )}
           </p>
         </div>
       </div>

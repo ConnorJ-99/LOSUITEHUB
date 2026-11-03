@@ -13,7 +13,7 @@ const details = (over: Partial<LoanDetails> = {}): LoanDetails => ({
 
 const loan = (over: Partial<LoanDetails> = {}): LoanProfile => ({
   id: 'l', purpose: 'purchase', stage: 'lead', lostReason: null, referralSource: null, stageChangedAt: '', createdAt: '', priorLoanId: null, priority: false, statusDetail: null, timeline: null, loanAmount: null, purchasePrice: null, closingDate: null,
-  assignedLo: null, borrower: null, coBorrowerCount: 0, organizationId: 'o', details: details(over),
+  assignedLo: null, borrower: null, coBorrowerCount: 0, conditions: { total: 0, cleared: 0, allHandedIn: false }, organizationId: 'o', details: details(over),
 })
 
 const borrower: ApplicationBorrower = {

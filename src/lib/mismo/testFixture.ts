@@ -22,7 +22,7 @@ export const details: LoanDetails = {
 export const loan: LoanProfile = {
   id: 'loan-1', purpose: 'refinance_cash_out', stage: 'pre_approved', lostReason: null, referralSource: null,
   stageChangedAt: '2026-10-24T00:00:00Z', createdAt: '2026-10-24T00:00:00Z', priorLoanId: null, priority: false, statusDetail: null, timeline: null, loanAmount: null, purchasePrice: null, closingDate: null,
-  assignedLo: { id: 'lo-1', name: 'Connor' }, borrower: null, coBorrowerCount: 1, organizationId: 'org-1', details,
+  assignedLo: { id: 'lo-1', name: 'Connor' }, borrower: null, coBorrowerCount: 1, conditions: { total: 0, cleared: 0, allHandedIn: false }, organizationId: 'org-1', details,
 }
 
 export const primary: ApplicationBorrower = {

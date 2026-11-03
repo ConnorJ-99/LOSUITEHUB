@@ -9,6 +9,7 @@ import {
   HomeIcon,
   LandmarkIcon,
   LayersIcon,
+  ListChecksIcon,
   MailIcon,
   MessagesSquareIcon,
   NotebookPenIcon,
@@ -26,6 +27,7 @@ import { Button } from '@/components/ui/button'
 import { Card, EmptyState, confirmAction } from '@/components/shared'
 import { ClosedLoanCard } from '@/components/closed/ClosedLoanCard'
 import { LoansTab } from '@/components/closed/LoansTab'
+import { ConditionsTab } from '@/components/conditions/ConditionsTab'
 import { ContractTab } from '@/components/contract/ContractTab'
 import { DocumentsTab } from '@/components/documents/DocumentsTab'
 import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
@@ -66,9 +68,9 @@ import { pipelineFor, pipelineInfo } from '@/lib/pipeline/pipelines'
 import { applicationSummary } from '@/lib/urla/summary'
 import { useAuth } from '@/lib/auth/context'
 
-const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'messages', 'loan', 'properties', 'letters', 'loans'] as const
+const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'messages', 'loan', 'properties', 'letters', 'loans', 'conditions'] as const
 type Section = (typeof SECTIONS)[number]
-const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'messages', 'loan', 'properties', 'letters', 'loans']
+const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'fees', 'documents', 'notes', 'messages', 'loan', 'properties', 'letters', 'loans', 'conditions']
 /** A closed file's profile: the closed loan (Overview), its 1003, the home, documents, notes and messages. */
 const CLOSED_SECTIONS: Section[] = ['overview', 'loans', '1003', 'properties', 'documents', 'notes', 'messages']
 
@@ -201,6 +203,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     ...(isPurchase ? [{ id: 'contract', label: 'Contract', icon: FileSignatureIcon }] : []),
     { id: 'fees', label: 'Fees', icon: ReceiptIcon },
     { id: 'documents', label: 'Documents', icon: FolderIcon },
+    { id: 'conditions', label: 'Conditions', icon: ListChecksIcon, marker: loan.conditions.total && loan.conditions.cleared < loan.conditions.total ? { type: 'count', value: loan.conditions.total - loan.conditions.cleared } : loan.conditions.total ? { type: 'complete' } : undefined },
     { id: 'notes', label: 'Notes', icon: NotebookPenIcon },
     { id: 'messages', label: 'Messages', icon: MessagesSquareIcon, marker: unread ? { type: 'count', value: unread } : undefined },
     { id: 'loan', label: 'Loan · Pricing', icon: LandmarkIcon },
@@ -339,6 +342,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           {section === 'messages' && <MessagesTab loan={loan} />}
           {section === 'properties' && <PropertiesTab loan={loan} />}
           {section === 'loans' && closedFile && <LoansTab loan={loan} />}
+          {section === 'conditions' && <ConditionsTab loan={loan} step={workflow?.steps.find((s) => s.key === 'conditions') ?? null} />}
         </div>
       </div>
 

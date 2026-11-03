@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
+import { conditionCounts, type ConditionStatus } from '@/lib/loanfile/conditions'
 import type { LoanPurpose, PipelineStage } from '@/lib/pipeline/stages'
 import { db, keys, num, unwrap } from './client'
 import type { Contact, LoanDetails, LoanProfile, OrgMember, PipelineLoan, StageHistoryEntry } from './types'
@@ -33,13 +34,15 @@ interface LoanRow {
   card_closing_date: string | null
   assigned_lo: { id: string; full_name: string | null; email: string } | null
   borrowers: { role: 'primary' | 'co_borrower'; contact: ContactRow | null }[]
+  conditions?: { status: ConditionStatus }[]
 }
 
 const LOAN_SELECT = `
   id, purpose, stage, lost_reason, referral_source, stage_changed_at, created_at, prior_loan_id,
   priority, status_detail, card_timeline:timeline, card_loan_amount:loan_amount, card_purchase_price:purchase_price, card_closing_date:closing_date,
   assigned_lo:profiles!loans_assigned_lo_id_fkey ( id, full_name, email ),
-  borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, email, phone ) )
+  borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, email, phone ) ),
+  conditions:loan_conditions ( status )
 `
 
 /**
@@ -143,6 +146,7 @@ function toLoan(row: LoanRow): PipelineLoan {
       : null,
     borrower: primary ? toContact(primary) : null,
     coBorrowerCount: row.borrowers.filter((b) => b.role === 'co_borrower').length,
+    conditions: conditionCounts((row.conditions ?? []).map((c) => c.status)),
   }
 }
 
