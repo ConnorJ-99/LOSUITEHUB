@@ -159,7 +159,8 @@ export function PartnersPage() {
   const partners = usePartners()
   const { state } = useAuth()
   const canEdit = state.status === 'signedIn' && (state.user.role === 'owner' || state.user.role === 'admin' || state.user.role === 'loan_officer')
-  const [search, setSearch] = useState('')
+  // ?q= opens the list already searched (Today's "View partner").
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
   const [kind, setKind] = useState<PartnerKind | null>(null)
   const [editing, setEditing] = useState<Partner | 'new' | null>(null)
 
