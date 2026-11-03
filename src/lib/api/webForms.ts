@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { db, keys, unwrap } from './client'
 
-export type SubmissionOutcome = 'new_lead' | 'existing_open_loan' | 'new_loan_existing_person' | 'partner_inquiry'
+export type SubmissionOutcome = 'new_lead' | 'existing_open_loan' | 'new_loan_existing_person' | 'partner_inquiry' | 'form_update'
 
 /** One form submission from the website, as received (sensitive fields already removed). */
 export interface WebForm {

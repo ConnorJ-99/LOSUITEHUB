@@ -3,6 +3,12 @@
 // (first_name, phone, loan_purpose, purchase_price, "$450k"...), so the
 // website only needs a new address and secret. Pure, with no imports, so the
 // Edge Function (Deno) and the tests (Vitest) share it.
+//
+// The website (checked 2026-11-02) sends { form_type, payload } from every
+// form. Its multi-step form fills unanswered questions with the word "empty",
+// sends a down payment as a dollar amount or a percent (down_payment_mode),
+// credit as a range ("700-739", "Below 620"), refinance home value as
+// current_value, and posts again after each step with the same lead_id.
 
 export type LoanPurpose = 'purchase' | 'refinance_rate_term' | 'refinance_cash_out' | 'heloc' | 'heloan' | 'investment_dscr'
 
@@ -21,6 +27,10 @@ export interface IntakeLead {
   cashOut: number | null
   creditScore: number | null
   timeline: string | null
+  /** The text-message consent box: true, false, or null when the form has none. */
+  smsConsent: boolean | null
+  /** The website's id for one person's trip through its multi-step form (the same on every step). */
+  formLeadId: string | null
   source: string
   formType: string | null
   assignedToEmail: string | null
@@ -57,21 +67,28 @@ export function normalizeEmail(v: unknown): string | null {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t) ? t : null
 }
 
-/** Plain-language purposes from the forms ("Cash-out refi", "Buy a home", "HELOC") to LOSuite's. */
-export function parsePurpose(v: unknown, formType: string | null): LoanPurpose {
-  const t = `${text(v)} ${text(formType)}`.toLowerCase()
+/**
+ * Plain-language purposes from the forms ("Cash-out refi", "Buy a home",
+ * "HELOC") to LOSuite's. The occupancy answer ("Investment property") counts
+ * too.
+ */
+export function parsePurpose(v: unknown, formType: string | null, occupancy?: unknown): LoanPurpose {
+  const t = `${text(v)} ${text(formType)} ${text(occupancy)}`.toLowerCase()
   if (/heloc/.test(t)) return 'heloc'
   if (/heloan|home equity loan|second (lien|mortgage)/.test(t)) return 'heloan'
-  if (/dscr|invest|rental/.test(t)) return 'investment_dscr'
-  if (/cash[\s-]?out/.test(t)) return 'refinance_cash_out'
+  if (/home[\s_-]?equity/.test(t)) return 'heloc'
+  if (/dscr|invest|rental|hard[\s_-]?money|flip/.test(t)) return 'investment_dscr'
+  if (/cash[\s-]?out|consolidat|access (my )?equity/.test(t)) return 'refinance_cash_out'
   if (/refi|refinanc|rate[\s/-]?term|lower (my )?(rate|payment)/.test(t)) return 'refinance_rate_term'
   return 'purchase'
 }
 
-/** "700-739" → 700, "Excellent (740+)" → 740, "720" → 720. */
+/** "700-739" → 700, "Excellent (740+)" → 740, "720" → 720, "Below 620" → 619. */
 export function parseCreditScore(v: unknown): number | null {
-  const m = /\b([3-8]\d{2})\b/.exec(text(v))
-  const n = m ? Number(m[1]) : null
+  const t = text(v)
+  const m = /\b([3-8]\d{2})\b/.exec(t)
+  const below = m !== null && /\b(below|under|less than)\b|</i.test(t.slice(0, m.index))
+  const n = m ? Number(m[1]) - (below ? 1 : 0) : null
   return n !== null && n >= 300 && n <= 850 ? n : null
 }
 
@@ -88,10 +105,20 @@ export function sanitize(v: unknown): unknown {
   return v
 }
 
+/** Blank, or the website's word for a question nobody answered. */
+const isBlank = (v: unknown) => v === undefined || v === null || text(v) === '' || text(v).toLowerCase() === 'empty'
+
 /** The first non-empty value among a field's spellings (snake_case, camelCase and old names). */
 const pick = (o: Record<string, unknown>, ...keys: string[]) => {
-  for (const k of keys) if (o[k] !== undefined && o[k] !== null && text(o[k]) !== '') return o[k]
+  for (const k of keys) if (!isBlank(o[k])) return o[k]
   return undefined
+}
+
+/** A checkbox: true, false, or null when it wasn't on the form. */
+const yesNo = (v: unknown): boolean | null => {
+  if (typeof v === 'boolean') return v
+  const t = text(v).toLowerCase()
+  return /^(true|yes|y|1|on)$/.test(t) ? true : /^(false|no|n|0|off)$/.test(t) ? false : null
 }
 
 const TRACKING_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'referrer', 'landing_page', 'gclid', 'fbclid']
@@ -104,7 +131,8 @@ const TRACKING_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', '
 export function normalizeLead(body: unknown, kind: 'lead' | 'partner'): IntakeLead | { error: string } {
   if (!isObject(body)) return { error: 'The request body must be a JSON object.' }
   const raw = isObject(body.payload) ? { ...body.payload, form_type: body.form_type ?? body.payload.form_type } : body
-  const o = sanitize(raw) as Record<string, unknown>
+  // Unanswered questions ("empty") aren't kept.
+  const o = Object.fromEntries(Object.entries(sanitize(raw) as Record<string, unknown>).filter(([, v]) => typeof v !== 'string' || !isBlank(v)))
 
   const email = normalizeEmail(pick(o, 'email', 'email_address'))
   const phone = normalizePhone(pick(o, 'phone', 'phone_number', 'mobile', 'cell'))
@@ -120,6 +148,18 @@ export function normalizeLead(body: unknown, kind: 'lead' | 'partner'): IntakeLe
   if (!firstName) firstName = email ? email.split('@')[0] : 'Web lead'
 
   const formType = text(pick(o, 'form_type', 'formType')) || null
+  // The website's partner form is "partner_inquiry", whichever address it's sent to.
+  if (formType === 'partner_inquiry') kind = 'partner'
+
+  // Under contract, the contract price is the price; the open house form sends the listing price.
+  const purchasePrice = parseMoney(pick(o, 'contract_price', 'purchase_price', 'purchasePrice', 'price', 'home_price', 'target_price', 'listing_price', 'listingPrice'))
+  // The multi-step form asks "a dollar amount or a percentage?"
+  const downMode = text(o.down_payment_mode).toLowerCase()
+  let downPayment = parseMoney(pick(o, 'down_payment', 'downPayment', 'down_payment_value'))
+  if (downMode === 'percent') {
+    const pct = parseMoney(pick(o, 'down_payment_value', 'down_payment'))
+    downPayment = pct !== null && pct <= 100 && purchasePrice !== null ? Math.round((purchasePrice * pct) / 100) : null
+  } else if (downMode === 'unsure') downPayment = null
   const tracking = Object.fromEntries(
     TRACKING_KEYS.flatMap((k) => {
       const v = text(o[k] ?? (isObject(o.attribution) ? o.attribution[k] : undefined) ?? (isObject(o.utm) ? o.utm[k.replace('utm_', '')] : undefined))
@@ -133,14 +173,16 @@ export function normalizeLead(body: unknown, kind: 'lead' | 'partner'): IntakeLe
     lastName: lastName.slice(0, 100),
     email,
     phone,
-    purpose: parsePurpose(pick(o, 'loan_purpose', 'loanPurpose', 'purpose', 'goal'), formType),
-    purchasePrice: parseMoney(pick(o, 'purchase_price', 'purchasePrice', 'price', 'home_price', 'target_price')),
-    downPayment: parseMoney(pick(o, 'down_payment', 'downPayment')),
-    estimatedValue: parseMoney(pick(o, 'estimated_value', 'home_value', 'property_value', 'homeValue')),
-    loanBalance: parseMoney(pick(o, 'loan_balance', 'mortgage_balance', 'current_balance', 'balance_owed')),
+    purpose: parsePurpose(pick(o, 'loan_purpose', 'loanPurpose', 'purpose', 'refinance_goal', 'product_interest', 'loan_interest', 'goal'), formType, o.occupancy),
+    purchasePrice,
+    downPayment,
+    estimatedValue: parseMoney(pick(o, 'estimated_value', 'home_value', 'property_value', 'homeValue', 'current_value', 'current_home_value')),
+    loanBalance: parseMoney(pick(o, 'loan_balance', 'mortgage_balance', 'current_balance', 'current_home_balance', 'balance_owed')),
     cashOut: parseMoney(pick(o, 'cash_out', 'cash_out_amount', 'cashOut')),
-    creditScore: parseCreditScore(pick(o, 'credit_score', 'creditScore', 'credit', 'credit_estimate')),
+    creditScore: parseCreditScore(pick(o, 'credit_score', 'creditScore', 'credit_range', 'creditRange', 'credit_score_range', 'credit', 'credit_estimate')),
     timeline: text(pick(o, 'timeline', 'timeframe', 'when')).slice(0, 200) || null,
+    smsConsent: yesNo(o.sms_consent),
+    formLeadId: text(pick(o, 'lead_id')).slice(0, 200) || null,
     source: (text(pick(o, 'lead_source', 'leadSource', 'source')) || 'mps.mortgage website').slice(0, 200),
     formType,
     assignedToEmail: normalizeEmail(pick(o, 'assigned_to_email', 'assignedToEmail')),

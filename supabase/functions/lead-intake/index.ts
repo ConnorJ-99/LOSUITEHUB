@@ -55,6 +55,8 @@ Deno.serve(async (request) => {
       cash_out: lead.cashOut,
       credit_score: lead.creditScore,
       timeline: lead.timeline,
+      sms_consent: lead.smsConsent,
+      form_lead_id: lead.formLeadId,
       source: lead.source,
       form_type: lead.formType,
       assigned_to_email: lead.assignedToEmail,

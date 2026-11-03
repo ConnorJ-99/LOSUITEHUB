@@ -11,6 +11,7 @@ const OUTCOME_LABEL: Record<SubmissionOutcome, string> = {
   existing_open_loan: 'Added to an open file',
   new_loan_existing_person: 'Returning client, new lead',
   partner_inquiry: 'Partner inquiry',
+  form_update: 'More answers, same form',
 }
 
 function FormRow({ form, thisLoan }: { form: WebForm; thisLoan: boolean }) {
