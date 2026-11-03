@@ -93,6 +93,8 @@ export interface GhlMessage {
   userId: string | null
   /** For emails: the id to read the full email with (GET /conversations/messages/email/{id}). */
   emailId: string | null
+  /** What sent it in GHL: app, api, workflow, campaign or bulk_actions. */
+  source: string | null
 }
 
 /** From GET /conversations/{id}/messages. GHL sometimes nests the list one level deeper. */
@@ -118,9 +120,25 @@ export function pickMessages(body: unknown): GhlMessage[] {
       sentAt: date && !Number.isNaN(Date.parse(date)) ? new Date(date).toISOString() : new Date().toISOString(),
       userId: str(raw.userId),
       emailId: channel === 'email' ? (str(emailIds[0]) ?? id) : null,
+      source: str(raw.source),
     })
   }
   return out
+}
+
+/** GHL's own automated sends (internal alerts, drips, blasts), never kept in test mode. */
+const AUTOMATED_SOURCES = new Set(['workflow', 'campaign', 'bulk_actions'])
+
+/**
+ * Test mode keeps a message only if it was sent after the person was linked
+ * to this GHL contact (5 minutes' grace) and isn't one of GHL's own automated
+ * sends. Linking a TEST lead to a real contact (Connor's own phone) once
+ * copied in GHL's internal "NEW LEAD" alerts with real clients' details.
+ */
+export function keepInTestMode(m: Pick<GhlMessage, 'sentAt' | 'direction' | 'source'>, linkedAt: string | null): boolean {
+  if (m.direction === 'outbound' && m.source && AUTOMATED_SOURCES.has(m.source)) return false
+  if (linkedAt && Date.parse(m.sentAt) < Date.parse(linkedAt) - 5 * 60 * 1000) return false
+  return true
 }
 
 export interface EmailDetail {

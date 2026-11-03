@@ -27,6 +27,7 @@ import { matchContact, phone10, type Candidate, type MatchResult } from '../ghl/
 import {
   isStopReply,
   isTestContact,
+  keepInTestMode,
   pickContact,
   pickConversations,
   pickEmail,
@@ -97,8 +98,11 @@ interface Company {
   organization_id: string
   inbound_mode: 'test_only' | 'all'
   last_synced_at: string | null
-  /** Test mode: GHL contacts already linked to a LOSuite person named TEST (e.g. by a send), saved whatever GHL calls them. */
-  testLinks: Set<string>
+  /**
+   * Test mode: GHL contacts already linked to a LOSuite person named TEST (e.g. by a send), saved whatever
+   * GHL calls them, but only from when they were linked (ghl_linked_at), and never GHL's own automated sends.
+   */
+  testLinks: Map<string, string | null>
 }
 
 interface Summary {
@@ -178,7 +182,8 @@ async function syncConversation(db: SupabaseClient, g: Ghl, company: Company, co
     s.failed++
     return
   }
-  const messages = pickMessages(list.body)
+  const all = pickMessages(list.body)
+  const messages = company.inbound_mode === 'test_only' ? all.filter((m) => keepInTestMode(m, company.testLinks.get(contact.id) ?? null)) : all
 
   const match = await matchPerson(db, orgId, contact)
   const personId = match.kind === 'matched' ? match.contactId : null
@@ -259,6 +264,7 @@ async function messageRow(g: Ghl, orgId: string, m: GhlMessage, contact: GhlCont
     ghl_contact_email: contact.email,
     ghl_contact_phone: contact.phone,
     ghl_user_id: m.userId,
+    ghl_source: m.source,
     match_status: match.kind === 'matched' ? 'matched' : 'needs_matching',
     matched_by: match.kind === 'matched' ? match.by : null,
     match_reason: match.kind === 'matched' ? null : match.reason,
@@ -325,12 +331,12 @@ Deno.serve(async (request) => {
   const company = await db.from('messaging_settings').select('organization_id, inbound_mode, last_synced_at').eq('ghl_location_id', locationId).maybeSingle()
   if (company.error) return reply(500, { error: company.error.message })
   if (!company.data) return reply(409, { error: 'LOSuite doesn\'t know which company this GHL sub-account belongs to yet. An owner or admin runs Check connection in Settings → GoHighLevel first.' })
-  const co = { ...(company.data as Omit<Company, 'testLinks'>), testLinks: new Set<string>() } as Company
+  const co = { ...(company.data as Omit<Company, 'testLinks'>), testLinks: new Map<string, string | null>() } as Company
   if (co.inbound_mode === 'test_only') {
-    const linked = await db.from('contacts').select('ghl_contact_id, first_name, last_name').eq('organization_id', co.organization_id).not('ghl_contact_id', 'is', null)
+    const linked = await db.from('contacts').select('ghl_contact_id, ghl_linked_at, first_name, last_name').eq('organization_id', co.organization_id).not('ghl_contact_id', 'is', null)
     if (linked.error) return reply(500, { error: linked.error.message })
-    for (const r of (linked.data ?? []) as { ghl_contact_id: string; first_name: string | null; last_name: string | null }[]) {
-      if (isTestContact({ firstName: r.first_name, lastName: r.last_name, name: null })) co.testLinks.add(r.ghl_contact_id)
+    for (const r of (linked.data ?? []) as { ghl_contact_id: string; ghl_linked_at: string | null; first_name: string | null; last_name: string | null }[]) {
+      if (isTestContact({ firstName: r.first_name, lastName: r.last_name, name: null })) co.testLinks.set(r.ghl_contact_id, r.ghl_linked_at)
     }
   }
 

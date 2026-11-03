@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { channelOf, htmlToText, isStopReply, isTestContact, pickContact, pickConversations, pickEmail, pickMessages, secretMatches, webhookContactId } from './sync'
+import { channelOf, htmlToText, keepInTestMode, isStopReply, isTestContact, pickContact, pickConversations, pickEmail, pickMessages, secretMatches, webhookContactId } from './sync'
 
 describe('which GHL messages are kept', () => {
   it('keeps texts and emails, including workflow ones, and nothing else', () => {
@@ -19,7 +19,7 @@ describe('which GHL messages are kept', () => {
     ]
     const flat = pickMessages({ messages: msgs })
     expect(flat).toHaveLength(2)
-    expect(flat[0]).toEqual({ id: 'm1', conversationId: 'c1', contactId: 'g1', channel: 'text', direction: 'inbound', body: 'We put in an offer!', status: 'delivered', sentAt: '2026-10-29T13:51:00.000Z', userId: null, emailId: null })
+    expect(flat[0]).toEqual({ id: 'm1', conversationId: 'c1', contactId: 'g1', channel: 'text', direction: 'inbound', body: 'We put in an offer!', status: 'delivered', sentAt: '2026-10-29T13:51:00.000Z', userId: null, emailId: null, source: null })
     expect(flat[1]).toMatchObject({ channel: 'email', direction: 'outbound', body: 'Hi Jordan,\nAttached.', emailId: 'e1', userId: 'u1' })
     expect(pickMessages({ messages: { lastMessageId: 'm3', nextPage: false, messages: msgs } })).toHaveLength(2)
     expect(pickMessages(null)).toEqual([])
@@ -59,6 +59,22 @@ describe('GHL contacts', () => {
     expect(isTestContact({ firstName: 'Testa', lastName: 'Rossi', name: null })).toBe(false)
     expect(isTestContact({ firstName: 'Jane', lastName: 'Contest', name: null })).toBe(false)
     expect(isTestContact({ firstName: 'Jane', lastName: 'test', name: null })).toBe(false)
+  })
+})
+
+describe('test mode keeps only what belongs to the test', () => {
+  const linked = '2026-10-30T03:35:00Z'
+  it('drops history from before the person was linked (5 minutes of grace)', () => {
+    expect(keepInTestMode({ sentAt: '2026-10-04T18:31:22Z', direction: 'outbound', source: 'app' }, linked)).toBe(false)
+    expect(keepInTestMode({ sentAt: '2026-10-30T03:31:00Z', direction: 'inbound', source: null }, linked)).toBe(true)
+    expect(keepInTestMode({ sentAt: '2026-10-30T03:52:27Z', direction: 'inbound', source: null }, linked)).toBe(true)
+  })
+  it("never keeps GHL's own workflow, campaign or bulk sends (internal lead alerts)", () => {
+    for (const source of ['workflow', 'campaign', 'bulk_actions']) expect(keepInTestMode({ sentAt: '2026-10-30T03:52:29Z', direction: 'outbound', source }, linked)).toBe(false)
+    expect(keepInTestMode({ sentAt: '2026-10-30T03:52:29Z', direction: 'outbound', source: 'api' }, linked)).toBe(true)
+  })
+  it('a GHL contact named TEST with no LOSuite link has no time limit', () => {
+    expect(keepInTestMode({ sentAt: '2026-10-04T18:31:22Z', direction: 'inbound', source: null }, null)).toBe(true)
   })
 })
 
