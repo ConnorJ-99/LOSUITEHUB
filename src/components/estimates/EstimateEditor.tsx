@@ -7,6 +7,7 @@ import { Card, CurrencyInput, DateInput, FormGrid, Input, NumberInput, PercentIn
 import { MORTGAGE_TYPE_OPTIONS, TERM_OPTIONS } from '@/components/profile/options'
 import { ReviewFees } from '@/components/pricing/ReviewFees'
 import { SendSavedPdf } from '@/components/messages/SendDocumentDialog'
+import { newProgramOption } from '@/lib/api/estimates'
 import { useLenders } from '@/lib/api/lenders'
 import { useSaveRow } from '@/lib/api/urla'
 import type { LoanProfile } from '@/lib/api/types'
@@ -14,6 +15,7 @@ import { pct, pointsAmount, prepaidInterestDays, round, type FeeOverride } from 
 import { formatIsoDate, nowIso } from '@/lib/dates'
 import { joinNames } from '@/lib/documents/feeWorksheet'
 import {
+  MORTGAGE_TYPE_FOR_FAMILY,
   activeRules,
   changedSincePriced,
   computeEstimate,
@@ -56,6 +58,7 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
   const [state, setState] = useState<SaveState>('saved')
   const saveRow = useSaveRow(loan.id, loan.organizationId, 'liabilities')
   const lenders = useLenders()
+  const [picked, setPicked] = useState<{ lenderId: string | null; programId: string | null; oldAuto: string } | null>(null)
   const pdf = useEstimatePdf(loan, data)
   const isPurchase = loan.purpose === 'purchase'
 
@@ -184,8 +187,40 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
     { title: 'Loan Estimate', sub: 'Preview & download', done: false },
   ]
   const go = (n: number) => document.getElementById(`estimate-step-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  const lender = estimateLender({ ...estimate, ...draft })
-  const mortgagee = lenders.data?.find((l) => l.id === estimate.program?.lenderId)?.mortgageeClause ?? null
+  // Lender and program: picked from the lender list (a new pick shows before the save comes back).
+  const lenderList = (lenders.data ?? []).filter((l) => l.status !== 'inactive' || l.id === estimate.program?.lenderId)
+  const lenderId = picked ? picked.lenderId : (estimate.program?.lenderId ?? lenderList.find((l) => l.name.toLowerCase() === (draft.lenderName ?? '').toLowerCase() || l.shortName?.toLowerCase() === (draft.lenderName ?? '').toLowerCase())?.id ?? null)
+  const programId = picked ? picked.programId : (estimate.program?.programId ?? null)
+  const chosenLender = lenderList.find((l) => l.id === lenderId) ?? null
+  const lenderOptions = lenderList.map((l) => ({ value: l.id, label: l.name }))
+  const programOptions = (chosenLender?.programs ?? []).filter((p) => p.active || p.id === programId).map((p) => ({ value: p.id, label: p.name }))
+  // The name the estimate had from its program and lender before the first pick (so it can follow the new one).
+  const autoName = picked?.oldAuto ?? `${estimateProgramName({ ...estimate, ...draft }) ?? ''} · ${estimateLender({ ...estimate, ...draft }) ?? ''}`
+  const pickLender = (id: string | null) => {
+    const l = lenderList.find((x) => x.id === id) ?? null
+    setPicked({ lenderId: id, programId: null, oldAuto: autoName })
+    // A new lender: its own charges apply, so the fee rules are picked again (your fee edits stay).
+    setDraft((d) => ({ ...d, lenderName: l ? (l.shortName ?? l.name) : null, programName: null, programOptionId: null, feeRules: activeRules(data.templates, id), feesGeneratedAt: nowIso() }))
+  }
+  const pickProgram = async (id: string | null) => {
+    const p = chosenLender?.programs.find((x) => x.id === id) ?? null
+    setPicked({ lenderId, programId: id, oldAuto: autoName })
+    if (!p) return setDraft((d) => ({ ...d, programName: null, programOptionId: null }))
+    try {
+      const optionId = await newProgramOption(loan.id, loan.organizationId, p.id)
+      const mortgageType = MORTGAGE_TYPE_FOR_FAMILY[p.family]
+      const newLender = chosenLender ? (chosenLender.shortName ?? chosenLender.name) : draft.lenderName
+      // A name made from the program and lender ("FHA · Pennymac · Option B") follows the new pick; a name you typed stays.
+      const oldAuto = autoName
+      const name = draft.name.startsWith(oldAuto) ? `${p.name} · ${newLender ?? ''}${draft.name.slice(oldAuto.length)}` : draft.name
+      setDraft((d) => ({ ...d, name, programOptionId: optionId, programName: p.name, lenderName: newLender, ...(mortgageType && { mortgageType }), feeRules: activeRules(data.templates, lenderId), feesGeneratedAt: nowIso() }))
+      setPicked({ lenderId, programId: id, oldAuto: `${p.name} · ${newLender ?? ''}` })
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+  const lender = picked ? (draft.lenderName ?? null) : estimateLender({ ...estimate, ...draft })
+  const mortgagee = chosenLender?.mortgageeClause ?? null
 
   return (
     <div className="space-y-4">
@@ -272,17 +307,22 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
             >
               <FormGrid className="lg:grid-cols-4">
                 <Input label="Estimate name" value={draft.name} onChange={set('name')} required span={2} />
-                {estimate.program ? (
-                  <>
-                    <Input label="Lender" value={lender ?? ''} readOnly />
-                    <Input label="Program" value={estimate.program.programName} readOnly />
-                  </>
-                ) : (
-                  <>
-                    <Input label="Lender" value={draft.lenderName ?? ''} onChange={(v) => set('lenderName')(v || null)} />
-                    <Input label="Program" value={draft.programName ?? ''} onChange={(v) => set('programName')(v || null)} />
-                  </>
-                )}
+                <Select
+                  label="Lender"
+                  value={lenderId}
+                  options={lenderOptions}
+                  onChange={pickLender}
+                  onClear={() => pickLender(null)}
+                  placeholder={draft.lenderName ?? (lenders.isLoading ? 'Loading…' : 'Pick a lender')}
+                />
+                <Select
+                  label="Program"
+                  value={programId}
+                  options={programOptions}
+                  onChange={(id) => void pickProgram(id)}
+                  onClear={() => void pickProgram(null)}
+                  placeholder={lenderId ? (programOptions.length ? 'Pick a program' : 'No programs for this lender') : (draft.programName ?? 'Pick a lender first')}
+                />
                 <Select label="Loan type" value={draft.mortgageType} options={MORTGAGE_TYPE_OPTIONS} onChange={set('mortgageType')} onClear={() => set('mortgageType')(null)} />
                 <PercentInput label="Rate" value={draft.noteRate} onChange={set('noteRate')} required />
                 <PercentInput label="Points / credit" value={draft.pointsPct} onChange={(v) => set('pointsPct')(v ?? 0)} hint={draft.pointsPct < 0 ? `${formatCurrency(r.lenderCredit - draft.lenderCredit)} credit` : draft.pointsPct > 0 ? `${formatCurrency(pointsAmount(draft.pointsPct, f.totalLoanAmount))} in points` : 'Negative = credit'} />
