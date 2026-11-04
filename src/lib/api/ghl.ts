@@ -213,6 +213,8 @@ export interface MessagingSettings {
   emailDomainVerified: boolean
   /** Test mode: only people named TEST are sent to or saved from GHL (switched to all at cutover). */
   testMode: boolean
+  /** How many assistant bulk messages one loan officer may approve a day (Settings → Sending). */
+  bulkDailyCap: number
   /** False when the company has no saved row yet (defaults apply). */
   saved: boolean
   /** Where a closed client's GHL opportunity goes (decision 2: "Closed" / "Recently Closed"); null = not picked yet. */
@@ -240,7 +242,7 @@ export function useMessagingSettings() {
     enabled: !!orgId,
     queryFn: async (): Promise<MessagingSettings> => {
       const row = unwrap<
-        | ({ send_hours: unknown; time_zone: string; email_domain_verified: boolean; inbound_mode: string | null; last_synced_at: string | null } & Record<
+        | ({ send_hours: unknown; time_zone: string; email_domain_verified: boolean; inbound_mode: string | null; last_synced_at: string | null; bulk_daily_cap: number | null } & Record<
             'closed_pipeline_id' | 'closed_stage_id' | 'closed_label' | 'comeback_pipeline_id' | 'comeback_stage_id' | 'comeback_label',
             string | null
           >)
@@ -248,7 +250,7 @@ export function useMessagingSettings() {
       >(
         await db()
           .from('messaging_settings')
-          .select('send_hours, time_zone, email_domain_verified, inbound_mode, last_synced_at, closed_pipeline_id, closed_stage_id, closed_label, comeback_pipeline_id, comeback_stage_id, comeback_label')
+          .select('send_hours, time_zone, email_domain_verified, inbound_mode, last_synced_at, bulk_daily_cap, closed_pipeline_id, closed_stage_id, closed_label, comeback_pipeline_id, comeback_stage_id, comeback_label')
           .eq('organization_id', orgId!)
           .maybeSingle(),
       )
@@ -257,6 +259,7 @@ export function useMessagingSettings() {
         timeZone: row?.time_zone ?? 'America/Chicago',
         emailDomainVerified: row?.email_domain_verified ?? false,
         testMode: (row?.inbound_mode ?? 'test_only') === 'test_only',
+        bulkDailyCap: row?.bulk_daily_cap ?? 250,
         saved: !!row,
         closedStage: choice(row?.closed_pipeline_id ?? null, row?.closed_stage_id ?? null, row?.closed_label ?? null),
         comebackStage: choice(row?.comeback_pipeline_id ?? null, row?.comeback_stage_id ?? null, row?.comeback_label ?? null),
@@ -272,12 +275,13 @@ export function useSaveMessagingSettings() {
   const userId = state.status === 'signedIn' ? state.user.id : null
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (v: { sendHours?: SendHours; emailDomainVerified?: boolean; closedStage?: PipelineStageChoice; comebackStage?: PipelineStageChoice }) => {
+    mutationFn: async (v: { sendHours?: SendHours; emailDomainVerified?: boolean; closedStage?: PipelineStageChoice; comebackStage?: PipelineStageChoice; bulkDailyCap?: number }) => {
       const row = {
         organization_id: orgId,
         updated_by: userId,
         ...(v.sendHours ? { send_hours: v.sendHours } : {}),
         ...(v.emailDomainVerified === undefined ? {} : { email_domain_verified: v.emailDomainVerified }),
+        ...(v.bulkDailyCap === undefined ? {} : { bulk_daily_cap: v.bulkDailyCap }),
         ...(v.closedStage ? { closed_pipeline_id: v.closedStage.pipelineId, closed_stage_id: v.closedStage.stageId, closed_label: v.closedStage.label } : {}),
         ...(v.comebackStage ? { comeback_pipeline_id: v.comebackStage.pipelineId, comeback_stage_id: v.comebackStage.stageId, comeback_label: v.comebackStage.label } : {}),
       }

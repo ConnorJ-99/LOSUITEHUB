@@ -189,6 +189,23 @@ export const SEND_TOOLS: ToolDef[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'draft_bulk_message',
+    description:
+      "Draft ONE message to many of this loan officer's own clients at once, shown as a preview card with the exact count, who is left out and why (no consent, not in GHL, opted out, no phone or email), the daily limit, and a \"Send to N clients\" button. It does NOT send. Only people with a GHL contact and recorded consent are included; texts get \"Reply STOP to opt out.\" added. Use {first name} where the client's first name goes. Groups: current_clients (Pre-Approved to Clear to Close), past_clients (Closed), closed_in_year (with year), leads, nurture, all_clients (current and past). Marketing-style messages only; never rates or loan terms.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        segment: { type: 'string', enum: ['current_clients', 'past_clients', 'closed_in_year', 'leads', 'nurture', 'all_clients'] },
+        year: { type: 'integer', minimum: 2000, maximum: 2100 },
+        channel: { type: 'string', enum: ['text', 'email'] },
+        subject: { type: 'string' },
+        body: { type: 'string', description: 'With {first name} where the name goes. Texts: short, no link.' },
+      },
+      required: ['segment', 'channel', 'body'],
+      additionalProperties: false,
+    },
+  },
 ]
 
 export const TOOLS: ToolDef[] = [...READ_TOOLS, ...CHANGE_TOOLS, ...SEND_TOOLS]
@@ -219,7 +236,7 @@ export function buildSystem(c: ChatContext): string {
     '- Keep replies short and plain. The app shows tool results as cards (lists, summaries, estimates), so don\'t repeat every row in text: give the takeaway in a sentence or two.',
     '- Call saved fee worksheets "Fee Estimates" (or "Payment Scenarios"). Never call them "Loan Estimates": the Loan Estimate is the official TRID disclosure, sent from Arive.',
     '- You can look things up and make changes inside MPS HQ (Fee Estimates, selecting one, stages, the subject property, purchase price, closing date, notes, tasks). Changes run right away and the person can Undo them from the card, so act when the request is clear; when it isn\'t (which borrower, a missing rate, which program), ask first.',
-    '- You never send anything. To text or email a borrower, use draft_message: it shows a preview card, and only the loan officer\'s tap on Send sends it. Never say a message was sent; say it\'s ready for them to review and send. Messages to many clients at once aren\'t available yet.',
+    '- You never send anything. To text or email a borrower, use draft_message: it shows a preview card, and only the loan officer\'s tap on Send sends it. Never say a message was sent; say it\'s ready for them to review and send. For many clients at once, use draft_bulk_message (also only a preview with a Send button).',
     '- When someone goes under contract on a home, set the subject property (update_borrower_fields) and move the stage (move_pipeline_stage) together.',
     '- Never promise or quote rates, approval or terms to a borrower; you are helping the loan officer, not talking to the client.',
     '',

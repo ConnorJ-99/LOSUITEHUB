@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultSchedule, fromCentral, scheduleLabel, toCentral } from './schedule'
+import { defaultSchedule, fromCentral, planBatches, scheduleLabel, toCentral } from './schedule'
 
 describe('fromCentral', () => {
   it('reads a Central time in standard time (UTC-6)', () => {
@@ -33,5 +33,26 @@ describe('labels and defaults', () => {
     expect(defaultSchedule(new Date('2026-11-03T23:00:00Z'))).toEqual({ date: '2026-11-04', time: '09:00' })
     // 11:30 PM Central on Nov 3 is already Nov 4 in UTC; tomorrow is still Nov 4 Central.
     expect(defaultSchedule(new Date('2026-11-04T05:30:00Z'))).toEqual({ date: '2026-11-04', time: '09:00' })
+  })
+})
+
+describe('planBatches', () => {
+  const always = () => true
+  it('sends 20 a minute from the next whole minute', () => {
+    const at = planBatches(45, new Date('2026-12-01T15:00:10Z'), always)!
+    expect(at.length).toBe(45)
+    expect(at[0].toISOString()).toBe('2026-12-01T15:01:00.000Z')
+    expect(at[19].toISOString()).toBe('2026-12-01T15:01:00.000Z')
+    expect(at[20].toISOString()).toBe('2026-12-01T15:02:00.000Z')
+    expect(at[44].toISOString()).toBe('2026-12-01T15:03:00.000Z')
+  })
+  it('skips minutes outside sending hours', () => {
+    // Open only from 15:05.
+    const at = planBatches(25, new Date('2026-12-01T15:00:00Z'), (d) => d.getUTCMinutes() >= 5)!
+    expect(at[0].toISOString()).toBe('2026-12-01T15:05:00.000Z')
+    expect(at[24].toISOString()).toBe('2026-12-01T15:06:00.000Z')
+  })
+  it('gives up when nothing is open for a week', () => {
+    expect(planBatches(1, new Date('2026-12-01T15:00:00Z'), () => false)).toBeNull()
   })
 })

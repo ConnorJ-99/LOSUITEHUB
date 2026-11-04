@@ -80,7 +80,9 @@ function historyText(m: ChatMessage): string {
             ? `[Changed: ${c.title}: ${c.lines.map((l) => `${l.label} ${l.before ? `${l.before} → ` : ''}${l.after}`).join('; ')}]`
             : c.type === 'message'
               ? `[Drafted a ${c.channel} to ${c.name} (shown with Send; not sent by you): ${c.subject ? `${c.subject}: ` : ''}${c.body.slice(0, 200)}]`
-              : `[Asked: ${c.question}]`,
+              : c.type === 'bulk'
+                ? `[Drafted a bulk ${c.channel} to ${c.recipients.length} ${c.segmentLabel.toLowerCase()} (shown with Send; not sent by you)]`
+                : `[Asked: ${c.question}]`,
   )
   return [m.body, ...cards].filter(Boolean).join('\n') || '(no text)'
 }
@@ -119,6 +121,7 @@ const WORKING: Record<string, string> = {
   add_note: 'Adding the note…',
   create_task: 'Adding the task…',
   draft_message: 'Drafting the message…',
+  draft_bulk_message: 'Working out who it goes to…',
 }
 
 /** Runs one turn and saves both sides. Says whether anything on a file changed. */
@@ -182,7 +185,7 @@ export async function runTurn(t: TurnInput): Promise<{ changed: boolean }> {
             .single(),
         )
         if (out.undo) changed = true
-        if (out.card) cards.push((out.undo || out.pending) && (out.card.type === 'change' || out.card.type === 'estimates' || out.card.type === 'message') ? { ...out.card, actionId: logged.id } : out.card)
+        if (out.card) cards.push((out.undo || out.pending) && (out.card.type === 'change' || out.card.type === 'estimates' || out.card.type === 'message' || out.card.type === 'bulk') ? { ...out.card, actionId: logged.id } : out.card)
       } catch (e) {
         isError = true
         content = (e as Error).message

@@ -5,6 +5,7 @@ import { useActionStatuses, useUndoAction } from '@/lib/assistant/chat'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import type { AssistantCard } from '@/lib/assistant/cards'
+import { BulkCard } from './BulkCard'
 import { MessageDraftCard } from './MessageDraftCard'
 
 const usd = (n: number | null) => (n == null ? '—' : `$${n.toLocaleString('en-US')}`)
@@ -79,6 +80,7 @@ export function AssistantCardView({ card, onChoose, onNavigate }: { card: Assist
   }
 
   if (card.type === 'message') return <MessageDraftCard card={card} />
+  if (card.type === 'bulk') return <BulkCard card={card} />
 
   if (card.type === 'change') {
     return (

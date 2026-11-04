@@ -59,7 +59,14 @@ Checked on Rita TEST (2026-11-04): three Pennymac Conventional Fee Estimates at 
 - Rules kept: Fee Estimates go by email only (at most 3); a text never carries a link (refused when drafting, and blocked on the card).
 - After new Fee Estimates, the card offers "Send them to {name}…", which asks the assistant for the email draft.
 
-## Phase 3b (next): bulk
-As decided above: only people with a GHL contact and recorded text consent, no GHL contacts made in bulk, 20 a minute through the every-minute timer, a daily cap of 250 changeable in Settings, and a preview showing who's left out and why. Connor confirms his A2P campaign allows marketing first.
+## Phase 3b (2026-11-04; `20261226000000_bulk_cap.sql`): bulk
+
+- `draft_bulk_message` builds the audience and a preview card (`BulkCard`), and sends nothing. Groups are current clients (Pre-Approved to Clear to Close), past clients (Closed), closed in a year, leads, nurture, and all clients (current and past).
+- **Who's in** (`bulkAudience`, tested): only the signed-in LO's own files; each person once, on their newest file; a GHL contact AND recorded consent for the channel; no opt-out; a phone or email. Nobody is added to GHL. Everyone else is listed as left out, with the reason. In test mode, only TEST names are included.
+- **Wording:** texts always end "Reply STOP to opt out." (`withOptOut`), never carry links, and `{first name}` is filled per person.
+- **Send to N clients** asks to confirm, then makes one approval per person (key `bulk:<action>:<person>`), spread 20 a minute over sending hours (`planBatches`, tested) for the every-minute timer to send, each re-checked when it goes. The card then shows progress: sent, and didn't go.
+- **Daily cap:** `messaging_settings.bulk_daily_cap` (250 to start, 0–2,000) in Settings → Sending, per loan officer per Central day. It's enforced by a database trigger on `send_approvals`, whatever the screen shows.
+- **Found on live data (2026-11-04):** 146 of one LO's 147 clients have no consent recorded, so a bulk message reaches almost nobody until consent is recorded.
+- Connor confirms his A2P campaign allows marketing before using it.
 
 **Found while building:** the Fee Estimate PDF is saved with the file name "Loan Estimate …" (`worksheetFileName('Loan Estimate', …)` in `useEstimatePdf.ts`), although the PDF's title is "Fee Worksheet". It is left as it is for Connor to decide.

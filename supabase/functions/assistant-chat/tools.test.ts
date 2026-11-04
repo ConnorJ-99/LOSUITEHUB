@@ -19,8 +19,9 @@ describe('tools', () => {
     expect(CHANGE_TOOLS.map((t) => t.name)).toEqual(['create_fee_estimates', 'update_estimate', 'set_selected_program', 'move_pipeline_stage', 'update_borrower_fields', 'add_note', 'create_task'])
     for (const t of TOOLS) expect(t.input_schema.type).toBe('object')
     // Outbound is drafts only: no tool sends.
-    expect(SEND_TOOLS.map((t) => t.name)).toEqual(['draft_message'])
-    expect(TOOLS.some((t) => /^send|sms|bulk/i.test(t.name))).toBe(false)
+    expect(SEND_TOOLS.map((t) => t.name)).toEqual(['draft_message', 'draft_bulk_message'])
+    // Every outbound tool only drafts.
+    expect(TOOLS.filter((t) => /send|sms|message/i.test(t.name)).every((t) => t.name.startsWith('draft_'))).toBe(true)
   })
 })
 

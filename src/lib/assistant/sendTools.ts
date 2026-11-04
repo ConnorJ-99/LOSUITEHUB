@@ -9,7 +9,8 @@
 
 import { db, unwrap } from '@/lib/api/client'
 import { fetchEstimates } from '@/lib/api/estimates'
-import { fetchLoanProfile } from '@/lib/api/loans'
+import { fetchLoanProfile, fetchPipeline } from '@/lib/api/loans'
+import { bulkAudience, EXCLUDE_LABEL, SEGMENT_LABEL, withOptOut, type BulkPerson, type ExcludeReason, type Segment } from './filters'
 import { fullName } from '@/lib/pipeline/helpers'
 import type { ChangeOutput } from './changeTools'
 
@@ -55,6 +56,55 @@ export async function draftMessage(input: Record<string, unknown>): Promise<Chan
   }
 }
 
+/** Consent and GHL facts for these people, in chunks the database takes. */
+async function bulkPeople(ids: string[]): Promise<Map<string, BulkPerson>> {
+  const out = new Map<string, BulkPerson>()
+  for (let i = 0; i < ids.length; i += 200) {
+    const rows = unwrap<
+      { id: string; first_name: string; last_name: string; phone: string | null; email: string | null; sms_consent: boolean | null; email_consent: boolean | null; sms_opted_out_at: string | null; email_opted_out_at: string | null; ghl_contact_id: string | null }[]
+    >(await db().from('contacts').select('id, first_name, last_name, phone, email, sms_consent, email_consent, sms_opted_out_at, email_opted_out_at, ghl_contact_id').in('id', ids.slice(i, i + 200)))
+    for (const r of rows)
+      out.set(r.id, { id: r.id, firstName: r.first_name, lastName: r.last_name, phone: r.phone, email: r.email, smsConsent: r.sms_consent, emailConsent: r.email_consent, smsOptedOutAt: r.sms_opted_out_at, emailOptedOutAt: r.email_opted_out_at, ghlContactId: r.ghl_contact_id })
+  }
+  return out
+}
+
+const SEGMENTS = Object.keys(SEGMENT_LABEL) as Segment[]
+
+/**
+ * A message to many of this loan officer's clients at once (decision 4):
+ * only their own files, only people with a GHL contact and recorded consent,
+ * opt-outs left out, texts with "Reply STOP to opt out". It only builds the
+ * preview (who, who's left out and why, the words); Send on the card
+ * schedules one approval per person, 20 a minute, within the daily cap.
+ */
+export async function draftBulkMessage(input: Record<string, unknown>): Promise<ChangeOutput> {
+  const segment = SEGMENTS.includes(input.segment as Segment) ? (input.segment as Segment) : null
+  if (!segment) throw new Error(`Which group? One of: ${SEGMENTS.join(', ')}.`)
+  const year = typeof input.year === 'number' ? input.year : null
+  if (segment === 'closed_in_year' && !year) throw new Error('Which year?')
+  const channel = input.channel === 'email' ? 'email' : input.channel === 'text' ? 'text' : null
+  if (!channel) throw new Error('Text or email?')
+  const raw = str(input.body)
+  if (!raw) throw new Error('What should the message say?')
+  if (channel === 'text' && hasLink(raw)) throw new Error('Texts never carry links.')
+  const subject = channel === 'email' ? (str(input.subject) ?? 'A note from your loan officer') : null
+  const body = channel === 'text' ? withOptOut(raw) : raw
+  const me = (await db().auth.getUser()).data.user?.id
+  if (!me) throw new Error('Sign in again.')
+  const loans = await fetchPipeline()
+  const ids = [...new Set(loans.filter((l) => l.assignedLo?.id === me && l.borrower).map((l) => l.borrower!.id))]
+  const { recipients, excluded } = bulkAudience(loans, await bulkPeople(ids), { segment, year, channel, me })
+  const label = segment === 'closed_in_year' ? `${SEGMENT_LABEL[segment]} ${year}` : SEGMENT_LABEL[segment]
+  const counts = Object.fromEntries((Object.keys(EXCLUDE_LABEL) as ExcludeReason[]).map((r) => [r, excluded.filter((x) => x.reason === r).length]))
+  return {
+    result: `Bulk ${channel} drafted for ${recipients.length} ${label.toLowerCase()} (${excluded.length} left out: ${Object.entries(counts).filter(([, n]) => n).map(([r, n]) => `${n} ${EXCLUDE_LABEL[r as ExcludeReason]}`).join(', ') || 'none'}). Nothing was sent: it goes only when the loan officer taps Send on the card.`,
+    card: { type: 'bulk', channel, segmentLabel: label, subject, body, recipients, excluded },
+    pending: true,
+  }
+}
+
 export const SEND_TOOL_RUNNERS: Record<string, (input: Record<string, unknown>) => Promise<ChangeOutput>> = {
   draft_message: draftMessage,
+  draft_bulk_message: draftBulkMessage,
 }

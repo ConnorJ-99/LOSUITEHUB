@@ -42,3 +42,23 @@ export function defaultSchedule(now: Date): { date: string; time: string } {
   const tomorrow = toCentral(new Date(now.getTime() + 24 * 3600e3))
   return { date: tomorrow.date, time: '09:00' }
 }
+
+/**
+ * When each of `count` bulk messages goes out: `perMinute` at a time, one
+ * batch a minute, starting at the next whole minute after `from`, only in
+ * minutes `isOpen` allows (sending hours). Null when they can't all be fitted
+ * in the next 7 days.
+ */
+export function planBatches(count: number, from: Date, isOpen: (at: Date) => boolean, perMinute = 20): Date[] | null {
+  const out: Date[] = []
+  const minute = 60_000
+  let t = Math.ceil((from.getTime() + 30_000) / minute) * minute
+  const last = from.getTime() + 7 * 24 * 60 * minute
+  while (out.length < count) {
+    if (t > last) return null
+    const at = new Date(t)
+    if (isOpen(at)) for (let i = 0; i < perMinute && out.length < count; i++) out.push(at)
+    t += minute
+  }
+  return out
+}

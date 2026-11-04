@@ -39,6 +39,18 @@ export type AssistantCard =
       actionId?: string
     }
   | {
+      /** A message to many clients. Nothing goes out until "Send to N clients" on the card. */
+      type: 'bulk'
+      channel: 'text' | 'email'
+      segmentLabel: string
+      subject: string | null
+      /** With {first name} filled per person at send time. */
+      body: string
+      recipients: { contactId: string; loanId: string; name: string; firstName: string }[]
+      excluded: { name: string; reason: 'opted_out' | 'no_consent' | 'no_ghl_contact' | 'no_phone' | 'no_email' }[]
+      actionId?: string
+    }
+  | {
       type: 'change'
       title: string
       loanId: string
@@ -50,4 +62,4 @@ export type AssistantCard =
     }
 
 export const isCard = (v: unknown): v is AssistantCard =>
-  typeof v === 'object' && v !== null && ['borrowers', 'choices', 'summary', 'estimates', 'change', 'message'].includes((v as { type?: unknown }).type as string)
+  typeof v === 'object' && v !== null && ['borrowers', 'choices', 'summary', 'estimates', 'change', 'message', 'bulk'].includes((v as { type?: unknown }).type as string)

@@ -101,3 +101,105 @@ export function matchProgram(catalog: ProgramListItem[], id: string | null, word
   }
   return { error: `More than one program matches "${words}": ${found.slice(0, 8).map((p) => `${p.lenderName} ${p.name}`).join('; ')}. Which one?` }
 }
+
+// ---------------------------------------------------------------------------
+// Bulk messages (Phase 3b)
+// ---------------------------------------------------------------------------
+
+export type Segment = 'current_clients' | 'past_clients' | 'closed_in_year' | 'leads' | 'nurture' | 'all_clients'
+
+export const SEGMENT_LABEL: Record<Segment, string> = {
+  current_clients: 'Current clients (Pre-Approved to Clear to Close)',
+  past_clients: 'Past clients (Closed)',
+  closed_in_year: 'Clients who closed in',
+  leads: 'Leads (Lead, Contacted, Pre-Qualified)',
+  nurture: 'Nurture',
+  all_clients: 'All clients (current and past)',
+}
+
+const CURRENT = ['pre_approved', 'home_search', 'under_contract', 'processing', 'clear_to_close']
+const LEADS = ['lead', 'contacted', 'pre_qualified']
+
+export interface BulkPerson {
+  id: string
+  firstName: string
+  lastName: string
+  phone: string | null
+  email: string | null
+  smsConsent: boolean | null
+  emailConsent: boolean | null
+  smsOptedOutAt: string | null
+  emailOptedOutAt: string | null
+  ghlContactId: string | null
+}
+
+export interface BulkRecipient {
+  contactId: string
+  loanId: string
+  name: string
+  firstName: string
+}
+
+export type ExcludeReason = 'opted_out' | 'no_consent' | 'no_ghl_contact' | 'no_phone' | 'no_email'
+export const EXCLUDE_LABEL: Record<ExcludeReason, string> = {
+  opted_out: 'opted out',
+  no_consent: 'no consent recorded',
+  no_ghl_contact: 'not in GHL yet',
+  no_phone: 'no mobile number',
+  no_email: 'no email',
+}
+
+/** Why one person can't get a bulk message on this channel; null when they can (decision 4). */
+function excludeReason(p: BulkPerson | undefined, channel: 'text' | 'email'): ExcludeReason | null {
+  if (!p) return 'no_consent'
+  if (channel === 'text' ? p.smsOptedOutAt : p.emailOptedOutAt) return 'opted_out'
+  if ((channel === 'text' ? p.smsConsent : p.emailConsent) !== true) return 'no_consent'
+  if (!p.ghlContactId) return 'no_ghl_contact'
+  if (channel === 'text' && (p.phone ?? '').replace(/\D/g, '').length < 10) return 'no_phone'
+  if (channel === 'email' && !p.email?.trim()) return 'no_email'
+  return null
+}
+
+/**
+ * Who a bulk message goes to (decision 4): the primary borrowers of this loan
+ * officer's own files in the segment, once each (their newest file), who have
+ * a GHL contact, recorded consent for the channel, no opt-out, and a phone or
+ * email. Everyone else is left out, with the reason.
+ */
+export function bulkAudience(
+  loans: PipelineLoan[],
+  people: Map<string, BulkPerson>,
+  o: { segment: Segment; year?: number | null; channel: 'text' | 'email'; me: string },
+): { recipients: BulkRecipient[]; excluded: { name: string; reason: ExcludeReason }[] } {
+  const inSegment = (l: PipelineLoan) => {
+    if (o.segment === 'current_clients') return CURRENT.includes(l.stage)
+    if (o.segment === 'past_clients') return l.stage === 'closed'
+    if (o.segment === 'closed_in_year') return l.stage === 'closed' && !!o.year && (l.closingDate ?? '').startsWith(String(o.year))
+    if (o.segment === 'leads') return LEADS.includes(l.stage)
+    if (o.segment === 'nurture') return l.stage === 'nurture'
+    return CURRENT.includes(l.stage) || l.stage === 'closed'
+  }
+  const seen = new Set<string>()
+  const recipients: BulkRecipient[] = []
+  const excluded: { name: string; reason: ExcludeReason }[] = []
+  // Newest files first, so each person counts once, on their newest file.
+  const mine = loans.filter((l) => l.assignedLo?.id === o.me && l.borrower && inSegment(l)).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
+  for (const l of mine) {
+    const b = l.borrower!
+    if (seen.has(b.id)) continue
+    seen.add(b.id)
+    const name = `${b.firstName} ${b.lastName}`.trim()
+    const reason = excludeReason(people.get(b.id), o.channel)
+    if (reason) excluded.push({ name, reason })
+    else recipients.push({ contactId: b.id, loanId: l.id, name, firstName: b.firstName })
+  }
+  return { recipients, excluded }
+}
+
+/** Fills {first name} (any spelling of it) for one person. */
+export const mergeFirstName = (template: string, firstName: string) => template.replace(/\{\s*first[\s_]*name\s*\}/gi, firstName.trim() || 'there')
+
+/** Bulk texts always carry the opt-out wording. */
+export function withOptOut(body: string): string {
+  return /reply\s+stop/i.test(body) ? body.trim() : `${body.trim()} Reply STOP to opt out.`
+}

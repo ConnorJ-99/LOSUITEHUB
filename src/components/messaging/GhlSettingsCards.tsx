@@ -295,10 +295,38 @@ export function SendingCard({ canEdit }: { canEdit: boolean }) {
             </p>
             <ToggleChip className="mt-2" label="mps.mortgage is verified for sending in GHL" pressed={s.emailDomainVerified} onChange={setVerified} disabled={!canEdit || save.isPending} />
           </div>
+          <BulkCapField cap={s.bulkDailyCap} canEdit={canEdit && s.saved} />
           <TestModeSwitch testMode={s.testMode} canEdit={canEdit && s.saved} />
         </div>
       )}
     </Card>
+  )
+}
+
+/** The daily limit on assistant bulk messages, per loan officer (decision 4: 250 to start). */
+function BulkCapField({ cap, canEdit }: { cap: number; canEdit: boolean }) {
+  const save = useSaveMessagingSettings()
+  const [value, setValue] = useState(String(cap))
+  const n = Number(value)
+  const valid = Number.isInteger(n) && n >= 0 && n <= 2000
+  return (
+    <div className="border-t pt-4">
+      <p className="text-sm font-medium">Bulk messages from the assistant</p>
+      <p className="text-xs text-muted-foreground">How many each loan officer may send in a day, 20 a minute. Only clients with a GHL contact and recorded consent get them.</p>
+      <div className="mt-2 flex items-end gap-2">
+        <Input label="Per day" type="number" min={0} max={2000} value={value} onChange={setValue} readOnly={!canEdit} className="w-32" />
+        {canEdit && n !== cap && (
+          <Button
+            size="sm"
+            disabled={!valid || save.isPending}
+            onClick={() => save.mutate({ bulkDailyCap: n }, { onSuccess: () => toast.success(`Bulk limit set to ${n} a day`), onError: (e) => toast.error(e.message) })}
+          >
+            Save
+          </Button>
+        )}
+      </div>
+      {!valid && <p className="mt-1 text-xs text-destructive">A whole number from 0 to 2,000.</p>}
+    </div>
   )
 }
 
