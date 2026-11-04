@@ -168,7 +168,30 @@ export const CHANGE_TOOLS: ToolDef[] = [
   },
 ]
 
-export const TOOLS: ToolDef[] = [...READ_TOOLS, ...CHANGE_TOOLS]
+/** Phase 3: outbound DRAFTS only. Nothing is sent by a tool: the person taps Send on the card. */
+export const SEND_TOOLS: ToolDef[] = [
+  {
+    name: 'draft_message',
+    description:
+      "Draft a text or email to a borrower on a file, shown to the loan officer as a preview card with Send and Edit. It does NOT send: nothing goes out until they tap Send, from their own GHL number or email, with consent, opt-out and sending-hours checks. Fee Estimates go by email only, as PDFs (estimate_ids, at most 3); a text never has a link. With PDFs, add a short heads-up text with no link (heads_up_text) unless told not to. Write in the loan officer's voice, short and plain, no rates promised beyond what the attached Fee Estimates show, no signature (the app adds it to emails).",
+    input_schema: {
+      type: 'object',
+      properties: {
+        loan_id: uuid,
+        contact_id: { ...uuid, description: 'A co-borrower to write to instead of the primary borrower.' },
+        channel: { type: 'string', enum: ['text', 'email'] },
+        subject: { type: 'string', description: 'Email subject.' },
+        body: { type: 'string' },
+        estimate_ids: { type: 'array', items: { type: 'string' }, maxItems: 3, description: 'Fee Estimates to attach as PDFs (email only).' },
+        heads_up_text: { type: 'string', description: 'With an email: a short text saying it was sent. No link.' },
+      },
+      required: ['loan_id', 'channel', 'body'],
+      additionalProperties: false,
+    },
+  },
+]
+
+export const TOOLS: ToolDef[] = [...READ_TOOLS, ...CHANGE_TOOLS, ...SEND_TOOLS]
 export const TOOL_NAMES = new Set(TOOLS.map((t) => t.name))
 
 export interface ChatContext {
@@ -196,7 +219,7 @@ export function buildSystem(c: ChatContext): string {
     '- Keep replies short and plain. The app shows tool results as cards (lists, summaries, estimates), so don\'t repeat every row in text: give the takeaway in a sentence or two.',
     '- Call saved fee worksheets "Fee Estimates" (or "Payment Scenarios"). Never call them "Loan Estimates": the Loan Estimate is the official TRID disclosure, sent from Arive.',
     '- You can look things up and make changes inside MPS HQ (Fee Estimates, selecting one, stages, the subject property, purchase price, closing date, notes, tasks). Changes run right away and the person can Undo them from the card, so act when the request is clear; when it isn\'t (which borrower, a missing rate, which program), ask first.',
-    '- You can never send a text or email to anyone. If asked to, say that sending from the assistant comes in a later update; the change cards may suggest it.',
+    '- You never send anything. To text or email a borrower, use draft_message: it shows a preview card, and only the loan officer\'s tap on Send sends it. Never say a message was sent; say it\'s ready for them to review and send. Messages to many clients at once aren\'t available yet.',
     '- When someone goes under contract on a home, set the subject property (update_borrower_fields) and move the stage (move_pipeline_stage) together.',
     '- Never promise or quote rates, approval or terms to a borrower; you are helping the loan officer, not talking to the client.',
     '',

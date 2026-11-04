@@ -52,5 +52,14 @@ To share that code, the screens' loaders became named functions they still call 
 
 Checked on Rita TEST (2026-11-04): three Pennymac Conventional Fee Estimates at 6, 6.5 and 7% on a $400,000 home with 20% down and 1.5% taxes came out at P&I $1,919, $2,023 and $2,129 with $500 taxes, matching the mockup. Update, Select, Under Contract, a note and a task all worked, and undoing each one left the file exactly as before.
 
-## Phase 3 (after): sending
-Message drafts → a preview card; Send goes through the approval send path. Bulk last, as decided above.
+## Phase 3a (2026-11-04; no database change): message drafts with Send
+
+- `draft_message` (`src/lib/assistant/sendTools.ts`) never sends. It logs a **pending** action and shows a preview card (`MessageDraftCard`): To, From (the file's LO's own GHL number or email, worked out by `useSendPlan`, the same as the Messages tab), the words, any Fee Estimate PDFs and the heads-up text, plus every problem in the way (consent, opt-out, sending hours, test mode, the LO's number). Send and Edit are on the card.
+- **Send** asks to confirm, then goes through `useSendMessage`, the approval send path (`approve_send` then the `ghl` function), with the same checks as every send. With Fee Estimates it first saves each PDF to Documents (`useEstimatePdf`), emails them, then sends the heads-up text if one was drafted. The action becomes **sent**, with what actually went.
+- Rules kept: Fee Estimates go by email only (at most 3); a text never carries a link (refused when drafting, and blocked on the card).
+- After new Fee Estimates, the card offers "Send them to {name}…", which asks the assistant for the email draft.
+
+## Phase 3b (next): bulk
+As decided above: only people with a GHL contact and recorded text consent, no GHL contacts made in bulk, 20 a minute through the every-minute timer, a daily cap of 250 changeable in Settings, and a preview showing who's left out and why. Connor confirms his A2P campaign allows marketing first.
+
+**Found while building:** the Fee Estimate PDF is saved with the file name "Loan Estimate …" (`worksheetFileName('Loan Estimate', …)` in `useEstimatePdf.ts`), although the PDF's title is "Fee Worksheet". It is left as it is for Connor to decide.

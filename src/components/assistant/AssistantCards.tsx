@@ -5,6 +5,7 @@ import { useActionStatuses, useUndoAction } from '@/lib/assistant/chat'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import type { AssistantCard } from '@/lib/assistant/cards'
+import { MessageDraftCard } from './MessageDraftCard'
 
 const usd = (n: number | null) => (n == null ? '—' : `$${n.toLocaleString('en-US')}`)
 const pct = (n: number | null, digits = 3) => (n == null ? '—' : `${n.toFixed(digits)}%`)
@@ -77,6 +78,8 @@ export function AssistantCardView({ card, onChoose, onNavigate }: { card: Assist
     )
   }
 
+  if (card.type === 'message') return <MessageDraftCard card={card} />
+
   if (card.type === 'change') {
     return (
       <div className="space-y-2">
@@ -147,6 +150,11 @@ export function AssistantCardView({ card, onChoose, onNavigate }: { card: Assist
       ))}
       {card.created && card.actionId && (
         <div className="flex flex-wrap items-center gap-2">
+          {card.forName && card.items.length <= 3 && (
+            <Button size="sm" className="rounded-full" onClick={() => onChoose(`Email ${card.items.length === 1 ? 'this Fee Estimate' : 'these Fee Estimates'} to ${card.forName} with a short heads-up text.`)}>
+              Send {card.items.length === 1 ? 'it' : card.items.length === 2 ? 'both' : 'all three'} to {card.forName}…
+            </Button>
+          )}
           <UndoButton actionId={card.actionId} label={card.items.length > 1 ? `Undo (delete these ${card.items.length})` : 'Undo (delete it)'} />
         </div>
       )}

@@ -12,6 +12,7 @@ import { STAGES } from '@/lib/pipeline/stages'
 import { isCard, type AssistantCard } from './cards'
 import { CHANGE_TOOL_RUNNERS, undoChange, type ChangeOutput } from './changeTools'
 import { getBorrowerSummary, READ_TOOL_RUNNERS } from './readTools'
+import { SEND_TOOL_RUNNERS } from './sendTools'
 
 /** Tool rounds in one turn before the assistant has to answer. */
 const MAX_ROUNDS = 6
@@ -77,7 +78,9 @@ function historyText(m: ChatMessage): string {
           ? `[Showed ${c.items.length} Fee Estimates for loan ${c.loanId}]`
           : c.type === 'change'
             ? `[Changed: ${c.title}: ${c.lines.map((l) => `${l.label} ${l.before ? `${l.before} → ` : ''}${l.after}`).join('; ')}]`
-            : `[Asked: ${c.question}]`,
+            : c.type === 'message'
+              ? `[Drafted a ${c.channel} to ${c.name} (shown with Send; not sent by you): ${c.subject ? `${c.subject}: ` : ''}${c.body.slice(0, 200)}]`
+              : `[Asked: ${c.question}]`,
   )
   return [m.body, ...cards].filter(Boolean).join('\n') || '(no text)'
 }
@@ -115,6 +118,7 @@ const WORKING: Record<string, string> = {
   update_borrower_fields: 'Updating the file…',
   add_note: 'Adding the note…',
   create_task: 'Adding the task…',
+  draft_message: 'Drafting the message…',
 }
 
 /** Runs one turn and saves both sides. Says whether anything on a file changed. */
@@ -161,7 +165,7 @@ export async function runTurn(t: TurnInput): Promise<{ changed: boolean }> {
       const tool = String(call.name)
       const input = (call.input ?? {}) as Record<string, unknown>
       t.onWorking?.(WORKING[tool] ?? 'Working…')
-      const runner = READ_TOOL_RUNNERS[tool] ?? CHANGE_TOOL_RUNNERS[tool]
+      const runner = READ_TOOL_RUNNERS[tool] ?? CHANGE_TOOL_RUNNERS[tool] ?? SEND_TOOL_RUNNERS[tool]
       let content: string
       let isError = false
       try {
@@ -173,12 +177,12 @@ export async function runTurn(t: TurnInput): Promise<{ changed: boolean }> {
         const logged = unwrap<{ id: string }>(
           await db()
             .from('assistant_actions')
-            .insert({ organization_id: t.organizationId, loan_id: fileId, tool, inputs: input, result: out.undo ? out.result : { size: content.length }, status: 'done', undo: out.undo ?? null })
+            .insert({ organization_id: t.organizationId, loan_id: fileId, tool, inputs: input, result: out.undo || out.pending ? out.result : { size: content.length }, status: out.pending ? 'pending' : 'done', undo: out.undo ?? null })
             .select('id')
             .single(),
         )
         if (out.undo) changed = true
-        if (out.card) cards.push(out.undo && (out.card.type === 'change' || out.card.type === 'estimates') ? { ...out.card, actionId: logged.id } : out.card)
+        if (out.card) cards.push((out.undo || out.pending) && (out.card.type === 'change' || out.card.type === 'estimates' || out.card.type === 'message') ? { ...out.card, actionId: logged.id } : out.card)
       } catch (e) {
         isError = true
         content = (e as Error).message
@@ -210,6 +214,17 @@ export function useActionStatuses(ids: string[]) {
     queryKey: ['assistant', 'actions', key],
     enabled: ids.length > 0,
     queryFn: async () => new Map(unwrap<{ id: string; status: string }[]>(await db().from('assistant_actions').select('id, status').in('id', ids)).map((r) => [r.id, r.status])),
+  })
+}
+
+/** Marks a drafted message sent (with what actually went), from its card's Send. */
+export function useMarkAction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (v: { id: string; status: 'sent'; result: Record<string, unknown> }) => {
+      unwrap(await db().from('assistant_actions').update({ status: v.status, result: v.result }).eq('id', v.id).select('id'))
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['assistant', 'actions'] }),
   })
 }
 

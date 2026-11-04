@@ -30,6 +30,8 @@ export interface ChangeOutput {
   card?: AssistantCard
   /** What Undo needs (saved on the assistant_actions row). */
   undo?: Record<string, unknown>
+  /** An outbound draft: logged as pending until Send on its card (sendTools.ts). */
+  pending?: boolean
 }
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() && Number.isFinite(Number(v)) ? Number(v) : null)
@@ -164,7 +166,7 @@ export async function createFeeEstimates(input: Record<string, unknown>): Promis
   const items = created.map((e) => itemOf(e, d.pricingScenarioId))
   return {
     result: { created: items.map(({ id, ...rest }) => ({ estimate_id: id, ...rest })), purchase_price: price, home: home?.addressLine ?? null },
-    card: { type: 'estimates', loanId: loan.id, items, created: true, note: `Fee Estimates on ${home?.addressLine ?? 'this file'}${price ? ` · ${money(price)} price` : ''}, priced with Smart Fees.` },
+    card: { type: 'estimates', loanId: loan.id, items, created: true, forName: borrowerName(loan), note: `Fee Estimates on ${home?.addressLine ?? 'this file'}${price ? ` · ${money(price)} price` : ''}, priced with Smart Fees.` },
     undo: { estimateIds: created.map((c) => c.id), optionIds: options },
   }
 }

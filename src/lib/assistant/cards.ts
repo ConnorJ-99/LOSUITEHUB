@@ -22,7 +22,22 @@ export type AssistantCard =
   | { type: 'borrowers'; title: string; items: { loanId: string; name: string; detail: string }[] }
   | { type: 'choices'; question: string; options: { label: string; loanId: string }[] }
   | { type: 'summary'; loanId: string; name: string; status: string; lines: { label: string; value: string }[] }
-  | { type: 'estimates'; loanId: string; items: EstimateItem[]; created?: boolean; note?: string; actionId?: string }
+  | { type: 'estimates'; loanId: string; items: EstimateItem[]; created?: boolean; note?: string; actionId?: string; forName?: string }
+  | {
+      /** A message the assistant drafted. Nothing goes out until Send on the card. */
+      type: 'message'
+      loanId: string
+      contactId: string
+      name: string
+      channel: 'text' | 'email'
+      subject: string | null
+      body: string
+      /** Fee Estimates to attach as PDFs (email only). */
+      estimates: { id: string; name: string }[]
+      /** A short text after the email, with no link. */
+      headsUp: string | null
+      actionId?: string
+    }
   | {
       type: 'change'
       title: string
@@ -35,4 +50,4 @@ export type AssistantCard =
     }
 
 export const isCard = (v: unknown): v is AssistantCard =>
-  typeof v === 'object' && v !== null && ['borrowers', 'choices', 'summary', 'estimates', 'change'].includes((v as { type?: unknown }).type as string)
+  typeof v === 'object' && v !== null && ['borrowers', 'choices', 'summary', 'estimates', 'change', 'message'].includes((v as { type?: unknown }).type as string)
