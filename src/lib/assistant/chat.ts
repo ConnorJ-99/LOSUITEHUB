@@ -83,7 +83,7 @@ async function ask(body: Record<string, unknown>): Promise<{ content: Block[]; s
   const { data, error } = await db().functions.invoke<{ content: Block[]; stopReason: string }>('assistant-chat', { body })
   if (error) {
     const detail = error instanceof FunctionsHttpError ? await error.context.json().catch(() => null) : null
-    if (detail?.code === 'no_key' || detail?.code === 'bad_key') throw new AssistantError(detail.error, detail.code)
+    if (['no_key', 'bad_key', 'no_credit', 'busy'].includes(detail?.code)) throw new AssistantError(detail.error, detail.code)
     if (!(error instanceof FunctionsHttpError)) throw new AssistantError('The assistant isn\'t reachable. If it was just added, the assistant-chat function may not be deployed yet.', 'unreachable')
     throw new AssistantError(detail?.error ?? 'The assistant could not answer just now.')
   }

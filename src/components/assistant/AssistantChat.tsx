@@ -148,8 +148,8 @@ export function AssistantChat({ loanId, borrowerName, onNavigate, className }: {
           </p>
         )}
         {problem && (
-          <div className={cn('rounded-lg border px-3 py-2 text-sm', problem.code === 'no_key' || problem.code === 'bad_key' ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-destructive/30 bg-destructive/5 text-destructive')}>
-            <p className="font-medium">{problem.code === 'no_key' ? 'API key not set' : problem.code === 'bad_key' ? 'API key refused' : "That didn't work"}</p>
+          <div className={cn('rounded-lg border px-3 py-2 text-sm', problem.code && ['no_key', 'bad_key', 'no_credit', 'busy'].includes(problem.code) ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-destructive/30 bg-destructive/5 text-destructive')}>
+            <p className="font-medium">{problem.code === 'no_key' ? 'API key not set' : problem.code === 'bad_key' ? 'API key refused' : problem.code === 'no_credit' ? 'Anthropic account out of credit' : problem.code === 'busy' ? 'Busy right now' : "That didn't work"}</p>
             <p>{problem.message}</p>
           </div>
         )}

@@ -89,6 +89,8 @@ Deno.serve(async (request) => {
     if (runId) await db.from('ai_runs').update({ status: 'failed', error: message.slice(0, 500) }).eq('id', runId)
     const status = (e as { status?: number }).status
     if (status === 401) return reply(503, { code: 'bad_key', error: 'The Anthropic API key was refused. Check ANTHROPIC_API_KEY in Edge Functions → Secrets.' })
+    if (/credit balance/i.test(message)) return reply(503, { code: 'no_credit', error: 'The Anthropic account has no credit left. Add credit at console.anthropic.com → Plans & Billing, then try again.' })
+    if (status === 429) return reply(503, { code: 'busy', error: 'Too many requests to Anthropic right now. Wait a minute and try again.' })
     return reply(502, { error: 'The assistant could not answer just now. Try again in a moment.' })
   }
 })
