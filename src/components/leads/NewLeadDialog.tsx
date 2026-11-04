@@ -197,7 +197,7 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
 
           {!existing && suggestions.length > 0 && (
             <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <p className="text-xs font-medium text-amber-900">Already in LOSuite: add a new loan to this person instead of a duplicate?</p>
+              <p className="text-xs font-medium text-amber-900">Already in MPS HQ: add a new loan to this person instead of a duplicate?</p>
               {suggestions.map((match) => (
                 <div key={match.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-card p-2">
                   <div className="min-w-0 text-sm">

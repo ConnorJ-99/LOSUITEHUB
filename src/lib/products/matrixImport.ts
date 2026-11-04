@@ -160,7 +160,7 @@ export function repairProgram(p: ReadProgram): { program: ReadProgram; fixes: st
   })
   const rules = p.rules.flatMap((r) => {
     const c = cleanRule(r)
-    if (!c) fixes.push(`${p.name}: dropped the rule "${r.message}" (it applies everywhere, or names no state or citizenship LOSuite knows).`)
+    if (!c) fixes.push(`${p.name}: dropped the rule "${r.message}" (it applies everywhere, or names no state or citizenship MPS HQ knows).`)
     else if (JSON.stringify(c.value) !== JSON.stringify(r.value)) fixes.push(`${p.name}: "${r.message}" now uses ${Array.isArray(c.value) ? c.value.join(', ') : ''}.`)
     return c ? [c] : []
   })

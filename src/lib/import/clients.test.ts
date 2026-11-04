@@ -99,7 +99,7 @@ describe('checkClientFile', () => {
     )
     expect(rows.map((r) => r.row)).toEqual([2, 3, 4, 5, 6, 7, 8])
     expect(rows[0].errors).toEqual(['lo_email is blank.'])
-    expect(rows[1].errors).toEqual(['stage "maybe" isn\'t one of the LOSuite stages.'])
+    expect(rows[1].errors).toEqual(['stage "maybe" isn\'t one of the MPS HQ stages.'])
     expect(rows[2].errors).toEqual(['Closed rows need a closing_date.'])
     expect(rows[3].errors).toEqual(['Lost rows need a lost_reason.'])
     expect(rows[4].errors).toEqual(['Current clients need an email or a phone number.'])

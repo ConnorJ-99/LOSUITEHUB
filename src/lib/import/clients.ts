@@ -32,7 +32,7 @@ export interface ColumnInfo {
 
 /** Every column, in template order. */
 export const COLUMNS: readonly ColumnInfo[] = [
-  { key: 'lo_email', group: 'Required', required: true, format: 'The loan officer\'s LOSuite login email', example: 'connor@mps.mortgage', aliases: ['loan officer email', 'lo', 'loan officer', 'assigned to email', 'assigned lo email', 'assigned to', 'primary loan officer email'] },
+  { key: 'lo_email', group: 'Required', required: true, format: 'The loan officer\'s MPS HQ login email', example: 'connor@mps.mortgage', aliases: ['loan officer email', 'lo', 'loan officer', 'assigned to email', 'assigned lo email', 'assigned to', 'primary loan officer email'] },
   { key: 'first_name', group: 'Required', required: true, format: 'Text', example: 'Jane', aliases: ['first', 'borrower first name', 'primary borrower first name'] },
   { key: 'last_name', group: 'Required', required: true, format: 'Text', example: 'TEST', aliases: ['last', 'borrower last name', 'primary borrower last name'] },
   { key: 'stage', group: 'Required', required: true, format: 'Lead, Contacted, Pre-Qualified, Pre-Approved, Home Search, Under Contract (or Application), Processing, Clear to Close, Closed, Nurture or Lost', example: 'Closed', aliases: ['status', 'pipeline stage', 'stage name'] },
@@ -321,7 +321,7 @@ function checkRow(raw: Record<ColumnKey, string>, row: number, today: Date): Che
 
   const stage = raw.stage ? (STAGE_WORDS[word(raw.stage)] ?? null) : null
   if (!raw.stage) errors.push('stage is blank.')
-  else if (!stage) errors.push(`stage "${raw.stage}" isn't one of the LOSuite stages.`)
+  else if (!stage) errors.push(`stage "${raw.stage}" isn't one of the MPS HQ stages.`)
   const closed = stage === 'closed'
 
   const closingDate = date('closing_date')
@@ -365,7 +365,7 @@ function checkRow(raw: Record<ColumnKey, string>, row: number, today: Date): Che
     co: { first_name: text('co_first_name'), last_name: text('co_last_name'), email: email('co_email'), phone: phone('co_phone') },
     stage: stage ?? 'lead',
     lost_reason: text('lost_reason'),
-    purpose: fromWords('loan_purpose', PURPOSE_WORDS, 'a loan purpose LOSuite knows'),
+    purpose: fromWords('loan_purpose', PURPOSE_WORDS, 'a loan purpose MPS HQ knows'),
     loan_type: fromWords('loan_type', TYPE_WORDS, 'Conventional, FHA, VA, USDA or Other'),
     loan_amount: money('loan_amount'),
     purchase_price: money('purchase_price'),

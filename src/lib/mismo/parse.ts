@@ -168,7 +168,7 @@ export function parseMismo34(xmlText: string): ImportResult {
 
   const warnings: string[] = []
   const version = attr(root, 'MISMOReferenceModelIdentifier') ?? attr(deal, 'MISMOReferenceModelIdentifier')
-  if (version && !version.startsWith('3.4')) warnings.push(`File is MISMO ${version}; LOSuite reads 3.4. Some fields may be missed.`)
+  if (version && !version.startsWith('3.4')) warnings.push(`File is MISMO ${version}; MPS HQ reads 3.4. Some fields may be missed.`)
 
   // Count SSNs/TINs present so the preview can say they were ignored. Values are never read out.
   const ssnCount = descendants(root, 'TAXPAYER_IDENTIFIER').length
@@ -284,7 +284,7 @@ export function parseMismo34(xmlText: string): ImportResult {
     const mismoType = textAt(d, 'AssetType')
     let type = lookup(rev.assetType, mismoType) as AssetType | null
     if (!type) {
-      if (mismoType) warnings.push(`Asset type "${mismoType}" isn't in LOSuite's list; imported as "Other liquid asset".`)
+      if (mismoType) warnings.push(`Asset type "${mismoType}" isn't in MPS HQ's list; imported as "Other liquid asset".`)
       type = 'other_liquid'
     }
     assets.push({
@@ -335,7 +335,7 @@ export function parseMismo34(xmlText: string): ImportResult {
     }
     let ours = lookup(rev.liabilityType, type) as LiabilityType | null
     if (!ours) {
-      if (type) warnings.push(`Liability type "${type}" isn't in LOSuite's list; imported as "Other debt".`)
+      if (type) warnings.push(`Liability type "${type}" isn't in MPS HQ's list; imported as "Other debt".`)
       ours = 'other'
     }
     liabilities.push({
@@ -368,7 +368,7 @@ export function parseMismo34(xmlText: string): ImportResult {
 
   for (const p of ownedByLabel.values()) {
     if (p.liens.length > 2) {
-      warnings.push(`${p.addressLine || 'A property'} has ${p.liens.length} mortgages; LOSuite keeps the first two.`)
+      warnings.push(`${p.addressLine || 'A property'} has ${p.liens.length} mortgages; MPS HQ keeps the first two.`)
       p.liens = p.liens.slice(0, 2)
     }
   }
@@ -402,7 +402,7 @@ export function parseMismo34(xmlText: string): ImportResult {
   }
   const ownedProperties = allOwned.filter((p) => !p.isSubject).map(strip)
   if (allOwned.some((p) => p.monthlyMaintenance)) {
-    warnings.push('MISMO sends real estate taxes, insurance and HOA as one monthly amount. Properties already in LOSuite keep their own figures; for new ones it goes into Annual taxes, so split it out if needed.')
+    warnings.push('MISMO sends real estate taxes, insurance and HOA as one monthly amount. Properties already in MPS HQ keep their own figures; for new ones it goes into Annual taxes, so split it out if needed.')
   }
 
   return {

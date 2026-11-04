@@ -83,7 +83,7 @@ export function ExportDialog({
 
         <p className="flex items-start gap-2 text-xs text-muted-foreground">
           <ShieldCheckIcon className="mt-0.5 size-3.5 shrink-0" />
-          No Social Security numbers are included (LOSuite doesn't store them). Add each borrower's SSN in Arive after importing.
+          No Social Security numbers are included (MPS HQ doesn't store them). Add each borrower's SSN in Arive after importing.
         </p>
 
         <DialogFooter>

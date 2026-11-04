@@ -119,7 +119,7 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
         </Card>
       )}
       {fixes.length > 0 && (
-        <Card title="Fixed automatically" description="Common things in lender matrices that LOSuite handled for you. Undo any of them in the grids below." className="mb-4">
+        <Card title="Fixed automatically" description="Common things in lender matrices that MPS HQ handled for you. Undo any of them in the grids below." className="mb-4">
           <ul className="list-disc space-y-1 pl-5 text-sm">
             {fixes.map((f, i) => (
               <li key={i}>{f}</li>

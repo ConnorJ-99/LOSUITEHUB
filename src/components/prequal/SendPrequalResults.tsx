@@ -69,7 +69,7 @@ export function SendPrequalResults({ loan, app, subject, draft, summary, dirty }
       })
       if (!id) return
       if (canEmail) setSendingId(id)
-      else toast.error('The PDF is saved in Documents, but GHL is not connected yet, so it cannot be emailed from LOSuite.')
+      else toast.error('The PDF is saved in Documents, but GHL is not connected yet, so it cannot be emailed from MPS HQ.')
     } finally {
       setBusy(false)
     }

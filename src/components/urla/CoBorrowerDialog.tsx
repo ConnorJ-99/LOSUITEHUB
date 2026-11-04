@@ -69,7 +69,7 @@ export function CoBorrowerDialog({
       </FormGrid>
       {suggestions.length > 0 && (
         <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-xs font-medium text-amber-900">Already in LOSuite: add this person instead of creating a duplicate?</p>
+          <p className="text-xs font-medium text-amber-900">Already in MPS HQ: add this person instead of creating a duplicate?</p>
           {suggestions.map((m) => (
             <div key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-card p-2">
               <div className="text-sm">

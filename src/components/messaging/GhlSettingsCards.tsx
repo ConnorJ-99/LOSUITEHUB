@@ -169,7 +169,7 @@ export function GhlCard({ members }: { members: OrgMember[] }) {
   const header = () => {
     if (status.isPending) return <p className="text-sm text-muted-foreground">Looking for the GHL connection…</p>
     if (status.data?.reason === 'not_set_up') return <Note tone="warn">GHL is not set up yet. Add GHL_PRIVATE_TOKEN and GHL_LOCATION_ID under Edge Functions → Secrets in Supabase.</Note>
-    if (!ready) return <Note tone="warn">The ghl function isn't deployed on this Supabase project yet, so LOSuite can't reach GHL. Everything else works as usual.</Note>
+    if (!ready) return <Note tone="warn">The ghl function isn't deployed on this Supabase project yet, so MPS HQ can't reach GHL. Everything else works as usual.</Note>
     if (check.isFetching && !check.data) return <p className="text-sm text-muted-foreground">Checking the connection…</p>
     if (check.error) return <Note tone="bad">{check.error.message}</Note>
     return (
@@ -183,7 +183,7 @@ export function GhlCard({ members }: { members: OrgMember[] }) {
   return (
     <Card
       title="GoHighLevel"
-      description="Texts and emails go through the MPS Mortgage sub-account. LOSuite stays the record; GHL only delivers."
+      description="Texts and emails go through the MPS Mortgage sub-account. MPS HQ stays the record; GHL only delivers."
       action={
         ready && (
           <Button size="sm" variant="outline" disabled={check.isFetching} onClick={() => check.refetch()}>
@@ -370,7 +370,7 @@ export function GhlPipelinesCard({ canEdit }: { canEdit: boolean }) {
   return (
     <Card
       title="GHL pipelines"
-      description="Each person has one opportunity in GHL, however many loans they have here. LOSuite moves it when a loan closes and when a closed client starts a new loan."
+      description="Each person has one opportunity in GHL, however many loans they have here. MPS HQ moves it when a loan closes and when a closed client starts a new loan."
       action={
         ready && canEdit && (
           <Button size="sm" variant="outline" disabled={pipelines.isFetching} onClick={() => (load ? pipelines.refetch() : setLoad(true))}>
@@ -401,7 +401,7 @@ export function GhlPipelinesCard({ canEdit }: { canEdit: boolean }) {
           </div>
           {s.testMode && <p className="text-xs text-muted-foreground">Test mode: only people with TEST in their name are changed in GHL.</p>}
           <p className="border-t pt-2 text-xs text-muted-foreground">
-            New messages: LOSuite checks GHL every 10 minutes{s.lastSyncedAt ? `; last checked ${relativeTime(s.lastSyncedAt)}` : '; not checked yet'}.
+            New messages: MPS HQ checks GHL every 10 minutes{s.lastSyncedAt ? `; last checked ${relativeTime(s.lastSyncedAt)}` : '; not checked yet'}.
           </p>
         </div>
       )}

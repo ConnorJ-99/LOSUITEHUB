@@ -24,7 +24,7 @@ export function LoginPage() {
     <div className="flex min-h-svh items-center justify-center px-4">
       <div className="w-full max-w-sm space-y-6">
         <BrandMark className="justify-center" />
-        <Card title="Sign in" description="Use your MPS Mortgage LOSuite account.">
+        <Card title="Sign in" description="Use your MPS HQ login.">
           <form onSubmit={onSubmit} className="space-y-4">
             <Input label="Email" type="email" autoComplete="email" value={email} onChange={setEmail} required />
             <Input

@@ -8,7 +8,7 @@ export function PrequalResultsPdf({ results: r, brand, scale = 1 }: { results: P
   const z = (n: number) => n * scale
   const { lo } = brand
   return (
-    <Document title={`Prequalification Results - ${r.borrowers}`} author={brand.company.legalName} creator="LOSuite">
+    <Document title={`Prequalification Results - ${r.borrowers}`} author={brand.company.legalName} creator="MPS HQ">
       <Page size="LETTER" style={s.page}>
         <Letterhead brand={brand} s={s} />
         <TitleRow eyebrow="You're pre-qualified" title="Prequalification Results" meta={[r.borrowers, `Prepared ${r.preparedOn}`]} s={s} />

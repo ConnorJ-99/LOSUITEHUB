@@ -16,7 +16,7 @@ type Step = 'pick' | 'preview' | 'done'
 const STATUS: Record<RowStatus | 'not_sent', { preview: string; done: string; className: string }> = {
   added: { preview: 'Will add', done: 'Added', className: 'bg-emerald-50 text-emerald-800' },
   updated: { preview: 'Will fill in blanks', done: 'Updated', className: 'bg-sky-50 text-sky-800' },
-  unchanged: { preview: 'Already in LOSuite', done: 'No change', className: 'bg-muted text-muted-foreground' },
+  unchanged: { preview: 'Already in MPS HQ', done: 'No change', className: 'bg-muted text-muted-foreground' },
   skipped: { preview: 'Skipped', done: 'Skipped', className: 'bg-amber-50 text-amber-900' },
   error: { preview: 'Problem', done: 'Not imported', className: 'bg-destructive/10 text-destructive' },
   not_sent: { preview: 'Checking…', done: 'Not sent', className: 'bg-muted text-muted-foreground' },
@@ -141,7 +141,7 @@ export function ImportClientsDialog({ open, onOpenChange }: { open: boolean; onO
               <li>Nothing is saved until you review every row and click Import.</li>
               <li>People are matched by the old site ID, then email, then phone (closed clients also by name and property address), so importing the same file again doesn't make duplicates.</li>
               <li>Each closing is its own closed loan: a refi of the same home or another home with a different closing date is added to the same person.</li>
-              <li>An import only fills in blanks. It never overwrites what's already in LOSuite and never moves a file's stage.</li>
+              <li>An import only fills in blanks. It never overwrites what's already in MPS HQ and never moves a file's stage.</li>
               <li>Social Security numbers are never read. Delete that column from the export if it has one.</li>
             </ul>
             {showGuide && <ColumnGuide />}
@@ -166,7 +166,7 @@ export function ImportClientsDialog({ open, onOpenChange }: { open: boolean; onO
               </p>
             )}
             {checked.ignoredColumns.length > 0 && (
-              <p className="text-xs text-muted-foreground">Columns LOSuite doesn't use (ignored): {checked.ignoredColumns.join(', ')}</p>
+              <p className="text-xs text-muted-foreground">Columns MPS HQ doesn't use (ignored): {checked.ignoredColumns.join(', ')}</p>
             )}
 
             {totals && (
@@ -176,7 +176,7 @@ export function ImportClientsDialog({ open, onOpenChange }: { open: boolean; onO
                     {totals[s]} {(step === 'done' ? STATUS[s].done : STATUS[s].preview).toLowerCase()}
                   </span>
                 ))}
-                {busy && <span className="text-muted-foreground">{progress ? `Checking ${progress} of ${ready.length}…` : 'Checking with LOSuite…'}</span>}
+                {busy && <span className="text-muted-foreground">{progress ? `Checking ${progress} of ${ready.length}…` : 'Checking with MPS HQ…'}</span>}
                 <span className="ml-auto flex gap-1">
                   <Button size="sm" variant={filter === 'all' ? 'secondary' : 'ghost'} onClick={() => setFilter('all')}>All rows</Button>
                   <Button size="sm" variant={filter === 'problems' ? 'secondary' : 'ghost'} onClick={() => setFilter('problems')}>Problems and warnings</Button>

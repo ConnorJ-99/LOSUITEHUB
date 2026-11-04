@@ -12,7 +12,7 @@ export function LoanComparisonPdf({ comparison: c, brand, scale = 1 }: { compari
   const z = (n: number) => n * scale
   const cell = { flex: 1, textAlign: 'right' as const, paddingLeft: z(6) }
   return (
-    <Document title={`Loan options ${c.number}`} author={brand.company.legalName} creator="LOSuite">
+    <Document title={`Loan options ${c.number}`} author={brand.company.legalName} creator="MPS HQ">
       <Page size="LETTER" style={s.page}>
         <Letterhead brand={brand} s={s} />
         <TitleRow eyebrow="Estimate only · not a Loan Estimate" title="Your Loan Options" meta={[`Comparison #${c.number}`, `Prepared ${c.preparedAt}`, ...(c.borrowers ? [`For ${c.borrowers}`] : [])]} s={s} />

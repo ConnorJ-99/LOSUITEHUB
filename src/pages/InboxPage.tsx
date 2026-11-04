@@ -63,7 +63,7 @@ function NeedsMatchingCard() {
 
   if (!waiting.isPending && groups.length === 0) return null
   return (
-    <Card title="Needs matching" description="LOSuite couldn't tell who these are from. Only admins see them until they're matched.">
+    <Card title="Needs matching" description="MPS HQ couldn't tell who these are from. Only admins see them until they're matched.">
       {waiting.error ? (
         <p className="text-sm text-destructive">{waiting.error.message}</p>
       ) : waiting.isPending ? (
@@ -160,7 +160,7 @@ export function InboxPage() {
         {!isAdmin && canCheck && (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <UserSearchIcon className="size-3.5" />
-            Messages LOSuite can't place on a file wait for the admin login (info@mps.mortgage) to match them.
+            Messages MPS HQ can't place on a file wait for the admin login (info@mps.mortgage) to match them.
           </p>
         )}
       </div>

@@ -27,7 +27,7 @@ export function PersonSection({ loanId, borrower }: { loanId: string; borrower: 
     <SectionCard
       id="section-1"
       title="1a. Personal information"
-      description="Saved on the person, so it carries over to their future loans. No SSN is stored in LOSuite."
+      description="Saved on the person, so it carries over to their future loans. No SSN is stored in MPS HQ."
       dirty={dirty}
       saving={update.isPending}
       onSave={save}

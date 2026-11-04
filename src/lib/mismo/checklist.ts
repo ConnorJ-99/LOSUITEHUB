@@ -72,5 +72,5 @@ export function exportChecklist(input: {
 /** A safe file name like LOSuite_Borrower_2026-10-25.xml. */
 export function exportFileName(lastName: string | undefined, isoDate: string): string {
   const cleaned = (lastName ?? 'Loan').replace(/[^A-Za-z0-9-]+/g, '') || 'Loan'
-  return `LOSuite_MISMO34_${cleaned}_${isoDate}.xml`
+  return `MPS-HQ_MISMO34_${cleaned}_${isoDate}.xml`
 }

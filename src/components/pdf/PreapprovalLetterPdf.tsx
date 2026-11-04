@@ -15,7 +15,7 @@ export function PreapprovalLetterPdf({ letter: l, brand, scale = 1 }: { letter: 
   )
   const { company, lo } = brand
   return (
-    <Document title={`Pre-Approval Letter ${l.referenceNumber} v${l.version}`} author={company.legalName} creator="LOSuite">
+    <Document title={`Pre-Approval Letter ${l.referenceNumber} v${l.version}`} author={company.legalName} creator="MPS HQ">
       <Page size="LETTER" style={s.page}>
         <Letterhead brand={brand} s={s} />
         <TitleRow eyebrow="Mortgage pre-approval" title="Pre-Approval Letter" meta={[`Reference #${l.referenceNumber} · v${l.version}`, `Issued ${l.issuedOn}`, `Expires ${l.expiresOn}`]} s={s} />

@@ -73,7 +73,7 @@ function DocRow({ doc, people, loan, home }: { doc: LoanDocument; people: Person
         size="sm"
         variant="ghost"
         disabled={remove.isPending}
-        onClick={async () => (await confirmAction(`Delete ${doc.fileName}? The file is removed from LOSuite.`, { confirmLabel: 'Delete', destructive: true })) && remove.mutate(doc, { onSuccess: () => toast.success('Deleted'), onError: fail })}
+        onClick={async () => (await confirmAction(`Delete ${doc.fileName}? The file is removed from MPS HQ.`, { confirmLabel: 'Delete', destructive: true })) && remove.mutate(doc, { onSuccess: () => toast.success('Deleted'), onError: fail })}
       >
         Delete
       </Button>

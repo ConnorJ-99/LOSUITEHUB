@@ -67,7 +67,7 @@ describe('export checklist', () => {
   })
 
   it('makes safe file names', () => {
-    expect(exportFileName("O'Brien-Smith Jr.", '2026-10-25')).toBe('LOSuite_MISMO34_OBrien-SmithJr_2026-10-25.xml')
-    expect(exportFileName(undefined, '2026-10-25')).toBe('LOSuite_MISMO34_Loan_2026-10-25.xml')
+    expect(exportFileName("O'Brien-Smith Jr.", '2026-10-25')).toBe('MPS-HQ_MISMO34_OBrien-SmithJr_2026-10-25.xml')
+    expect(exportFileName(undefined, '2026-10-25')).toBe('MPS-HQ_MISMO34_Loan_2026-10-25.xml')
   })
 })

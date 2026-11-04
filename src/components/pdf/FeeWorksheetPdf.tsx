@@ -15,7 +15,7 @@ function Sections({ sections, s }: { sections: WorksheetSection[]; s: PdfStyles 
 export function FeeWorksheetPdf({ worksheet: w, brand, scale = 1 }: { worksheet: FeeWorksheet; brand: DocBrand; scale?: number }) {
   const s = pdfStyles(scale)
   return (
-    <Document title={`Fee Worksheet ${w.number}`} author={brand.company.legalName} creator="LOSuite">
+    <Document title={`Fee Worksheet ${w.number}`} author={brand.company.legalName} creator="MPS HQ">
       <Page size="LETTER" style={s.page}>
         <Letterhead brand={brand} s={s} />
         <TitleRow eyebrow="Estimate only · not a Loan Estimate" title="Fee Worksheet" meta={[`Worksheet #${w.number}`, `Prepared ${w.preparedAt}`, ...(w.borrowers ? [`For ${w.borrowers}`] : [])]} s={s} />

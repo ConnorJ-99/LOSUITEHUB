@@ -70,7 +70,7 @@ function ContractDocuments({ loan }: { loan: LoanProfile }) {
   }
 
   const del = async (doc: LoanDocument) => {
-    if (!(await confirmAction(`Delete ${doc.fileName}? The file is removed from LOSuite.`, { confirmLabel: 'Delete', destructive: true }))) return
+    if (!(await confirmAction(`Delete ${doc.fileName}? The file is removed from MPS HQ.`, { confirmLabel: 'Delete', destructive: true }))) return
     remove.mutate(doc, { onSuccess: () => toast.success('Deleted'), onError: (e) => toast.error(e.message) })
   }
 

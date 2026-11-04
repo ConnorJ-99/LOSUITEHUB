@@ -37,7 +37,7 @@ export const MATCH_REASON_LABEL: Record<MatchReason, string> = {
   shared_phone: 'More than one person has this phone (a shared number)',
   email_phone_differ: 'The email and the phone belong to different people',
   linked_to_other_ghl: 'The person found is already linked to a different GHL contact',
-  no_match: 'Nobody in LOSuite has this email or phone',
+  no_match: 'Nobody in MPS HQ has this email or phone',
 }
 
 export interface Message {
