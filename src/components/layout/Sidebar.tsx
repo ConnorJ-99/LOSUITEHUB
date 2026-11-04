@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useNewLead } from '@/components/leads/new-lead-context'
 import { useUnreadCount } from '@/lib/api/messages'
 import { roleLabels, useAuth, type CurrentUser } from '@/lib/auth/context'
+import { NotificationsBell } from '@/components/notifications/NotificationsBell'
 import { BrandMark } from './BrandMark'
 import { navSections } from './nav'
 
@@ -124,13 +125,13 @@ export function Sidebar({ user, collapsed, onToggleCollapsed, onNavigate }: Side
         </div>
       )}
 
-      <div className="border-t border-sidebar-border p-3">
+      <div className={cn('flex gap-1 border-t border-sidebar-border p-3', collapsed ? 'flex-col items-center' : 'items-center')}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
               className={cn(
-                'flex w-full items-center gap-2.5 rounded-lg p-1.5 text-left transition-colors hover:bg-white/8',
+                'flex w-full min-w-0 items-center gap-2.5 rounded-lg p-1.5 text-left transition-colors hover:bg-white/8',
                 collapsed && 'justify-center',
               )}
             >
@@ -162,6 +163,7 @@ export function Sidebar({ user, collapsed, onToggleCollapsed, onNavigate }: Side
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <NotificationsBell tone="sidebar" />
       </div>
     </aside>
   )

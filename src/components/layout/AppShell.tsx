@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/button'
 import { NewLeadContext, type NewLeadPreset } from '@/components/leads/new-lead-context'
 import { NewLeadDialog } from '@/components/leads/NewLeadDialog'
 import { useNewMessageAlerts } from '@/components/messages/useNewMessageAlerts'
+import { NotificationsBell } from '@/components/notifications/NotificationsBell'
 import { useMessagesLive } from '@/lib/api/messages'
+import { useNotificationsLive } from '@/lib/api/notifications'
 import type { CurrentUser } from '@/lib/auth/context'
 import { BrandMark } from './BrandMark'
 import { Sidebar } from './Sidebar'
@@ -38,6 +40,8 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
   useNewMessageAlerts()
   // Message lists, unread counts and pop-ups update the moment a message is saved.
   useMessagesLive()
+  // The bell's count and list update the moment a notification is made.
+  useNotificationsLive()
 
   const toggleCollapsed = () => {
     setCollapsed((value) => {
@@ -81,6 +85,9 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
               <MenuIcon />
             </Button>
             <BrandMark />
+            <div className="ml-auto">
+              <NotificationsBell tone="bar" />
+            </div>
           </header>
 
           {preview && (

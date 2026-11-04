@@ -7,6 +7,7 @@ import { Card, confirmAction, FormGrid, Input, PageHeader, Select } from '@/comp
 import { BRAND_TYPES, useBrandImage, useRemoveBrandImage, useUploadBrandImage } from '@/lib/api/brandFiles'
 import { DocumentRulesCard } from '@/components/documents/DocumentRulesCard'
 import { GhlCard, GhlPipelinesCard, SendingCard } from '@/components/messaging/GhlSettingsCards'
+import { NotificationSettingsCard } from '@/components/notifications/NotificationSettingsCard'
 import { FeeListCard } from '@/components/pricing/FeeListCard'
 import { MessageTemplatesCard } from '@/components/queue/MessageTemplatesCard'
 import { useDraft } from '@/components/urla/useDraft'
@@ -285,6 +286,7 @@ export function SettingsPage() {
         {me && <TeamCard members={members.data ?? []} me={me} />}
         {canEditCompany && <GhlCard members={members.data ?? []} />}
         <SendingCard canEdit={canEditCompany} />
+        <NotificationSettingsCard />
         <GhlPipelinesCard canEdit={canEditCompany} />
       </div>
     </>

@@ -68,3 +68,11 @@ Paths 1–5 go through `useSendMessage` (`src/lib/api/messages.ts`), which appro
 - **AI:** with `ANTHROPIC_API_KEY` in Edge Function secrets, Sonnet 5.5 writes it from the last 12 messages and the file's stage and purpose (`supabase/functions/assistant/replyDraft.ts`), logged in `ai_runs` (task `reply_draft`) and held to the follow-up compliance rules. Without the key, or when the AI's draft can't be used, a template start is drafted and the Today card says to finish it.
 - **Never sends.** The draft goes through the same Send / Schedule / Edit / Dismiss on Today as any draft, with an approval each time.
 - The "notification" for now is the existing pop-up and Today's New messages box; the bell and phone push are Phase 2c.
+
+## Phase 2c (built 2026-11-03; `20261224000000_notifications.sql`, Edge Function `push`)
+
+- **Notifications** are made only by the database: a client wrote in (to the file's LO), a message needs matching (admins), a send failed (whoever sent it), an opt-out (the LOs on the person's files), a scheduled send went out or couldn't (whoever scheduled it). A notification problem never stops the message or send that caused it.
+- **The bell** (sidebar, next to your name; the phone's top bar) shows your unread count and your latest 40; a click opens what it's about and marks it read. Live through Supabase Realtime.
+- **Settings → Notifications:** per kind, In the app and Push (defaults: all in the app; push for all but "a scheduled message went out"). "Turn on for this device" asks the browser's permission and saves the device; devices can be turned off; "Send a test notification".
+- **Push:** a new notification someone wants pushed calls the `push` Edge Function (Verify JWT off, the GHL webhook key), which sends it with the `web-push` library and the VAPID keys (Edge Function secrets `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`). Only a title, a short line and an in-app link. Dead devices are removed.
+- **Installable app:** `public/manifest.webmanifest`, icons, and `public/sw.js` (shows notifications only, caches nothing). iPhones and iPads get push only once MPS HQ is added to the Home Screen.
