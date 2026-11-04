@@ -19,9 +19,27 @@
 //
 // Writes use the service role (no signed-in user), so Row Level Security is
 // bypassed here on purpose; every write is scoped to the company that owns
-// the GHL sub-account. Every GHL call is logged in ghl_calls. Nothing is sent.
+// the GHL sub-account. Every GHL call is logged in ghl_calls. Nothing is sent: a new message from a
+// client only gets a reply DRAFT in the Action Queue (draftReply, Phase 2b).
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0'
+import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0'
+import { complianceIssues, finalBody, type Signer } from '../assistant/followUp.ts'
+import {
+  buildReplyPrompt,
+  latestBurst,
+  needsNoReply,
+  readReply,
+  REPLY_MODEL,
+  REPLY_SCHEMA,
+  REPLY_SYSTEM,
+  replyChannel,
+  replySourceKey,
+  replySubject,
+  templateReply,
+  THREAD_SENT,
+  type ThreadMessage,
+} from '../assistant/replyDraft.ts'
 import { CHECKS, GHL_BASE, classify, logEndpoint, type CheckKey, type CheckResult } from '../ghl/checks.ts'
 import { matchContact, phone10, type Candidate, type MatchResult } from '../ghl/match.ts'
 import {
@@ -114,6 +132,8 @@ interface Summary {
   skippedNotTest: number
   optOuts: number
   failed: number
+  /** Reply drafts made or rewritten for the loan officer (Phase 2b). */
+  drafts: number
 }
 
 interface PersonRow {
@@ -231,6 +251,141 @@ async function syncConversation(db: SupabaseClient, g: Ghl, company: Company, co
   if (personId && rows.some((r) => r.channel === 'email' && r.direction === 'inbound' && isEmailUnsubscribe(r.body))) {
     if (await optOut(db, orgId, personId, 'email', 'stop_reply')) s.optOuts++
   }
+
+  // Something new from the client: draft (or rewrite) one reply for the loan officer to approve. A problem here never stops the sync.
+  if (personId && loanId && fresh.some((m) => m.direction === 'inbound')) {
+    try {
+      if (await draftReply(db, orgId, personId, loanId)) s.drafts++
+    } catch (e) {
+      console.error('Reply draft failed:', (e as Error).message)
+    }
+  }
+}
+
+/**
+ * One reply draft per burst (Phase 2b): what the client sent since our last
+ * message gets one Action Queue draft, keyed by the burst's first message, and
+ * later messages in the same burst rewrite that same draft while it's still
+ * waiting. With ANTHROPIC_API_KEY, Sonnet writes it (logged in ai_runs, checked
+ * by the follow-up compliance rules); otherwise, or if the AI's draft can't be
+ * used, a short template starts it. Never sends. True when a draft was made or
+ * rewritten.
+ */
+async function draftReply(db: SupabaseClient, orgId: string, contactId: string, loanId: string): Promise<boolean> {
+  const recent = await db.from('messages').select('id, channel, direction, subject, body, sent_at').eq('contact_id', contactId).order('sent_at', { ascending: false }).limit(30)
+  if (recent.error) throw new Error(recent.error.message)
+  const thread: ThreadMessage[] = ((recent.data ?? []) as { id: string; channel: 'text' | 'email'; direction: 'inbound' | 'outbound'; subject: string | null; body: string; sent_at: string }[]).map((m) => ({
+    id: m.id,
+    channel: m.channel,
+    direction: m.direction,
+    subject: m.subject,
+    body: m.body,
+    sentAt: m.sent_at,
+  }))
+  const burst = latestBurst(thread)
+  if (needsNoReply(burst, (m) => (m.channel === 'text' ? isStopReply(m.body) : isEmailUnsubscribe(m.body)))) return false
+  const last = burst[burst.length - 1]
+  const key = replySourceKey(contactId, burst[0].id)
+
+  const existing = await db.from('action_items').select('id, status, payload').eq('organization_id', orgId).eq('source_key', key).maybeSingle()
+  if (existing.error) throw new Error(existing.error.message)
+  const ex = existing.data as { id: string; status: string; payload: { burstLastId?: string } } | null
+  // Already decided (sent, scheduled or dismissed), or already drafted from the newest message: nothing to do.
+  if (ex && (ex.status !== 'pending' || ex.payload?.burstLastId === last.id)) return false
+
+  const person = await db.from('contacts').select('first_name, phone, email, sms_opted_out_at, email_opted_out_at').eq('id', contactId).maybeSingle()
+  const loan = await db.from('loans').select('stage, purpose, assigned_lo_id').eq('id', loanId).maybeSingle()
+  if (person.error || loan.error) throw new Error((person.error ?? loan.error)!.message)
+  const p = person.data as { first_name: string | null; phone: string | null; email: string | null; sms_opted_out_at: string | null; email_opted_out_at: string | null } | null
+  const l = loan.data as { stage: string; purpose: string; assigned_lo_id: string | null } | null
+  if (!p || !l) return false
+  let channel = replyChannel(burst)
+  // Opted out of that channel: answer on the other one if we can, else don't draft.
+  if (channel === 'text' && p.sms_opted_out_at) channel = 'email'
+  else if (channel === 'email' && p.email_opted_out_at) channel = 'text'
+  if ((channel === 'text' && (p.sms_opted_out_at || !p.phone)) || (channel === 'email' && (p.email_opted_out_at || !p.email))) return false
+
+  const [profile, org] = await Promise.all([
+    l.assigned_lo_id ? db.from('profiles').select('full_name, nmls, phone').eq('id', l.assigned_lo_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    db.from('organizations').select('name, nmls').eq('id', orgId).maybeSingle(),
+  ])
+  const pr = profile.data as { full_name: string | null; nmls: string | null; phone: string | null } | null
+  const o = org.data as { name: string; nmls: string | null } | null
+  const signer: Signer = { loName: pr?.full_name ?? null, loNmls: pr?.nmls ?? null, loPhone: pr?.phone ?? null, companyName: o?.name ?? 'MPS Mortgage LLC', companyNmls: o?.nmls ?? '2501110' }
+  const firstName = p.first_name ?? ''
+  const subject = channel === 'email' ? replySubject(burst) : null
+
+  let body = templateReply(firstName, channel)
+  let confidence: 'high' | 'medium' | 'low' = 'low'
+  let aiRunId: string | null = null
+  let fromAi = false
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
+  if (apiKey) {
+    const run = await db
+      .from('ai_runs')
+      .insert({ organization_id: orgId, loan_id: loanId, task_type: 'reply_draft', input_ref: { contactId, messageIds: thread.slice(0, THREAD_SENT).map((m) => m.id), channel }, model: REPLY_MODEL, created_by: null })
+      .select('id')
+      .single()
+    aiRunId = (run.data as { id: string } | null)?.id ?? null
+    try {
+      const anthropic = new Anthropic({ apiKey })
+      const res = await anthropic.beta.messages.create({
+        model: REPLY_MODEL,
+        max_tokens: 2000,
+        system: REPLY_SYSTEM,
+        messages: [{ role: 'user', content: buildReplyPrompt(channel, { firstName: firstName || 'the client', stage: l.stage, purpose: l.purpose, loName: pr?.full_name ?? null }, thread) }],
+        output_config: { effort: 'low', format: { type: 'json_schema', schema: REPLY_SCHEMA } },
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+      } as never)
+      const r = res as unknown as { stop_reason: string; model: string; usage: { input_tokens: number; output_tokens: number }; content: { type: string; text?: string }[] }
+      const text = r.content.flatMap((b) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
+      let parsed: unknown = null
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        // Unreadable: the template is used.
+      }
+      const read = r.stop_reason === 'end_turn' ? readReply(parsed) : { error: r.stop_reason }
+      const issues = 'error' in read ? [`unusable answer (${read.error})`] : complianceIssues(channel, { subject, body: read.body })
+      if (!('error' in read) && issues.length === 0) {
+        body = read.body
+        confidence = read.confidence
+        fromAi = true
+      }
+      if (aiRunId) {
+        await db
+          .from('ai_runs')
+          .update(
+            fromAi
+              ? { status: 'succeeded', output: { body, confidence }, model: r.model, input_tokens: r.usage.input_tokens, output_tokens: r.usage.output_tokens }
+              : { status: 'failed', error: `Template used instead: ${issues.join(' ')}`, model: r.model, input_tokens: r.usage.input_tokens, output_tokens: r.usage.output_tokens },
+          )
+          .eq('id', aiRunId)
+      }
+    } catch (e) {
+      if (aiRunId) await db.from('ai_runs').update({ status: 'failed', error: (e as Error).message.slice(0, 500) }).eq('id', aiRunId)
+    }
+  }
+
+  const finalText = channel === 'email' ? finalBody('email', body, signer) : body
+  const item = {
+    title: `Reply to ${firstName || 'the client'}`,
+    payload: { channel, to: channel === 'text' ? p.phone : p.email, subject, body: finalText, contactId, burstLastId: last.id, replyTo: burst.map((m) => m.id), template: !fromAi },
+    confidence,
+    sources: [],
+    ai_run_id: fromAi ? aiRunId : null,
+    due_on: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date()),
+  }
+  if (ex) {
+    // Still waiting: rewrite it with the newest messages (only while nobody has decided it).
+    const u = await db.from('action_items').update(item).eq('id', ex.id).eq('status', 'pending')
+    if (u.error) throw new Error(u.error.message)
+  } else {
+    const ins = await db.from('action_items').upsert({ organization_id: orgId, loan_id: loanId, kind: 'draft_message', source_key: key, created_by: null, ...item }, { onConflict: 'organization_id,source_key', ignoreDuplicates: true })
+    if (ins.error) throw new Error(ins.error.message)
+  }
+  return true
 }
 
 async function messageRow(g: Ghl, orgId: string, m: GhlMessage, contact: GhlContact, conversationId: string, match: MatchResult, loanId: string | null) {
@@ -369,7 +524,7 @@ Deno.serve(async (request) => {
   }
 
   const g = new Ghl(token, locationId)
-  const s: Summary = { conversations: 0, saved: 0, updated: 0, needsMatching: 0, skippedNotTest: 0, optOuts: 0, failed: 0 }
+  const s: Summary = { conversations: 0, saved: 0, updated: 0, needsMatching: 0, skippedNotTest: 0, optOuts: 0, failed: 0, drafts: 0 }
   let error: string | null = null
   try {
     if (task === 'webhook') {

@@ -60,3 +60,11 @@ Paths 1–5 go through `useSendMessage` (`src/lib/api/messages.ts`), which appro
 - **New message** in the Inbox: any client on a file you can see, with the same reply box.
 - An email reply whose first line only says unsubscribe / stop / remove me turns email off (`isEmailUnsubscribe`).
 - Partners (realtors, title) as recipients are the next step (2a-ii): they need their own threads and inbound matching.
+
+## Phase 2b (built 2026-11-03; no database change)
+
+- **One reply draft per burst.** When `ghl-inbound` saves a new message from a matched client on a file, `draftReply` makes one Action Queue draft ("Reply to Rita") keyed `reply:<person>:<first message of the burst>`. More messages before we answer rewrite that same draft while it's still waiting; once it's sent, scheduled or dismissed, the next burst gets a new one.
+- **No draft** for opt-outs (STOP, email unsubscribe), bare "ok / thanks", a channel the client opted out of, or unmatched messages (they wait in Needs matching).
+- **AI:** with `ANTHROPIC_API_KEY` in Edge Function secrets, Sonnet 5.5 writes it from the last 12 messages and the file's stage and purpose (`supabase/functions/assistant/replyDraft.ts`), logged in `ai_runs` (task `reply_draft`) and held to the follow-up compliance rules. Without the key, or when the AI's draft can't be used, a template start is drafted and the Today card says to finish it.
+- **Never sends.** The draft goes through the same Send / Schedule / Edit / Dismiss on Today as any draft, with an approval each time.
+- The "notification" for now is the existing pop-up and Today's New messages box; the bell and phone push are Phase 2c.

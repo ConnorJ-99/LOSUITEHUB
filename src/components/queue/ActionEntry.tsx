@@ -152,6 +152,9 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
             </p>
             {draft.subject && <p className="font-medium">{draft.subject}</p>}
             <p className="whitespace-pre-wrap">{draft.body}</p>
+            {(item.payload as { template?: unknown }).template === true && (
+              <p className="text-xs text-amber-800">Started from a template, not finished. Click Edit to write the rest before you send.</p>
+            )}
           </div>
         </QueueItem>
         {scheduling && sendTo && (
