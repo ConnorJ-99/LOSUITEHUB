@@ -7,6 +7,7 @@ import { Card, EmptyState, TextArea } from '@/components/shared'
 import { EditDialog } from '@/components/urla/parts'
 import { useGhlLinks, useGhlStatus } from '@/lib/api/ghl'
 import {
+  isOpenFailure,
   MATCHED_BY_LABEL,
   useCheckNewMessages,
   useConsentHistory,
@@ -24,6 +25,7 @@ import { relativeTime } from '@/lib/dates'
 import { consentChip, dayLabel, groupByDay, sharedPhoneIds, timeOfDay } from '@/lib/messaging/thread'
 import { formatPhone } from '@/lib/pipeline/helpers'
 import { Composer } from './Composer'
+import { FailedSendActions } from './FailedSend'
 import { TONE_CLASS } from './tone'
 
 type Filter = 'all' | 'text' | 'email'
@@ -87,6 +89,11 @@ function Bubble({ m, who, isNew }: { m: Message; who: string | null; isNew: bool
         {meta}
         {isNew && <span className="font-medium text-primary">· New</span>}
       </p>
+      {isOpenFailure(m) && (
+        <div className="w-full max-w-[85%]">
+          <FailedSendActions m={m} />
+        </div>
+      )}
     </div>
   )
 }

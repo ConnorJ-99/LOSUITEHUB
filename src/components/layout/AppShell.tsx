@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { NewLeadContext, type NewLeadPreset } from '@/components/leads/new-lead-context'
 import { NewLeadDialog } from '@/components/leads/NewLeadDialog'
 import { useNewMessageAlerts } from '@/components/messages/useNewMessageAlerts'
+import { useMessagesLive } from '@/lib/api/messages'
 import type { CurrentUser } from '@/lib/auth/context'
 import { BrandMark } from './BrandMark'
 import { Sidebar } from './Sidebar'
@@ -35,6 +36,8 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
   const [newLeadPreset, setNewLeadPreset] = useState<NewLeadPreset | null>(null)
   // A pop-up for each text or email that comes in while LOSuite is open.
   useNewMessageAlerts()
+  // Message lists, unread counts and pop-ups update the moment a message is saved.
+  useMessagesLive()
 
   const toggleCollapsed = () => {
     setCollapsed((value) => {

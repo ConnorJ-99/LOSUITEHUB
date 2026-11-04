@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FunctionsHttpError } from '@supabase/supabase-js'
 import { useAuth } from '@/lib/auth/context'
@@ -19,6 +20,7 @@ const msgKeys = {
   needsMatching: ['messages', 'needsMatching'] as const,
   consent: (ids: string) => ['messages', 'consent', ids] as const,
   fresh: ['messages', 'fresh'] as const,
+  failed: ['messages', 'failed'] as const,
 }
 
 /**
@@ -63,10 +65,13 @@ export interface Message {
   ghlContactPhone: string | null
   /** Documents sent with it from LOSuite. */
   attachments: { documentId: string; fileName: string }[]
+  /** Why a send from MPS HQ failed; it stays on screen until it's resent or dismissed. */
+  sendError: string | null
+  failureClearedAt: string | null
 }
 
 const MESSAGE_SELECT =
-  'id, contact_id, loan_id, channel, direction, subject, body, from_address, to_address, status, sent_at, read_at, match_status, matched_by, match_reason, candidate_ids, ghl_contact_id, ghl_contact_name, ghl_contact_email, ghl_contact_phone, attachments'
+  'id, contact_id, loan_id, channel, direction, subject, body, from_address, to_address, status, sent_at, read_at, match_status, matched_by, match_reason, candidate_ids, ghl_contact_id, ghl_contact_name, ghl_contact_email, ghl_contact_phone, attachments, send_error, failure_cleared_at'
 
 interface MessageRow {
   id: string
@@ -90,6 +95,8 @@ interface MessageRow {
   ghl_contact_email: string | null
   ghl_contact_phone: string | null
   attachments: { documentId: string; fileName: string }[] | null
+  send_error: string | null
+  failure_cleared_at: string | null
 }
 
 const toMessage = (r: MessageRow): Message => ({
@@ -114,7 +121,12 @@ const toMessage = (r: MessageRow): Message => ({
   ghlContactEmail: r.ghl_contact_email,
   ghlContactPhone: r.ghl_contact_phone,
   attachments: r.attachments ?? [],
+  sendError: r.send_error,
+  failureClearedAt: r.failure_cleared_at,
 })
+
+/** A send that failed and nobody has resent or dismissed yet. */
+export const isOpenFailure = (m: Message) => m.direction === 'outbound' && m.status === 'failed' && !m.failureClearedAt
 
 /** A borrower on the file, with what messaging needs to know about them. */
 export interface FilePerson {
@@ -261,6 +273,72 @@ export function useInbox() {
       return [...byPerson.values()]
     },
   })
+}
+
+export interface FailedSend {
+  message: Message
+  name: string
+}
+
+/** Sends that failed and are still waiting to be resent or dismissed (the ones you can see), newest first. */
+export function useFailedSends() {
+  const { state } = useAuth()
+  return useQuery({
+    queryKey: msgKeys.failed,
+    enabled: state.status === 'signedIn',
+    refetchInterval: LIVE_MS,
+    queryFn: async () => {
+      const rows = unwrap<(MessageRow & { contact: { first_name: string; last_name: string } | null })[]>(
+        await db()
+          .from('messages')
+          .select(`${MESSAGE_SELECT}, contact:contacts!messages_contact_id_fkey ( first_name, last_name )`)
+          .eq('direction', 'outbound')
+          .eq('status', 'failed')
+          .is('failure_cleared_at', null)
+          .order('sent_at', { ascending: false })
+          .limit(50),
+      )
+      return rows.map((r) => ({ message: toMessage(r), name: [r.contact?.first_name, r.contact?.last_name].filter(Boolean).join(' ') || 'Unknown' }))
+    },
+  })
+}
+
+/** Takes a failed send off the "failed" lists: it was resent, or someone dismissed it. */
+export function useClearFailedSend() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (v: { messageId: string; reason: 'resent' | 'dismissed' }) => {
+      unwrap(await db().rpc('clear_failed_send', { p_message_id: v.messageId, p_reason: v.reason }))
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: msgKeys.all }),
+  })
+}
+
+/**
+ * Live updates: Supabase Realtime tells open screens the moment a message is
+ * saved or changes (each person only hears about messages they may see), and
+ * the message lists reload. The 30-second refresh stays as a backup.
+ */
+export function useMessagesLive() {
+  const queryClient = useQueryClient()
+  const { state } = useAuth()
+  const userId = state.status === 'signedIn' ? state.user.id : null
+  useEffect(() => {
+    if (!userId) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const channel = db()
+      .channel(`messages-live-${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
+        // A catch-up can save many at once: reload once they've landed.
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(() => queryClient.invalidateQueries({ queryKey: msgKeys.all }), 300)
+      })
+      .subscribe()
+    return () => {
+      if (timer) clearTimeout(timer)
+      void db().removeChannel(channel)
+    }
+  }, [userId, queryClient])
 }
 
 export interface FreshMessage {
@@ -435,9 +513,13 @@ export interface SendResult {
 }
 
 /**
- * Sends one text or email through GHL. The server re-checks every rule
- * (consent, opt-outs, sending hours, test mode, the LO's confirmed number) and
- * uses the key so the same message can't go twice.
+ * Approves and sends one text or email through GHL, after the person clicked
+ * Send in a confirm box. Rule #0 (Connor, 2026-11-03): approve_send() first
+ * records who approved this exact message (the file's loan officer or an
+ * admin); the ghl function then sends only what that approval says, once.
+ * The server re-checks every rule (consent, opt-outs, sending hours, test
+ * mode, the LO's confirmed number). The key makes a double click find the
+ * same approval, so the same message can't go twice.
  */
 export function useSendMessage() {
   const queryClient = useQueryClient()
@@ -445,7 +527,18 @@ export function useSendMessage() {
   const orgId = state.status === 'signedIn' ? state.user.organizationId : null
   return useMutation({
     mutationFn: async (v: { contactId: string; loanId: string; channel: MessageChannel; body: string; subject: string | null; idempotencyKey: string; documentIds?: string[] }) => {
-      const { data, error } = await db().functions.invoke<SendResult>('ghl', { body: { task: 'send', organizationId: orgId, ...v } })
+      const approvalId = unwrap<string>(
+        await db().rpc('approve_send', {
+          p_loan_id: v.loanId,
+          p_contact_id: v.contactId,
+          p_channel: v.channel,
+          p_subject: v.channel === 'email' ? v.subject : null,
+          p_body: v.body,
+          p_document_ids: v.documentIds ?? [],
+          p_client_key: v.idempotencyKey,
+        }),
+      )
+      const { data, error } = await db().functions.invoke<SendResult>('ghl', { body: { task: 'send', organizationId: orgId, approvalId } })
       if (error) {
         const detail = error instanceof FunctionsHttpError ? await error.context.json().catch(() => null) : null
         throw new Error(detail?.error ?? 'The message was not sent.')

@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { InboxIcon, MailIcon, MessageSquareIcon, UserSearchIcon } from 'lucide-react'
+import { InboxIcon, MailIcon, MessageSquareIcon, UserPlusIcon, UserSearchIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, confirmAction, EmptyState, PageHeader, SearchInput } from '@/components/shared'
+import { FailedSendActions } from '@/components/messages/FailedSend'
 import { CheckNewMessagesButton } from '@/components/messages/MessagesTab'
+import { NewLeadFromMessage } from '@/components/messages/NewLeadFromMessage'
 import { TONE_CLASS } from '@/components/messages/tone'
 import { useContacts } from '@/lib/api/contacts'
-import { MATCH_REASON_LABEL, useInbox, useMatchMessage, useNeedsMatching, type NeedsMatchingGroup } from '@/lib/api/messages'
+import { MATCH_REASON_LABEL, useFailedSends, useInbox, useMatchMessage, useNeedsMatching, type NeedsMatchingGroup } from '@/lib/api/messages'
 import type { ContactSummary } from '@/lib/api/types'
 import { useAuth } from '@/lib/auth/context'
 import { relativeTime } from '@/lib/dates'
@@ -38,8 +40,39 @@ function PersonPicker({ group, people, onPick, busy }: { group: NeedsMatchingGro
       {suggested.length > 0 && <div className="flex flex-wrap gap-2">{suggested.map(button)}</div>}
       <SearchInput value={search} onChange={setSearch} placeholder="Someone else: search by name, email or phone" className="max-w-sm" />
       {found.length > 0 && <div className="flex flex-wrap gap-2">{found.map(button)}</div>}
-      {q.length >= 2 && found.length === 0 && <p className="text-xs text-muted-foreground">Nobody matches. If they're new, add them with New Lead first, then match the message here.</p>}
+      {q.length >= 2 && found.length === 0 && <p className="text-xs text-muted-foreground">Nobody matches. If they're new, use "New lead from this".</p>}
     </div>
+  )
+}
+
+/** Sends that failed and are waiting to be resent or dismissed, on the files you can see. */
+function FailedSendsCard() {
+  const failed = useFailedSends()
+  const rows = failed.data ?? []
+  if (!rows.length) return null
+  return (
+    <Card title="Failed sends" description="These didn't go out. Each stays here until it's resent or dismissed.">
+      <ul className="divide-y">
+        {rows.map(({ message: m, name }) => (
+          <li key={m.id} className="py-3 first:pt-0">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-medium">
+                {m.loanId ? (
+                  <Link to={`/loans/${m.loanId}?tab=messages`} className="hover:underline">
+                    {name}
+                  </Link>
+                ) : (
+                  name
+                )}
+                <span className="ml-2 text-xs font-normal text-muted-foreground">{m.channel === 'text' ? 'Text' : 'Email'} · {relativeTime(m.sentAt)}</span>
+              </p>
+            </div>
+            <p className="truncate text-sm text-muted-foreground">{preview(m.subject ? `${m.subject}: ${m.body}` : m.body)}</p>
+            <FailedSendActions m={m} />
+          </li>
+        ))}
+      </ul>
+    </Card>
   )
 }
 
@@ -49,6 +82,7 @@ function NeedsMatchingCard() {
   const people = useContacts()
   const match = useMatchMessage()
   const groups = waiting.data ?? []
+  const [newLeadFor, setNewLeadFor] = useState<NeedsMatchingGroup | null>(null)
 
   const pick = async (g: NeedsMatchingGroup, p: ContactSummary) => {
     const from = g.name ?? g.phone ?? g.email ?? 'this GHL contact'
@@ -92,10 +126,15 @@ function NeedsMatchingCard() {
                 {g.messages.length > 3 && <li className="text-xs text-muted-foreground">and {g.messages.length - 3} more</li>}
               </ul>
               <PersonPicker group={g} people={people.data ?? []} onPick={(p) => pick(g, p)} busy={match.isPending} />
+              <Button size="sm" variant="ghost" disabled={match.isPending} onClick={() => setNewLeadFor(g)}>
+                <UserPlusIcon />
+                New lead from this
+              </Button>
             </li>
           ))}
         </ul>
       )}
+      {newLeadFor && <NewLeadFromMessage group={newLeadFor} onDone={() => setNewLeadFor(null)} />}
     </Card>
   )
 }
@@ -113,6 +152,7 @@ export function InboxPage() {
     <>
       <PageHeader eyebrow="Workspace" title="Inbox" description="Texts and emails from GHL, on the files you can see. Times are Central." action={canCheck ? <CheckNewMessagesButton size="default" /> : undefined} />
       <div className="space-y-4">
+        <FailedSendsCard />
         {isAdmin && <NeedsMatchingCard />}
         <Card title="Conversations">
           {inbox.error ? (

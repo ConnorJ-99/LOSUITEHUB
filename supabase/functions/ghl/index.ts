@@ -9,9 +9,12 @@
 //   this company as the sub-account's owner (for ghl-inbound).
 // - "link_user": links a team member to their GHL user, after GHL confirms the
 //   number assigned to that user. Texts only ever go from that number.
-// - "send" (Phase 3): sends one text or email that a person wrote or approved.
-//   Anyone who can see the person's file may send; the server re-checks every
-//   rule first (sendRules.ts: consent, opt-outs, sending hours, test mode, the
+// - "send" (Phase 3): sends one text or email that a person approved. Rule #0
+//   (Connor, 2026-11-03): this is the ONLY code that sends through GHL, and it
+//   sends only what an approval record says (send_approvals, made by
+//   approve_send(): the file's loan officer or an admin), used once by
+//   claim_send_approval(), by the person who approved it. The server re-checks
+//   every rule first (sendRules.ts: consent, opt-outs, sending hours, test mode, the
 //   LO's confirmed number), re-checks GHL's Do Not Disturb live, and saves the
 //   message with its idempotency key before calling GHL so it can't go twice.
 //   It uses the person's GHL contact (found by phone or email), and creates
@@ -318,6 +321,7 @@ async function linkUser(db: SupabaseClient, g: Ghl, organizationId: string, user
 
 
 interface SendRequest {
+  approvalId: string
   contactId: string
   loanId: string
   channel: 'text' | 'email'
@@ -328,17 +332,53 @@ interface SendRequest {
   documentIds: string[]
 }
 
-function parseSend(body: Record<string, unknown>): SendRequest {
-  const s = (v: unknown) => (typeof v === 'string' ? v : '')
-  const channel = body.channel === 'email' ? 'email' : body.channel === 'text' ? 'text' : null
-  if (!channel) throw new UserError('Pick Text or Email.')
-  const key = s(body.idempotencyKey).trim()
-  if (key.length < 8 || key.length > 100) throw new UserError('Missing send key; refresh the page and try again.')
-  if (!s(body.contactId) || !s(body.loanId)) throw new UserError('Which person and file?')
-  const documentIds = Array.isArray(body.documentIds) ? [...new Set(body.documentIds.filter((d): d is string => typeof d === 'string' && d.length > 0))] : []
-  if (documentIds.length && channel !== 'email') throw new UserError('Documents go by email only, never by text.')
+interface ApprovalRow {
+  id: string
+  contact_id: string
+  loan_id: string
+  channel: 'text' | 'email'
+  subject: string | null
+  body: string
+  document_ids: string[] | null
+  approved_by: string
+  used_at: string | null
+  voided_at: string | null
+}
+
+/**
+ * Rule #0 (Connor, 2026-11-03): the request names an approval and nothing
+ * else. What goes out is exactly what the approval says: who to, which file,
+ * text or email, subject, words and attachments. Whatever else the request
+ * carries is ignored.
+ */
+async function loadApproval(admin: SupabaseClient, organizationId: string, userId: string, body: Record<string, unknown>): Promise<SendRequest> {
+  const approvalId = typeof body.approvalId === 'string' ? body.approvalId.trim() : ''
+  if (!/^[0-9a-f-]{36}$/i.test(approvalId)) throw new UserError('Nothing was sent: this message has no approval. Approve it in MPS HQ first.')
+  const found = await admin
+    .from('send_approvals')
+    .select('id, contact_id, loan_id, channel, subject, body, document_ids, approved_by, used_at, voided_at')
+    .eq('id', approvalId)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+  if (found.error) throw new Error(found.error.message)
+  const a = found.data as ApprovalRow | null
+  if (!a) throw new UserError('Nothing was sent: that approval was not found.')
+  if (a.approved_by !== userId) throw new UserError('Nothing was sent: only the person who approved a message can send it.')
+  if (a.voided_at) throw new UserError('Nothing was sent: that approval was cancelled.')
+  const documentIds = a.document_ids ?? []
   if (documentIds.length > MAX_ATTACHMENTS) throw new UserError(`Attach at most ${MAX_ATTACHMENTS} documents to one email.`)
-  return { contactId: s(body.contactId), loanId: s(body.loanId), channel, body: s(body.body), subject: s(body.subject).trim() || null, idempotencyKey: key, documentIds }
+  return { approvalId: a.id, contactId: a.contact_id, loanId: a.loan_id, channel: a.channel, body: a.body, subject: a.subject, idempotencyKey: `approval:${a.id}`, documentIds }
+}
+
+/** Uses the approval exactly once (the database re-checks who may approve). False = it was already used. */
+async function claimApproval(admin: SupabaseClient, organizationId: string, userId: string, approvalId: string): Promise<boolean> {
+  const claimed = await admin.rpc('claim_send_approval', { p_approval_id: approvalId, p_organization_id: organizationId, p_user: userId })
+  if (claimed.error) {
+    if (claimed.error.message.includes('already_used')) return false
+    throw new UserError(`Nothing was sent: ${claimed.error.message}`)
+  }
+  if (!((claimed.data as unknown[] | null) ?? []).length) throw new UserError('Nothing was sent: the approval could not be used.')
+  return true
 }
 
 /** GHL's match for a phone, then an email (not LOSuite's own match; see ensureGhlContact). */
@@ -444,7 +484,7 @@ async function uploadDocuments(admin: SupabaseClient, g: Ghl, ghlContactId: stri
 const DEFAULT_HOURS: SendHoursValue = { mon: ['09:00', '21:00'], tue: ['09:00', '21:00'], wed: ['09:00', '21:00'], thu: ['09:00', '21:00'], fri: ['09:00', '21:00'], sat: ['09:00', '21:00'], sun: ['12:00', '21:00'] }
 
 async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, userId: string, body: Record<string, unknown>) {
-  const req = parseSend(body)
+  const req = await loadApproval(admin, organizationId, userId, body)
 
   // What the sender can see (Row Level Security): the person, and that they're on this file.
   const person = await db
@@ -542,6 +582,9 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
     throw new UserError(`${first} has Do Not Disturb on in GHL, so ${req.channel === 'text' ? 'texting' : 'email'} is now turned off for them. Nothing was sent.`)
   }
 
+  // Every check passed: use the approval (once), then save the lock.
+  if (!(await claimApproval(admin, organizationId, userId, req.approvalId))) return { alreadySent: true, status: 'sending', error: null }
+
   // The lock: saved with its key before GHL is called, so it can't go twice.
   const now = new Date().toISOString()
   const saved = await admin
@@ -567,6 +610,7 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
       matched_by: 'ghl_id',
       read_at: now,
       idempotency_key: req.idempotencyKey,
+      approval_id: req.approvalId,
       sent_by: userId,
       attachments: docs.map((d) => ({ documentId: d.id, fileName: d.file_name })),
     })
@@ -619,7 +663,7 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   if (done.error?.code === '23505') {
     // The inbound check saved GHL's copy first: keep that one, with who sent it.
     await admin.from('messages').delete().eq('id', rowId)
-    await admin.from('messages').update({ sent_by: userId, idempotency_key: req.idempotencyKey, read_at: now }).eq('organization_id', organizationId).eq('ghl_message_id', result.messageId)
+    await admin.from('messages').update({ sent_by: userId, idempotency_key: req.idempotencyKey, approval_id: req.approvalId, read_at: now }).eq('organization_id', organizationId).eq('ghl_message_id', result.messageId)
   } else if (done.error) throw new Error(done.error.message)
   return { sent: true, status, from: sendPlan.fromNumber ?? sendPlan.fromEmail, to: sendPlan.to }
 }
@@ -800,7 +844,7 @@ Deno.serve(async (request) => {
 
     const g = new Ghl(token, locationId)
     if (task === 'send') {
-      // Anyone who can see the person's file; the send itself re-checks everything.
+      // Only with an approval from the person calling; the send itself re-checks everything.
       const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
       try {
         return reply(200, await sendMessage(db, admin, g, organizationId, userId, body))

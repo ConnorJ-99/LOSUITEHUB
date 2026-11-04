@@ -288,6 +288,33 @@ export function useSaveMessagingSettings() {
   })
 }
 
+/** What turning test mode off would skip (drafts waiting in the Action Queue, approvals not yet sent). */
+export async function testModeOffPreview(organizationId: string): Promise<{ drafts: number; approvals: number }> {
+  const rows = unwrap<{ drafts: number; approvals: number }[]>(await db().rpc('test_mode_off_preview', { p_organization_id: organizationId }))
+  return rows[0] ?? { drafts: 0, approvals: 0 }
+}
+
+/**
+ * Turns test mode on or off (owners and admins). Turning it off makes MPS HQ
+ * live for everyone, and the database marks everything waiting from test mode
+ * as skipped: nothing is sent.
+ */
+export function useSetTestMode() {
+  const orgId = useOrgId()
+  const { state } = useAuth()
+  const userId = state.status === 'signedIn' ? state.user.id : null
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (testMode: boolean) => {
+      const rows = unwrap<{ organization_id: string }[]>(
+        await db().from('messaging_settings').update({ inbound_mode: testMode ? 'test_only' : 'all', updated_by: userId }).eq('organization_id', orgId!).select('organization_id'),
+      )
+      if (rows.length === 0) throw new Error('Run Check connection in Settings → GoHighLevel first. Only owners and admins can change test mode.')
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ghl'] }),
+  })
+}
+
 export interface GhlPipeline {
   id: string
   name: string

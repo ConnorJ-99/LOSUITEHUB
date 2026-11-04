@@ -12,7 +12,9 @@ import {
   useLinkGhlUser,
   useMessagingSettings,
   useSaveMessagingSettings,
+  useSetTestMode,
   useUnlinkGhlUser,
+  testModeOffPreview,
   type CheckResult,
   type GhlCheckResult,
   type GhlLink,
@@ -21,7 +23,7 @@ import {
   type PipelineStageChoice,
 } from '@/lib/api/ghl'
 import type { OrgMember } from '@/lib/api/types'
-import { roleLabels } from '@/lib/auth/context'
+import { roleLabels, useAuth } from '@/lib/auth/context'
 import { relativeTime } from '@/lib/dates'
 import { DAY_LABELS, DAYS, DEFAULT_SEND_HOURS, sendHoursProblem, sendHoursSummary, type SendHours } from '@/lib/messaging/sendHours'
 import { formatPhone } from '@/lib/pipeline/helpers'
@@ -293,9 +295,66 @@ export function SendingCard({ canEdit }: { canEdit: boolean }) {
             </p>
             <ToggleChip className="mt-2" label="mps.mortgage is verified for sending in GHL" pressed={s.emailDomainVerified} onChange={setVerified} disabled={!canEdit || save.isPending} />
           </div>
+          <TestModeSwitch testMode={s.testMode} canEdit={canEdit && s.saved} />
         </div>
       )}
     </Card>
+  )
+}
+
+/**
+ * Test mode: MPS HQ only sends to, saves messages from and changes GHL for
+ * people with TEST in their name. Turning it off goes live for everyone; what
+ * was waiting from test mode is marked skipped and nothing is sent.
+ */
+function TestModeSwitch({ testMode, canEdit }: { testMode: boolean; canEdit: boolean }) {
+  const { state } = useAuth()
+  const orgId = state.status === 'signedIn' ? state.user.organizationId : null
+  const setTestMode = useSetTestMode()
+  const [checking, setChecking] = useState(false)
+
+  const change = async (on: boolean) => {
+    if (on) {
+      if (!(await confirmAction('Turn test mode back on? MPS HQ will only send to, save messages from and change GHL for people with TEST in their name.', { confirmLabel: 'Turn test mode on' }))) return
+    } else {
+      if (!orgId) return
+      setChecking(true)
+      let counts: { drafts: number; approvals: number }
+      try {
+        counts = await testModeOffPreview(orgId)
+      } catch (e) {
+        toast.error((e as Error).message)
+        return
+      } finally {
+        setChecking(false)
+      }
+      const waiting = [counts.drafts && `${counts.drafts} draft${counts.drafts === 1 ? '' : 's'} waiting in the Action Queue`, counts.approvals && `${counts.approvals} approved message${counts.approvals === 1 ? '' : 's'} not sent yet`].filter(Boolean)
+      const ok = await confirmAction(
+        [
+          'Turn test mode off and go live? MPS HQ will save texts and emails for every client, and Send will work for everyone (still only with your approval, consent and sending hours).',
+          waiting.length ? `${waiting.join(' and ')} from test mode will be marked skipped. Nothing is sent.` : 'Nothing is waiting from test mode.',
+          'Before you do: run supabase/seed-dev/ghl-test-history-cleanup.sql in the SQL Editor if you haven\'t yet.',
+        ].join('\n\n'),
+        { confirmLabel: 'Turn test mode off' },
+      )
+      if (!ok) return
+    }
+    setTestMode.mutate(on, {
+      onSuccess: () => toast.success(on ? 'Test mode is on' : 'Test mode is off: MPS HQ is live for every client'),
+      onError: (e) => toast.error(e.message),
+    })
+  }
+
+  return (
+    <div className="border-t pt-4">
+      <p className="text-sm font-medium">Test mode</p>
+      <p className="text-xs text-muted-foreground">
+        {testMode
+          ? 'On: MPS HQ only sends to, saves messages from and changes GHL for people with TEST in their name.'
+          : 'Off: MPS HQ is live. Messages for every client are saved, and anyone\'s file can send once approved.'}
+      </p>
+      <ToggleChip className="mt-2" label="Test mode (TEST names only)" pressed={testMode} onChange={change} disabled={!canEdit || setTestMode.isPending || checking} />
+    </div>
   )
 }
 
