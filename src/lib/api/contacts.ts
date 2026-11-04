@@ -35,16 +35,17 @@ function toSummary(row: ContactSummaryRow): ContactSummary {
   }
 }
 
+/** Every person the signed-in user can see, with their loans (the Contacts list, and the assistant's find_borrower). */
+export async function fetchContacts(): Promise<ContactSummary[]> {
+  const rows = unwrap<ContactSummaryRow[]>(await db().from('contacts').select(CONTACT_SUMMARY_SELECT).order('created_at', { ascending: false }))
+  return rows.map(toSummary)
+}
+
 /** Every person the signed-in user can see, with their loans. */
 export function useContacts() {
   return useQuery({
     queryKey: keys.contacts,
-    queryFn: async () => {
-      const rows = unwrap<ContactSummaryRow[]>(
-        await db().from('contacts').select(CONTACT_SUMMARY_SELECT).order('created_at', { ascending: false }),
-      )
-      return rows.map(toSummary)
-    },
+    queryFn: fetchContacts,
   })
 }
 

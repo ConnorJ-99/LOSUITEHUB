@@ -155,15 +155,16 @@ function toLoan(row: LoanRow): PipelineLoan {
 // ---------------------------------------------------------------------------
 
 /** Every loan the signed-in user is allowed to see (Row Level Security filters it). */
+/** Every file the signed-in user can see (the pipeline, and the assistant's list_borrowers). */
+export async function fetchPipeline(): Promise<PipelineLoan[]> {
+  const rows = unwrap<LoanRow[]>(await db().from('loans').select(LOAN_SELECT).order('stage_changed_at', { ascending: false }))
+  return rows.map(toLoan)
+}
+
 export function usePipeline() {
   return useQuery({
     queryKey: keys.pipeline,
-    queryFn: async () => {
-      const rows = unwrap<LoanRow[]>(
-        await db().from('loans').select(LOAN_SELECT).order('stage_changed_at', { ascending: false }),
-      )
-      return rows.map(toLoan)
-    },
+    queryFn: fetchPipeline,
   })
 }
 
@@ -174,14 +175,17 @@ function toProfile(row: LoanProfileRow): LoanProfile {
   return { ...toLoan(row), organizationId: row.organization_id, details }
 }
 
+/** One loan with its deal details (the borrower profile, and the assistant's summary). Null if it isn't visible. */
+export async function fetchLoanProfile(id: string): Promise<LoanProfile | null> {
+  const row = unwrap<LoanProfileRow | null>(await db().from('loans').select(PROFILE_SELECT).eq('id', id).maybeSingle())
+  return row ? toProfile(row) : null
+}
+
 /** One loan with its deal details, for the borrower profile. */
 export function useLoan(id: string) {
   return useQuery({
     queryKey: keys.loan(id),
-    queryFn: async () => {
-      const row = unwrap<LoanProfileRow | null>(await db().from('loans').select(PROFILE_SELECT).eq('id', id).maybeSingle())
-      return row ? toProfile(row) : null
-    },
+    queryFn: () => fetchLoanProfile(id),
   })
 }
 

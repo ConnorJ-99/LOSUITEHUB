@@ -16,11 +16,16 @@ interface ConditionRow {
 const SELECT = 'id, position, body, party, status, due_on, notes, status_changed_at'
 const toCondition = (r: ConditionRow): Condition => ({ id: r.id, position: r.position, body: r.body, party: r.party, status: r.status, dueOn: r.due_on, notes: r.notes, statusChangedAt: r.status_changed_at })
 
+/** A file's conditions, in list order (the Conditions tab, and the assistant). */
+export async function fetchConditions(loanId: string): Promise<Condition[]> {
+  return unwrap<ConditionRow[]>(await db().from('loan_conditions').select(SELECT).eq('loan_id', loanId).order('position').order('created_at')).map(toCondition)
+}
+
 /** A file's conditions, in list order. */
 export function useConditions(loanId: string) {
   return useQuery({
     queryKey: keys.conditions(loanId),
-    queryFn: async () => unwrap<ConditionRow[]>(await db().from('loan_conditions').select(SELECT).eq('loan_id', loanId).order('position').order('created_at')).map(toCondition),
+    queryFn: () => fetchConditions(loanId),
   })
 }
 

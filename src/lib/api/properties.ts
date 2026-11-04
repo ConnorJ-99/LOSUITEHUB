@@ -100,16 +100,17 @@ function toProperty(r: PropertyRow): Property {
   }
 }
 
+/** Every property on a loan, with its existing liens (the Properties tab, and the assistant). */
+export async function fetchProperties(loanId: string): Promise<Property[]> {
+  const rows = unwrap<PropertyRow[]>(await db().from('properties').select(PROPERTY_SELECT).eq('loan_id', loanId).order('created_at'))
+  return rows.map(toProperty)
+}
+
 /** Every property on a loan, with its existing liens. */
 export function useProperties(loanId: string) {
   return useQuery({
     queryKey: keys.properties(loanId),
-    queryFn: async () => {
-      const rows = unwrap<PropertyRow[]>(
-        await db().from('properties').select(PROPERTY_SELECT).eq('loan_id', loanId).order('created_at'),
-      )
-      return rows.map(toProperty)
-    },
+    queryFn: () => fetchProperties(loanId),
   })
 }
 

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { NewLeadContext, type NewLeadPreset } from '@/components/leads/new-lead-context'
 import { NewLeadDialog } from '@/components/leads/NewLeadDialog'
 import { useNewMessageAlerts } from '@/components/messages/useNewMessageAlerts'
+import { MobileAssistantButton } from '@/components/assistant/FileAssistant'
 import { NotificationsBell } from '@/components/notifications/NotificationsBell'
 import { useMessagesLive } from '@/lib/api/messages'
 import { useNotificationsLive } from '@/lib/api/notifications'
@@ -85,7 +86,8 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
               <MenuIcon />
             </Button>
             <BrandMark />
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center">
+              <MobileAssistantButton />
               <NotificationsBell tone="bar" />
             </div>
           </header>

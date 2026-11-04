@@ -54,11 +54,16 @@ export function estimateRow(changes: Partial<EstimateDraft>): Record<string, unk
   return { ...scenarioRow(base), ...extra }
 }
 
+/** Every estimate on the file, archived ones too, oldest first (the Scenarios & Estimate tab, and the assistant). */
+export async function fetchEstimates(loanId: string): Promise<Estimate[]> {
+  return unwrap<Record<string, unknown>[]>(await db().from('pricing_scenarios').select(ESTIMATE_SELECT).eq('loan_id', loanId).order('created_at')).map(toEstimate)
+}
+
 /** Every estimate on the file, archived ones too, oldest first. */
 export function useEstimates(loanId: string) {
   return useQuery({
     queryKey: keys.pricingScenarios(loanId),
-    queryFn: async () => unwrap<Record<string, unknown>[]>(await db().from('pricing_scenarios').select(ESTIMATE_SELECT).eq('loan_id', loanId).order('created_at')).map(toEstimate),
+    queryFn: () => fetchEstimates(loanId),
   })
 }
 

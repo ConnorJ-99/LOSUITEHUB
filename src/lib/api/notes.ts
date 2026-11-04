@@ -30,17 +30,18 @@ function toNote(r: NoteRow): Note {
   }
 }
 
+/** All notes about a person, newest first, across every loan they've had (the Notes tab, and the assistant). */
+export async function fetchNotes(contactId: string): Promise<Note[]> {
+  const rows = unwrap<NoteRow[]>(await db().from('notes').select(NOTE_SELECT).eq('contact_id', contactId).order('created_at', { ascending: false }))
+  return rows.map(toNote)
+}
+
 /** All notes about a person, newest first, across every loan they've had. */
 export function useNotes(contactId: string | undefined) {
   return useQuery({
     queryKey: keys.notes(contactId ?? ''),
     enabled: !!contactId,
-    queryFn: async () => {
-      const rows = unwrap<NoteRow[]>(
-        await db().from('notes').select(NOTE_SELECT).eq('contact_id', contactId!).order('created_at', { ascending: false }),
-      )
-      return rows.map(toNote)
-    },
+    queryFn: () => fetchNotes(contactId!),
   })
 }
 

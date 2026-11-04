@@ -47,6 +47,7 @@ import { TeamMemberDialog } from '@/components/partners/TeamMemberDialog'
 import { UrlaTab } from '@/components/urla/UrlaTab'
 import { useLoanFile, useSaveTeamMember, useSetLoanOfficer, useStepTemplates, type TeamRole } from '@/lib/api/loanfile'
 import { EstimatesTab } from '@/components/estimates/EstimatesTab'
+import { FileAssistant } from '@/components/assistant/FileAssistant'
 import { LettersTab } from '@/components/letters/LettersTab'
 import { usePreapprovalLetters } from '@/lib/api/preapproval'
 import { useDeleteLead } from '@/lib/api/closed'
@@ -375,6 +376,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
         />
       )}
       {dialog}
+      <FileAssistant loanId={loan.id} borrowerName={name} />
     </>
   )
 }
