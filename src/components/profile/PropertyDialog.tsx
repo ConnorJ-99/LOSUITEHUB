@@ -8,7 +8,8 @@ import { useSaveProperty, type PropertyInput } from '@/lib/api/properties'
 import type { Property, PropertyStatus } from '@/lib/api/types'
 import { OCCUPANCY_OPTIONS, PROPERTY_STATUS_OPTIONS, PROPERTY_TYPE_OPTIONS, REO_DISPOSITION_OPTIONS, UNIT_COUNT_OPTIONS } from './options'
 
-const blank = (status: PropertyStatus): PropertyInput => ({
+/** A new home's starting values (the Add property form, and the assistant). */
+export const blankPropertyInput = (status: PropertyStatus): PropertyInput => ({
   addressLine: '',
   city: '',
   state: 'TX',
@@ -73,7 +74,7 @@ export function PropertyDialog({
   onSaved?: (id: string, input: PropertyInput) => void
 }) {
   const save = useSaveProperty(loanId, organizationId)
-  const [form, setForm] = useState<PropertyInput>(() => (property ? fromProperty(property) : blank(defaultStatus)))
+  const [form, setForm] = useState<PropertyInput>(() => (property ? fromProperty(property) : blankPropertyInput(defaultStatus)))
   const [submitted, setSubmitted] = useState(false)
   const set = <K extends keyof PropertyInput>(key: K) => (value: PropertyInput[K]) => setForm((f) => ({ ...f, [key]: value }))
 

@@ -327,19 +327,16 @@ export interface StageChange {
  * Moves a loan to a new stage. The board updates instantly and rolls back if
  * the save fails. The database logs the change in loan_stage_history itself.
  */
+/** Saves a file's stage (and the Lost reason): the stage menu, the pipeline board and the assistant. */
+export async function updateStage({ loanId, stage, lostReason }: StageChange): Promise<void> {
+  const rows = unwrap<{ id: string }[]>(await db().from('loans').update({ stage, lost_reason: stage === 'lost' ? lostReason ?? null : null }).eq('id', loanId).select('id'))
+  if (rows.length === 0) throw new Error('You do not have permission to change this loan.')
+}
+
 export function useUpdateStage() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ loanId, stage, lostReason }: StageChange) => {
-      const rows = unwrap<{ id: string }[]>(
-        await db()
-          .from('loans')
-          .update({ stage, lost_reason: stage === 'lost' ? lostReason ?? null : null })
-          .eq('id', loanId)
-          .select('id'),
-      )
-      if (rows.length === 0) throw new Error('You do not have permission to change this loan.')
-    },
+    mutationFn: updateStage,
     onMutate: async ({ loanId, stage, lostReason }) => {
       await queryClient.cancelQueries({ queryKey: keys.pipeline })
       const previous = queryClient.getQueryData<PipelineLoan[]>(keys.pipeline)

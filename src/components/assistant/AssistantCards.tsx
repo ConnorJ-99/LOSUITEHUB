@@ -1,5 +1,7 @@
 import { Link } from 'react-router'
-import { ChevronRightIcon, ReceiptIcon } from 'lucide-react'
+import { ArrowRightIcon, CheckIcon, ChevronRightIcon, ReceiptIcon, Undo2Icon } from 'lucide-react'
+import { toast } from 'sonner'
+import { useActionStatuses, useUndoAction } from '@/lib/assistant/chat'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import type { AssistantCard } from '@/lib/assistant/cards'
@@ -75,8 +77,52 @@ export function AssistantCardView({ card, onChoose, onNavigate }: { card: Assist
     )
   }
 
+  if (card.type === 'change') {
+    return (
+      <div className="space-y-2">
+        <div className="rounded-lg border bg-card p-3 shadow-soft">
+          <p className="flex items-center gap-1.5 text-sm font-semibold">
+            <CheckIcon className="size-4 text-emerald-600" />
+            {card.title}
+          </p>
+          <dl className="mt-2 space-y-1 text-sm">
+            {card.lines.map((l) => (
+              <div key={l.label} className="flex flex-wrap gap-x-2">
+                <dt className="text-muted-foreground">{l.label}:</dt>
+                <dd className="min-w-0 break-words">
+                  {l.before && <span className="text-muted-foreground line-through">{l.before}</span>}
+                  {l.before && <ArrowRightIcon className="mx-1 inline size-3.5 text-muted-foreground" />}
+                  <span className="font-medium">{l.after}</span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+          {card.footnote && <p className="mt-2 text-xs text-muted-foreground">{card.footnote}</p>}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {card.actionId && <UndoButton actionId={card.actionId} />}
+            <Button size="sm" variant="ghost" asChild>
+              <Link to={`/loans/${card.loanId}`} onClick={onNavigate}>
+                Open file
+              </Link>
+            </Button>
+          </div>
+        </div>
+        {card.suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {card.suggestions.map((s) => (
+              <Button key={s} size="sm" variant="outline" className="h-auto rounded-full py-1.5 whitespace-normal" onClick={() => onChoose(s)}>
+                {s}
+              </Button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-2">
+      {card.note && <p className="text-sm text-muted-foreground">{card.note}</p>}
       {card.items.map((e) => (
         <div key={e.id} className={cn('flex items-start gap-3 rounded-lg border bg-card p-3 shadow-soft', e.selected && 'border-primary/40')}>
           <ReceiptIcon className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -85,7 +131,7 @@ export function AssistantCardView({ card, onChoose, onNavigate }: { card: Assist
               {pct(e.rate)}
               {e.selected && <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">Selected</span>}
             </p>
-            <p className="truncate text-xs text-muted-foreground">{[e.name, e.lender, e.program].filter(Boolean).join(' · ')}</p>
+            <p className="truncate text-xs text-muted-foreground">{[e.name, e.lender, e.program].filter((p, i) => p && (i === 0 || !e.name.includes(p))).join(' · ')}</p>
             <p className="mt-1 text-sm text-muted-foreground tabular-nums">
               P&amp;I {usd(e.pi)} · Taxes {usd(e.taxes)} · Payment {usd(e.payment)}
               <br />
@@ -99,6 +145,30 @@ export function AssistantCardView({ card, onChoose, onNavigate }: { card: Assist
           </Button>
         </div>
       ))}
+      {card.created && card.actionId && (
+        <div className="flex flex-wrap items-center gap-2">
+          <UndoButton actionId={card.actionId} label={card.items.length > 1 ? `Undo (delete these ${card.items.length})` : 'Undo (delete it)'} />
+        </div>
+      )}
     </div>
+  )
+}
+
+/** Puts a change back. Shows "Undone" once it has been. */
+function UndoButton({ actionId, label = 'Undo' }: { actionId: string; label?: string }) {
+  const statuses = useActionStatuses([actionId])
+  const undo = useUndoAction()
+  const status = statuses.data?.get(actionId)
+  if (status === 'undone') return <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">Undone</span>
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={undo.isPending || !status}
+      onClick={() => undo.mutate(actionId, { onSuccess: () => toast.success('Undone: put back as it was'), onError: (e) => toast.error(e.message) })}
+    >
+      <Undo2Icon />
+      {undo.isPending ? 'Undoing…' : label}
+    </Button>
   )
 }

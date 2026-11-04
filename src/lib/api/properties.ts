@@ -151,10 +151,8 @@ function useInvalidateLoanProperties(loanId: string) {
 }
 
 /** Adds a property (no id) or updates one (with id). Returns the property id. */
-export function useSaveProperty(loanId: string, organizationId: string) {
-  const invalidate = useInvalidateLoanProperties(loanId)
-  return useMutation({
-    mutationFn: async ({ id, ...input }: PropertyInput & { id?: string }) => {
+/** Adds a property (no id) or updates one (with id); the Properties tab and the assistant. Returns the property id. */
+export async function saveProperty(loanId: string, organizationId: string, { id, ...input }: PropertyInput & { id?: string }): Promise<string> {
       if (id) {
         const old = unwrap<{ annual_taxes: unknown; annual_insurance: unknown; monthly_hoa: unknown } | null>(await db().from('properties').select('annual_taxes, annual_insurance, monthly_hoa').eq('id', id).maybeSingle())
         const rows = unwrap<{ id: string }[]>(await db().from('properties').update(propertyRow(input)).eq('id', id).select('id'))
@@ -171,7 +169,12 @@ export function useSaveProperty(loanId: string, organizationId: string) {
           .single(),
       )
       return row.id
-    },
+}
+
+export function useSaveProperty(loanId: string, organizationId: string) {
+  const invalidate = useInvalidateLoanProperties(loanId)
+  return useMutation({
+    mutationFn: (input: PropertyInput & { id?: string }) => saveProperty(loanId, organizationId, input),
     onSuccess: invalidate,
   })
 }

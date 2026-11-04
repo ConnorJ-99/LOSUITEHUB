@@ -35,8 +35,22 @@ Connor's spec, 2026-11-03: a chat assistant inside every borrower file and on it
 
 Cards: borrower lists (tap to open), a file summary (Open), Fee Estimates (Open → Scenarios & Estimate), and choice chips when more than one person matches.
 
-## Phase 2 (next): in-app changes with Undo
-Fee Estimates through Build estimates' path (`draftFromRow` → `withResults` → `createEstimate` + `saveFees`), `updateEstimate`, `useSelectEstimate`, stage moves (`useUpdateStage`, GHL on Closed), property and fields, notes and tasks; each with a change card and Undo from `assistant_actions.undo`.
+## Phase 2 (2026-11-04; no database change): in-app changes with Undo
+
+Each change runs right away with the app's own code, saves what it needs to put things back in `assistant_actions.undo`, and shows a card (before → after) with **Undo** and next-step chips. Nothing reaches a client.
+
+| Tool | Reuses | Undo |
+|---|---|---|
+| `create_fee_estimates` | Build estimates: `newProgramOption`, `draftFromRow`, the Estimate tool's create (`estimateDataFrom` / `loadEstimateData`: `withResults` + `createEstimate`). Programs are matched by lender + program words (`matchProgram`: an exact name wins, else it asks). All or nothing. | deletes them (kept if one was Selected since) |
+| `update_estimate` | the Estimate tool's save (re-priced) | puts the old values back |
+| `set_selected_program` | `selectEstimate` ("Select for this file") | restores the loan fields and the home's taxes, insurance and HOA, and removes the "Selected …" note |
+| `move_pipeline_stage` | `updateStage`, plus the GHL move on Closed only. Lost needs a reason; Closed needs the email and phone. | old stage, Lost reason and status detail (GHL isn't moved back) |
+| `update_borrower_fields` | `saveProperty` (`blankPropertyInput`) and `saveLoanDetails`: subject property, purchase price, closing date | old values; a home it added is removed |
+| `add_note`, `create_task` | the same inserts as the Notes and Tasks screens | deleted |
+
+To share that code, the screens' loaders became named functions they still call (`fetchFeeTemplates`, `fetchApplication`, `fetchLoanFees`, `fetchProgramList`, `saveProperty`, `updateStage`, `estimateDataFrom`, `selectEstimate`); the screens behave the same.
+
+Checked on Rita TEST (2026-11-04): three Pennymac Conventional Fee Estimates at 6, 6.5 and 7% on a $400,000 home with 20% down and 1.5% taxes came out at P&I $1,919, $2,023 and $2,129 with $500 taxes, matching the mockup. Update, Select, Under Contract, a note and a task all worked, and undoing each one left the file exactly as before.
 
 ## Phase 3 (after): sending
 Message drafts → a preview card; Send goes through the approval send path. Bulk last, as decided above.

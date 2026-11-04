@@ -100,10 +100,8 @@ interface FeeRow {
 export const loanFeesKey = (loanId: string) => ['loanFees', loanId] as const
 
 /** Each estimate's fee edits, by estimate id. */
-export function useLoanFees(loanId: string) {
-  return useQuery({
-    queryKey: loanFeesKey(loanId),
-    queryFn: async (): Promise<Map<string, FeeOverride[]>> => {
+/** Every fee edit on a file's estimates, by estimate (the Estimate tool and the assistant). */
+export async function fetchLoanFees(loanId: string): Promise<Map<string, FeeOverride[]>> {
       const rows = unwrap<FeeRow[]>(await db().from('loan_fees').select('pricing_scenario_id, fee_key, section, name, at_closing, before_closing, paid_by, apr, paid_to, is_custom').eq('loan_id', loanId).order('created_at'))
       const out = new Map<string, FeeOverride[]>()
       for (const r of rows) {
@@ -112,7 +110,12 @@ export function useLoanFees(loanId: string) {
         out.set(r.pricing_scenario_id, list)
       }
       return out
-    },
+}
+
+export function useLoanFees(loanId: string) {
+  return useQuery({
+    queryKey: loanFeesKey(loanId),
+    queryFn: () => fetchLoanFees(loanId),
   })
 }
 
@@ -185,14 +188,18 @@ export interface ProgramListItem {
 }
 
 /** Every program with its lender, for Build estimates (names only, without the matrices Product Search loads). */
+/** Every program in the catalog with its lender (Build estimates' list, and the assistant). */
+export async function fetchProgramList(): Promise<ProgramListItem[]> {
+  return unwrap<{ id: string; name: string; product_family: ProductFamily; lien: string; active: boolean; lender: { id: string; name: string; short_name: string | null; status: string } | null }[]>(
+        await db().from('programs').select('id, name, product_family, lien, active, lender:lenders(id, name, short_name, status)').order('name'),
+      ).map((p): ProgramListItem => ({ id: p.id, name: p.name, family: p.product_family, lien: p.lien, active: p.active, lenderId: p.lender?.id ?? '', lenderName: p.lender?.short_name ?? p.lender?.name ?? '', lenderStatus: p.lender?.status ?? '' }))
+}
+
 export function useProgramList() {
   return useQuery({
     queryKey: ['programList'],
     staleTime: 5 * 60_000,
-    queryFn: async () =>
-      unwrap<{ id: string; name: string; product_family: ProductFamily; lien: string; active: boolean; lender: { id: string; name: string; short_name: string | null; status: string } | null }[]>(
-        await db().from('programs').select('id, name, product_family, lien, active, lender:lenders(id, name, short_name, status)').order('name'),
-      ).map((p): ProgramListItem => ({ id: p.id, name: p.name, family: p.product_family, lien: p.lien, active: p.active, lenderId: p.lender?.id ?? '', lenderName: p.lender?.short_name ?? p.lender?.name ?? '', lenderStatus: p.lender?.status ?? '' })),
+    queryFn: fetchProgramList,
   })
 }
 

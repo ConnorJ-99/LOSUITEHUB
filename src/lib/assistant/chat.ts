@@ -10,6 +10,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js'
 import { db, unwrap } from '@/lib/api/client'
 import { STAGES } from '@/lib/pipeline/stages'
 import { isCard, type AssistantCard } from './cards'
+import { CHANGE_TOOL_RUNNERS, undoChange, type ChangeOutput } from './changeTools'
 import { getBorrowerSummary, READ_TOOL_RUNNERS } from './readTools'
 
 /** Tool rounds in one turn before the assistant has to answer. */
@@ -74,7 +75,9 @@ function historyText(m: ChatMessage): string {
         ? `[Showed ${c.name}'s summary (loan ${c.loanId}): ${c.status}]`
         : c.type === 'estimates'
           ? `[Showed ${c.items.length} Fee Estimates for loan ${c.loanId}]`
-          : `[Asked: ${c.question}]`,
+          : c.type === 'change'
+            ? `[Changed: ${c.title}: ${c.lines.map((l) => `${l.label} ${l.before ? `${l.before} → ` : ''}${l.after}`).join('; ')}]`
+            : `[Asked: ${c.question}]`,
   )
   return [m.body, ...cards].filter(Boolean).join('\n') || '(no text)'
 }
@@ -105,10 +108,17 @@ const WORKING: Record<string, string> = {
   get_borrower_summary: 'Reading the file…',
   list_borrowers: 'Looking through your files…',
   list_estimates: 'Reading the Fee Estimates…',
+  create_fee_estimates: 'Pricing Fee Estimates with Smart Fees…',
+  update_estimate: 'Updating the Fee Estimate…',
+  set_selected_program: 'Selecting it for the file…',
+  move_pipeline_stage: 'Moving the stage…',
+  update_borrower_fields: 'Updating the file…',
+  add_note: 'Adding the note…',
+  create_task: 'Adding the task…',
 }
 
-/** Runs one turn and saves both sides. Returns the assistant's saved message. */
-export async function runTurn(t: TurnInput): Promise<void> {
+/** Runs one turn and saves both sides. Says whether anything on a file changed. */
+export async function runTurn(t: TurnInput): Promise<{ changed: boolean }> {
   const saveMessage = async (role: 'user' | 'assistant', body: string, cards: AssistantCard[], viaVoice = false) =>
     unwrap(await db().from('assistant_chat_messages').insert({ organization_id: t.organizationId, loan_id: t.loanId, role, body, cards, via_voice: viaVoice }).select('id'))
   await saveMessage('user', t.text, [], t.viaVoice)
@@ -131,6 +141,7 @@ export async function runTurn(t: TurnInput): Promise<void> {
 
   const cards: AssistantCard[] = []
   const texts: string[] = []
+  let changed = false
   for (let round = 0; round < MAX_ROUNDS; round++) {
     t.onWorking?.(round === 0 ? 'Thinking…' : 'Putting it together…')
     const res = await ask({
@@ -150,15 +161,24 @@ export async function runTurn(t: TurnInput): Promise<void> {
       const tool = String(call.name)
       const input = (call.input ?? {}) as Record<string, unknown>
       t.onWorking?.(WORKING[tool] ?? 'Working…')
-      const runner = READ_TOOL_RUNNERS[tool]
+      const runner = READ_TOOL_RUNNERS[tool] ?? CHANGE_TOOL_RUNNERS[tool]
       let content: string
       let isError = false
       try {
         if (!runner) throw new Error(`The tool ${tool} isn't available yet.`)
-        const out = await runner(input)
-        if (out.card) cards.push(out.card)
+        const out: ChangeOutput = await runner(input)
         content = typeof out.result === 'string' ? out.result : JSON.stringify(out.result)
-        await db().from('assistant_actions').insert({ organization_id: t.organizationId, loan_id: typeof input.loan_id === 'string' ? input.loan_id : t.loanId, tool, inputs: input, result: { size: content.length }, status: 'done' })
+        const fileId = typeof input.loan_id === 'string' ? input.loan_id : t.loanId
+        // A change keeps what Undo needs; its card carries the action's id.
+        const logged = unwrap<{ id: string }>(
+          await db()
+            .from('assistant_actions')
+            .insert({ organization_id: t.organizationId, loan_id: fileId, tool, inputs: input, result: out.undo ? out.result : { size: content.length }, status: 'done', undo: out.undo ?? null })
+            .select('id')
+            .single(),
+        )
+        if (out.undo) changed = true
+        if (out.card) cards.push(out.undo && (out.card.type === 'change' || out.card.type === 'estimates') ? { ...out.card, actionId: logged.id } : out.card)
       } catch (e) {
         isError = true
         content = (e as Error).message
@@ -170,12 +190,41 @@ export async function runTurn(t: TurnInput): Promise<void> {
   }
   const answer = texts.join('\n\n') || (cards.length ? 'Here you go.' : "I couldn't finish that. Try asking another way.")
   await saveMessage('assistant', answer, cards)
+  return { changed }
 }
 
 export function useSendToAssistant(loanId: string | null) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: runTurn,
+    // A change shows everywhere at once: the file, the pipeline, estimates.
+    onSuccess: (r) => (r.changed ? queryClient.invalidateQueries() : undefined),
     onSettled: () => queryClient.invalidateQueries({ queryKey: threadKey(loanId) }),
+  })
+}
+
+/** Each change card's action status (done or undone), so Undo shows only once. */
+export function useActionStatuses(ids: string[]) {
+  const key = [...ids].sort().join(',')
+  return useQuery({
+    queryKey: ['assistant', 'actions', key],
+    enabled: ids.length > 0,
+    queryFn: async () => new Map(unwrap<{ id: string; status: string }[]>(await db().from('assistant_actions').select('id, status').in('id', ids)).map((r) => [r.id, r.status])),
+  })
+}
+
+/** Undo one change: put back what was there, then mark it undone. */
+export function useUndoAction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (actionId: string) => {
+      const a = unwrap<{ id: string; tool: string; undo: Record<string, unknown> | null; status: string } | null>(await db().from('assistant_actions').select('id, tool, undo, status').eq('id', actionId).maybeSingle())
+      if (!a) throw new Error('That change was not found.')
+      if (a.status === 'undone') throw new Error('That change was already undone.')
+      if (!a.undo) throw new Error("That change can't be undone.")
+      await undoChange(a.tool, a.undo)
+      unwrap(await db().from('assistant_actions').update({ status: 'undone' }).eq('id', actionId).select('id'))
+    },
+    onSettled: () => queryClient.invalidateQueries(),
   })
 }

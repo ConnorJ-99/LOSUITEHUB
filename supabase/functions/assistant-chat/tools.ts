@@ -53,7 +53,122 @@ export const READ_TOOLS: ToolDef[] = [
   },
 ]
 
-export const TOOLS: ToolDef[] = [...READ_TOOLS]
+const money = { type: 'number', minimum: 0 }
+
+/** Phase 2: changes inside MPS HQ. Each runs right away with the app's own code, and its card has Undo. None reaches a client. */
+export const CHANGE_TOOLS: ToolDef[] = [
+  {
+    name: 'create_fee_estimates',
+    description:
+      'Create Fee Estimates (Payment Scenarios) on a file with Smart Fees, exactly like Build estimates on the Scenarios & Estimate tab, and save them as Drafts. One scenario per estimate; the same program may appear more than once with a different rate or down payment. Name the program by its lender and program words (e.g. "UWM conventional 30") or by program_id; if more than one program matches, the result lists them: ask which. The home is the subject property unless property_address or property_id is given (add a new home first with update_borrower_fields). Taxes as a yearly percent of value (tax_rate_pct) or yearly dollars (taxes_annual).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        loan_id: uuid,
+        property_id: uuid,
+        property_address: { type: 'string', description: 'Part of the address of a home already on the file.' },
+        purchase_price: money,
+        scenarios: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 8,
+          items: {
+            type: 'object',
+            properties: {
+              program: { type: 'string', description: 'Lender and program words, e.g. "UWM conventional 30".' },
+              program_id: uuid,
+              rate: { type: 'number', description: 'Note rate in percent, e.g. 6.5.' },
+              points: { type: 'number', description: 'Points (+) or lender credit (−) in percent of the loan.' },
+              down_pct: { type: 'number', minimum: 0, maximum: 100 },
+              down_amount: money,
+              loan_amount: { ...money, description: 'Refinances: the loan amount.' },
+              term_years: { type: 'number', minimum: 5, maximum: 40 },
+              tax_rate_pct: { type: 'number', minimum: 0, maximum: 10 },
+              taxes_annual: money,
+              insurance_annual: money,
+              hoa_monthly: money,
+              label: { type: 'string', description: 'Optional estimate name.' },
+            },
+            required: ['rate'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['loan_id', 'scenarios'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'update_estimate',
+    description: 'Change one saved Fee Estimate and re-price it with Smart Fees (rate, points, down payment, loan amount, purchase price, taxes, insurance, HOA or its name).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        estimate_id: uuid,
+        changes: {
+          type: 'object',
+          properties: {
+            rate: { type: 'number' },
+            points: { type: 'number' },
+            down_pct: { type: 'number', minimum: 0, maximum: 100 },
+            loan_amount: money,
+            purchase_price: money,
+            tax_rate_pct: { type: 'number', minimum: 0, maximum: 10 },
+            taxes_annual: money,
+            insurance_annual: money,
+            hoa_monthly: money,
+            name: { type: 'string' },
+          },
+          additionalProperties: false,
+        },
+      },
+      required: ['estimate_id', 'changes'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'set_selected_program',
+    description: "Select a Fee Estimate for the file, like \"Select for this file\": the loan takes its program, lender, rate, points, loan amount and fees, and a note is added.",
+    input_schema: { type: 'object', properties: { loan_id: uuid, estimate_id: uuid }, required: ['loan_id', 'estimate_id'], additionalProperties: false },
+  },
+  {
+    name: 'move_pipeline_stage',
+    description: "Move a file to another pipeline stage, like the Change status menu. Lost needs a reason; Closed needs the borrower's email and phone and also moves their GHL opportunity to Closed (no other stage touches GHL).",
+    input_schema: { type: 'object', properties: { loan_id: uuid, stage: { type: 'string', description: 'A stage id from the stage list.' }, lost_reason: { type: 'string' } }, required: ['loan_id', 'stage'], additionalProperties: false },
+  },
+  {
+    name: 'update_borrower_fields',
+    description: 'Update a file: set the subject property (adds the home when it is new, e.g. when the borrower goes under contract), the purchase price, or the closing date.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        loan_id: uuid,
+        subject_property: {
+          type: 'object',
+          properties: { address_line: { type: 'string' }, city: { type: 'string' }, state: { type: 'string' }, zip: { type: 'string' }, price: money },
+          required: ['address_line'],
+          additionalProperties: false,
+        },
+        purchase_price: money,
+        closing_date: { type: 'string', description: 'YYYY-MM-DD' },
+      },
+      required: ['loan_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'add_note',
+    description: "Add a note to the borrower's notes on this file.",
+    input_schema: { type: 'object', properties: { loan_id: uuid, text: { type: 'string' } }, required: ['loan_id', 'text'], additionalProperties: false },
+  },
+  {
+    name: 'create_task',
+    description: 'Add a task on the file, with an optional due date.',
+    input_schema: { type: 'object', properties: { loan_id: uuid, title: { type: 'string' }, due_date: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['loan_id', 'title'], additionalProperties: false },
+  },
+]
+
+export const TOOLS: ToolDef[] = [...READ_TOOLS, ...CHANGE_TOOLS]
 export const TOOL_NAMES = new Set(TOOLS.map((t) => t.name))
 
 export interface ChatContext {
@@ -80,7 +195,9 @@ export function buildSystem(c: ChatContext): string {
     '- If more than one person matches, or something you need is missing (which borrower, a rate, a property), ask ONE short question instead of guessing.',
     '- Keep replies short and plain. The app shows tool results as cards (lists, summaries, estimates), so don\'t repeat every row in text: give the takeaway in a sentence or two.',
     '- Call saved fee worksheets "Fee Estimates" (or "Payment Scenarios"). Never call them "Loan Estimates": the Loan Estimate is the official TRID disclosure, sent from Arive.',
-    '- Right now you can only look things up. You cannot change anything, and you can never send a text or email. If asked to, say what you would do and that changing and sending come in a later update.',
+    '- You can look things up and make changes inside MPS HQ (Fee Estimates, selecting one, stages, the subject property, purchase price, closing date, notes, tasks). Changes run right away and the person can Undo them from the card, so act when the request is clear; when it isn\'t (which borrower, a missing rate, which program), ask first.',
+    '- You can never send a text or email to anyone. If asked to, say that sending from the assistant comes in a later update; the change cards may suggest it.',
+    '- When someone goes under contract on a home, set the subject property (update_borrower_fields) and move the stage (move_pipeline_stage) together.',
     '- Never promise or quote rates, approval or terms to a borrower; you are helping the loan officer, not talking to the client.',
     '',
     `Pipeline stages (id: label): ${c.stages.map((s) => `${s.id}: ${s.label}`).join('; ')}.`,

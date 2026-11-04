@@ -19,7 +19,7 @@ const readAutoSend = () => {
   }
 }
 
-const EXAMPLES_FILE = ["What's this file's status?", 'Show me the Fee Estimates on this file', 'What conditions are still open?']
+const EXAMPLES_FILE = ["What's this file's status?", 'Show me the Fee Estimates on this file', 'Add a task to call them tomorrow']
 const EXAMPLES_ALL = ["Which leads haven't heard from me in 30 days?", 'Who closed in 2025?', 'My files under contract']
 
 /**

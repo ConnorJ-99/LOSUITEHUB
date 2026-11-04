@@ -1,10 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { keys } from '@/lib/api/client'
-import { createEstimate, loanFeesKey, resetFees, saveFees, updateEstimate, useEstimates, useLoanFees } from '@/lib/api/estimates'
-import { useFeeTemplates } from '@/lib/api/pricing'
-import { useProperties } from '@/lib/api/properties'
-import type { LoanProfile } from '@/lib/api/types'
-import { useApplication } from '@/lib/api/urla'
+import { createEstimate, fetchEstimates, fetchLoanFees, loanFeesKey, resetFees, saveFees, updateEstimate, useEstimates, useLoanFees } from '@/lib/api/estimates'
+import { fetchFeeTemplates, useFeeTemplates, type SavedFeeTemplate } from '@/lib/api/pricing'
+import { fetchProperties, useProperties } from '@/lib/api/properties'
+import type { LoanProfile, Property } from '@/lib/api/types'
+import { fetchApplication, useApplication, type Application } from '@/lib/api/urla'
 import type { FeeOverride } from '@/lib/calc'
 import { nowIso } from '@/lib/dates'
 import { activeRules, computeEstimate, estimateChanges, feeChanges, withResults, type Estimate, type EstimateDraft, type SavedFigures } from '@/lib/estimates/estimate'
@@ -15,31 +15,24 @@ export const draftOf = (e: Estimate): EstimateDraft => {
   return draft
 }
 
-/** Everything Scenarios & Estimate loads for a file, and the saves it makes. */
-export function useEstimateData(loan: LoanProfile) {
-  const estimates = useEstimates(loan.id)
-  const fees = useLoanFees(loan.id)
-  const templates = useFeeTemplates()
-  const app = useApplication(loan.id)
-  const properties = useProperties(loan.id)
-  const queryClient = useQueryClient()
+interface Loaded {
+  list: Estimate[]
+  feeMap: Map<string, FeeOverride[]>
+  rules: SavedFeeTemplate[]
+  application: Application
+  homes: Property[]
+}
 
-  const loading = estimates.isLoading || fees.isLoading || templates.isLoading || app.isLoading || properties.isLoading
-  const error = estimates.error ?? fees.error ?? app.error ?? properties.error ?? null
-  const list = estimates.data ?? []
-  const feeMap = fees.data ?? new Map<string, FeeOverride[]>()
-  const rules = templates.data ?? []
-  const homes = properties.data ?? []
-  const application = app.data ?? { borrowers: [], assets: [], liabilities: [] }
-
+/**
+ * The Estimate tool's data and saves for one file, from what's loaded. Used
+ * by the Scenarios & Estimate tab (useEstimateData) and by the assistant
+ * (loadEstimateData), so both price and save estimates the same way.
+ */
+export function estimateDataFrom(loan: LoanProfile, { list, feeMap, rules, application, homes }: Loaded) {
   const factsFor = (propertyId: string | null) => loanFactsFor(loan, application, homes, propertyId)
   const feesOf = (id: string) => feeMap.get(id) ?? []
   /** The saved figures (or, for an estimate saved before figures were kept, worked out from its saved facts). */
   const figuresOf = (e: Estimate): SavedFigures => e.figures ?? computeEstimate({ ...draftOf(e), feeRules: draftOf(e).feeRules ?? activeRules(rules, e.program?.lenderId ?? null) }, feesOf(e.id), rules, e.loanSnapshot?.facts ?? factsFor(e.propertyId)).saved
-
-  const refresh = async () => {
-    await Promise.all([queryClient.invalidateQueries({ queryKey: keys.pricingScenarios(loan.id) }), queryClient.invalidateQueries({ queryKey: loanFeesKey(loan.id) })])
-  }
 
   /** Saves a new estimate with its results, fee rules and loan facts. */
   const create = async (draft: EstimateDraft, overrides: FeeOverride[] = [], lenderId: string | null = null) => {
@@ -59,7 +52,39 @@ export function useEstimateData(loan: LoanProfile) {
     return ready
   }
 
-  return { loading, error, list, feesOf, figuresOf, factsFor, templates: rules, properties: homes, application, refresh, create, save, noFeeList: rules.length === 0 }
+  return { list, feesOf, figuresOf, factsFor, templates: rules, properties: homes, application, create, save, noFeeList: rules.length === 0 }
+}
+
+/** Loads a file's estimate data outside a screen (the assistant). */
+export async function loadEstimateData(loan: LoanProfile) {
+  const [list, feeMap, rules, application, homes] = await Promise.all([fetchEstimates(loan.id), fetchLoanFees(loan.id), fetchFeeTemplates(), fetchApplication(loan.id), fetchProperties(loan.id)])
+  return { ...estimateDataFrom(loan, { list, feeMap, rules, application, homes }), refresh: async () => {} }
+}
+
+/** Everything Scenarios & Estimate loads for a file, and the saves it makes. */
+export function useEstimateData(loan: LoanProfile) {
+  const estimates = useEstimates(loan.id)
+  const fees = useLoanFees(loan.id)
+  const templates = useFeeTemplates()
+  const app = useApplication(loan.id)
+  const properties = useProperties(loan.id)
+  const queryClient = useQueryClient()
+
+  const loading = estimates.isLoading || fees.isLoading || templates.isLoading || app.isLoading || properties.isLoading
+  const error = estimates.error ?? fees.error ?? app.error ?? properties.error ?? null
+
+  const refresh = async () => {
+    await Promise.all([queryClient.invalidateQueries({ queryKey: keys.pricingScenarios(loan.id) }), queryClient.invalidateQueries({ queryKey: loanFeesKey(loan.id) })])
+  }
+
+  const data = estimateDataFrom(loan, {
+    list: estimates.data ?? [],
+    feeMap: fees.data ?? new Map<string, FeeOverride[]>(),
+    rules: templates.data ?? [],
+    application: app.data ?? { borrowers: [], assets: [], liabilities: [] },
+    homes: properties.data ?? [],
+  })
+  return { loading, error, ...data, refresh }
 }
 
 export type EstimateData = ReturnType<typeof useEstimateData>

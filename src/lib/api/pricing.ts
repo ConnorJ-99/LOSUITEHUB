@@ -52,10 +52,8 @@ export const AMOUNT_TYPE_LABEL: Record<AmountType, string> = { fixed: 'Dollar am
 export const PAID_BY_LABEL: Record<PaidBy, string> = { B: 'Borrower', S: 'Seller', L: 'Lender', O: 'Other' }
 
 /** The fee list, in order. Empty until fees are added (or before the fees script is run). */
-export function useFeeTemplates() {
-  return useQuery({
-    queryKey: keys.feeTemplates,
-    queryFn: async (): Promise<SavedFeeTemplate[]> => {
+/** The company's fee list (Settings → Fee list), for Smart Fees: the screens and the assistant. */
+export async function fetchFeeTemplates(): Promise<SavedFeeTemplate[]> {
       // With the Smart Fees columns and the lender's name; before that script runs, the plain list.
       let result = await db().from('fee_templates').select('*, lender:lenders(name, short_name)').order('section').order('sort_order')
       if (result.error) result = await db().from('fee_templates').select('*').order('section').order('sort_order')
@@ -83,7 +81,12 @@ export function useFeeTemplates() {
         tiers: r.tiers ?? null,
         formula: r.formula ?? null,
       }))
-    },
+}
+
+export function useFeeTemplates() {
+  return useQuery({
+    queryKey: keys.feeTemplates,
+    queryFn: fetchFeeTemplates,
   })
 }
 

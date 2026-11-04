@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSystem, checkMessages, READ_TOOLS, TOOLS } from './tools'
+import { buildSystem, CHANGE_TOOLS, checkMessages, READ_TOOLS, TOOLS } from './tools'
 
 const ctx = {
   userName: 'Connor',
@@ -14,9 +14,11 @@ const ctx = {
 }
 
 describe('tools', () => {
-  it('phase 1 is read tools only', () => {
-    expect(TOOLS.map((t) => t.name)).toEqual(['find_borrower', 'get_borrower_summary', 'list_borrowers', 'list_estimates'])
-    for (const t of READ_TOOLS) expect(t.input_schema.type).toBe('object')
+  it('reads, then in-app changes; nothing that sends', () => {
+    expect(READ_TOOLS.map((t) => t.name)).toEqual(['find_borrower', 'get_borrower_summary', 'list_borrowers', 'list_estimates'])
+    expect(CHANGE_TOOLS.map((t) => t.name)).toEqual(['create_fee_estimates', 'update_estimate', 'set_selected_program', 'move_pipeline_stage', 'update_borrower_fields', 'add_note', 'create_task'])
+    for (const t of TOOLS) expect(t.input_schema.type).toBe('object')
+    expect(TOOLS.some((t) => /send|message|sms|email/i.test(t.name))).toBe(false)
   })
 })
 
@@ -28,7 +30,8 @@ describe('buildSystem', () => {
     expect(s).toContain('under_contract: Under Contract')
     expect(s).toContain('Sample Lender (Conventional 30)')
     expect(s).toContain('Never call them "Loan Estimates"')
-    expect(s).toContain('you can never send a text or email')
+    expect(s).toContain('You can never send a text or email')
+    expect(s).toContain('Undo them from the card')
   })
   it('knows the file it is in', () => {
     const s = buildSystem({ ...ctx, file: { loanId: 'L1', borrowerName: 'Rita TEST', summary: 'Stage: Lead' } })

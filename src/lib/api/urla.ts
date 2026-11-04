@@ -279,10 +279,8 @@ interface BorrowerRow {
 const ADDRESS_ORDER: Record<AddressKind, number> = { current: 0, former: 1, mailing: 2 }
 
 /** Everything on the 1003 for one loan: borrowers (with person facts), assets and liabilities. */
-export function useApplication(loanId: string) {
-  return useQuery({
-    queryKey: keys.application(loanId),
-    queryFn: async (): Promise<Application> => {
+/** A file's 1003 (borrowers, assets, debts): the 1003 tab, Smart Fees' loan facts, and the assistant. */
+export async function fetchApplication(loanId: string): Promise<Application> {
       const [borrowerRows, assetRows, liabilityRows] = await Promise.all([
         db()
           .from('loan_borrowers')
@@ -321,7 +319,12 @@ export function useApplication(loanId: string) {
         assets: unwrap<Record<string, unknown>[]>(assetRows).map((r) => fromRow<Asset>(r)),
         liabilities: unwrap<Record<string, unknown>[]>(liabilityRows).map((r) => fromRow<Liability>(r)),
       }
-    },
+}
+
+export function useApplication(loanId: string) {
+  return useQuery({
+    queryKey: keys.application(loanId),
+    queryFn: () => fetchApplication(loanId),
   })
 }
 
