@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { InboxIcon, MailIcon, MessageSquareIcon, UserPlusIcon, UserSearchIcon } from 'lucide-react'
+import { InboxIcon, MailIcon, MessageSquareIcon, PenSquareIcon, UserPlusIcon, UserSearchIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { Card, confirmAction, EmptyState, PageHeader, SearchInput } from '@/comp
 import { FailedSendActions } from '@/components/messages/FailedSend'
 import { CheckNewMessagesButton } from '@/components/messages/MessagesTab'
 import { NewLeadFromMessage } from '@/components/messages/NewLeadFromMessage'
+import { NewMessageDialog } from '@/components/messages/NewMessageDialog'
 import { TONE_CLASS } from '@/components/messages/tone'
 import { useContacts } from '@/lib/api/contacts'
 import { MATCH_REASON_LABEL, useFailedSends, useInbox, useMatchMessage, useNeedsMatching, type NeedsMatchingGroup } from '@/lib/api/messages'
@@ -147,10 +148,25 @@ export function InboxPage() {
   const canCheck = role === 'owner' || role === 'admin'
   const inbox = useInbox()
   const rows = inbox.data ?? []
+  const [composing, setComposing] = useState(false)
 
   return (
     <>
-      <PageHeader eyebrow="Workspace" title="Inbox" description="Texts and emails from GHL, on the files you can see. Times are Central." action={canCheck ? <CheckNewMessagesButton size="default" /> : undefined} />
+      <PageHeader
+        eyebrow="Workspace"
+        title="Inbox"
+        description="Texts and emails from GHL, on the files you can see. Times are Central."
+        action={
+          <div className="flex flex-wrap gap-2">
+            {canCheck && <CheckNewMessagesButton size="default" />}
+            <Button onClick={() => setComposing(true)}>
+              <PenSquareIcon />
+              New message
+            </Button>
+          </div>
+        }
+      />
+      {composing && <NewMessageDialog onClose={() => setComposing(false)} />}
       <div className="space-y-4">
         <FailedSendsCard />
         {isAdmin && <NeedsMatchingCard />}

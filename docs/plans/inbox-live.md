@@ -19,8 +19,9 @@ The only code that sends a text or email through GHL is the `ghl` Edge Function'
 | 3 | Quick Quote "Email" (`EmailQuoteDialog`) | the email, plus the optional heads-up text | Confirm box lists both → one approval each |
 | 4 | Today / Action Queue draft "Send text / Send email" (`ActionEntry`) | 1 text or email | Confirm box → `approve_send` → `send` |
 | 5 | Failed send → "Resend" (Messages tab, Inbox "Failed sends") | the same words again | Confirm box → a new approval → `send` |
+| 6 | "Schedule…" (reply box, New message, Today drafts) → the every-minute timer | 1 text or email at the chosen time | The Schedule window approves it (`approve_send` with `send_at`); pg_cron `scheduled_ghl_send()` → `ghl` task `send_due` (key + anon key) sends it as the approver, with every check again; one that can't go is cancelled with the reason |
 
-All five go through `useSendMessage` (`src/lib/api/messages.ts`), which approves first and then sends. A call to `send` without an approval sends nothing.
+Paths 1–5 go through `useSendMessage` (`src/lib/api/messages.ts`), which approves first and then sends; path 6 approves with `useScheduleMessage` and only the timer sends it. A call to `send` without an approval sends nothing.
 
 ### Automations that never send (checked 2026-11-03)
 
@@ -50,3 +51,12 @@ All five go through `useSendMessage` (`src/lib/api/messages.ts`), which approves
 - Needs matching → "New lead from this": a new lead with the sender's details, and their messages moved onto it.
 - Settings → Sending → Test mode switch (owners and admins). Turning it off dismisses pending Action Queue drafts (`action_items.skipped_reason = 'test_mode_ended'`) and cancels unused approvals; nothing is sent. Done by a database trigger, so the SQL Editor does the same.
 - Who may approve changed: processors no longer send (they never could approve).
+
+## Phase 2a (built 2026-11-03; `20261223000000_scheduled_sends.sql`)
+
+- **Schedule…** on the reply box, New message and Today's drafts: approve now, send at a Central day and time inside sending hours, up to 60 days ahead. A scheduled draft leaves the queue.
+- **Scheduled** card on Today: waiting messages with Cancel (whoever scheduled it, or an admin), and ones from the last 3 days that didn't go, with the reason. Over a day late = missed, never sent.
+- The timer needs Vault secret `losuite_anon_key` (the legacy anon key, starting eyJ) besides the catch-up's two.
+- **New message** in the Inbox: any client on a file you can see, with the same reply box.
+- An email reply whose first line only says unsubscribe / stop / remove me turns email off (`isEmailUnsubscribe`).
+- Partners (realtors, title) as recipients are the next step (2a-ii): they need their own threads and inbound matching.

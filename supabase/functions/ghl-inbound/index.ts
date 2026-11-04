@@ -25,6 +25,7 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.1
 import { CHECKS, GHL_BASE, classify, logEndpoint, type CheckKey, type CheckResult } from '../ghl/checks.ts'
 import { matchContact, phone10, type Candidate, type MatchResult } from '../ghl/match.ts'
 import {
+  isEmailUnsubscribe,
   isStopReply,
   isTestContact,
   keepInTestMode,
@@ -225,6 +226,10 @@ async function syncConversation(db: SupabaseClient, g: Ghl, company: Company, co
   // A STOP reply turns texting off.
   if (personId && fresh.some((m) => m.channel === 'text' && m.direction === 'inbound' && isStopReply(m.body))) {
     if (await optOut(db, orgId, personId, 'text', 'stop_reply')) s.optOuts++
+  }
+  // An email reply that only says "unsubscribe" (or the like) turns email off.
+  if (personId && rows.some((r) => r.channel === 'email' && r.direction === 'inbound' && isEmailUnsubscribe(r.body))) {
+    if (await optOut(db, orgId, personId, 'email', 'stop_reply')) s.optOuts++
   }
 }
 

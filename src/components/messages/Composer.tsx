@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { MailIcon, MessageSquareIcon, SendIcon } from 'lucide-react'
+import { CalendarClockIcon, MailIcon, MessageSquareIcon, SendIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { confirmAction, Input, TextArea } from '@/components/shared'
-import { useSendMessage, type FilePerson } from '@/lib/api/messages'
+import { useScheduleMessage, useSendMessage, type FilePerson } from '@/lib/api/messages'
+import { scheduleLabel } from '@/lib/messaging/schedule'
+import { ScheduleDialog } from './ScheduleDialog'
 import type { LoanProfile } from '@/lib/api/types'
 import { formatPhone } from '@/lib/pipeline/helpers'
 import { MAX_TEXT_LENGTH } from '../../../supabase/functions/ghl/sendRules'
@@ -21,6 +23,8 @@ const newKey = () => crypto.randomUUID()
 export function Composer({ loan, people }: { loan: LoanProfile; people: FilePerson[] }) {
   const rules = useSendPlan(loan)
   const send = useSendMessage()
+  const schedule = useScheduleMessage()
+  const [scheduling, setScheduling] = useState(false)
   const [channel, setChannel] = useState<'text' | 'email'>('text')
   const [personId, setPersonId] = useState(people[0]?.id ?? '')
   const [body, setBody] = useState('')
@@ -36,6 +40,9 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
   const blockers = plan.problems.filter((p) => !(p === 'Write a message first.' || (p === 'An email needs a subject.' && !body.trim())))
   const to = channel === 'text' ? (person.phone ? formatPhone(person.phone) : 'no mobile') : (person.email ?? 'no email')
   const from = channel === 'text' ? (plan.fromNumber ? `${rules.loName} · ${formatPhone(plan.fromNumber)}` : '—') : (plan.fromEmail ?? '—')
+
+  // Scheduling for later: everything but "outside sending hours right now" (the time picked is checked instead).
+  const laterProblems = plan.problems.filter((p) => !p.includes('Nothing sends outside them'))
 
   const submit = async () => {
     if (plan.problems.length) return toast.error(plan.problems[0])
@@ -101,16 +108,44 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
           ))}
         </ul>
       )}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground tabular-nums">
           {channel === 'text' ? `${body.trim().length} / ${MAX_TEXT_LENGTH}` : 'Sent as plain text'}
           {rules.testMode && ' · Test mode: only people named TEST'}
         </span>
-        <Button onClick={submit} disabled={send.isPending || plan.problems.length > 0}>
-          <SendIcon />
-          {send.isPending ? 'Sending…' : channel === 'text' ? 'Send text' : 'Send email'}
-        </Button>
+        <div className="ml-auto flex gap-2">
+          <Button variant="outline" onClick={() => (laterProblems.length ? toast.error(laterProblems[0]) : setScheduling(true))} disabled={send.isPending || schedule.isPending || laterProblems.length > 0}>
+            <CalendarClockIcon />
+            Schedule…
+          </Button>
+          <Button onClick={submit} disabled={send.isPending || plan.problems.length > 0}>
+            <SendIcon />
+            {send.isPending ? 'Sending…' : channel === 'text' ? 'Send text' : 'Send email'}
+          </Button>
+        </div>
       </div>
+      {scheduling && (
+        <ScheduleDialog
+          what={channel === 'text' ? `this text to ${person.firstName}` : `this email to ${person.firstName}`}
+          busy={schedule.isPending}
+          onClose={() => setScheduling(false)}
+          onSchedule={(sendAt) =>
+            schedule.mutate(
+              { contactId: person.id, loanId: loan.id, channel, body, subject: channel === 'email' ? subject : null, idempotencyKey: key, sendAt },
+              {
+                onSuccess: () => {
+                  toast.success(`Scheduled for ${scheduleLabel(sendAt)}`)
+                  setScheduling(false)
+                  setBody('')
+                  setSubject('')
+                  setKey(newKey())
+                },
+                onError: (e) => toast.error(e.message),
+              },
+            )
+          }
+        />
+      )}
     </div>
   )
 }

@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CopyIcon, MailIcon, MessageSquareIcon } from 'lucide-react'
+import { CalendarClockIcon, CopyIcon, MailIcon, MessageSquareIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { confirmAction, DateInput, FormGrid, Input, QueueItem, TextArea } from '@/components/shared'
 import { EditDialog } from '@/components/urla/parts'
 import { useGhlStatus } from '@/lib/api/ghl'
-import { useSendMessage } from '@/lib/api/messages'
+import { ScheduleDialog } from '@/components/messages/ScheduleDialog'
+import { useScheduleMessage, useSendMessage } from '@/lib/api/messages'
+import { scheduleLabel } from '@/lib/messaging/schedule'
 import { useDecideAction, type FileInfo } from '@/lib/api/queue'
 import { draftContactId } from '@/lib/queue/drafts'
 import { formatIsoDate } from '@/lib/dates'
@@ -38,6 +40,7 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
   const [editTask, setEditTask] = useState<TaskSuggestion | null>(task)
   const ghl = useGhlStatus()
   const send = useSendMessage()
+  const schedule = useScheduleMessage()
   // One key per draft: a double click or retry reuses it, so it can't go twice.
   const [sendKey, setSendKey] = useState(() => `queue:${item.id}`)
 
@@ -82,6 +85,24 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
       },
     )
   }
+  // Schedule: approve it now (in your name), the timer sends it then; the draft leaves the queue and shows under Scheduled.
+  const [scheduling, setScheduling] = useState(false)
+  const scheduleDraft = (final: DraftMessage, sendAt: Date) => {
+    if (!sendTo) return
+    if (final.channel === 'email' && !final.subject?.trim()) return toast.error('An email needs a subject. Edit it first.')
+    schedule.mutate(
+      { contactId: sendTo, loanId: file.loanId, channel: final.channel, body: final.body, subject: final.channel === 'email' ? final.subject : null, idempotencyKey: `${sendKey}:at:${sendAt.toISOString()}`, sendAt },
+      {
+        onSuccess: () => {
+          decide.mutate({ item, file, status: decisionFor(draft, final), payload: final }, { onError: (e) => toast.error(e.message) })
+          toast.success(`Scheduled for ${scheduleLabel(sendAt)}`)
+          setScheduling(false)
+          setEditing(false)
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    )
+  }
   const approveTask = (final: TaskSuggestion) =>
     decide.mutate(
       { item, file, status: decisionFor(task, final), payload: final, task: final },
@@ -110,10 +131,16 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
           onEdit={() => setEditing(true)}
           extra={
             canSend && (
-              <Button size="sm" variant="outline" onClick={() => approveDraft(draft)} disabled={common.busy || send.isPending} title="Copy it to send from your phone or email instead">
-                <CopyIcon />
-                Copy instead
-              </Button>
+              <>
+                <Button size="sm" variant="outline" onClick={() => setScheduling(true)} disabled={common.busy || send.isPending || schedule.isPending} title="Approve it now and send it at a time you pick">
+                  <CalendarClockIcon />
+                  Schedule…
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => approveDraft(draft)} disabled={common.busy || send.isPending} title="Copy it to send from your phone or email instead">
+                  <CopyIcon />
+                  Copy instead
+                </Button>
+              </>
             )
           }
         >
@@ -127,6 +154,14 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
             <p className="whitespace-pre-wrap">{draft.body}</p>
           </div>
         </QueueItem>
+        {scheduling && sendTo && (
+          <ScheduleDialog
+            what={draft.channel === 'text' ? 'this text' : 'this email'}
+            busy={schedule.isPending || decide.isPending}
+            onClose={() => setScheduling(false)}
+            onSchedule={(sendAt) => scheduleDraft(draft, sendAt)}
+          />
+        )}
         {editing && editDraft && (
           <EditDialog
             title="Edit the draft"

@@ -23,6 +23,7 @@ import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 import { WebLeadsCard } from '@/components/queue/WebLeadsCard'
 import { PriorityListCard } from '@/components/queue/PriorityList'
 import { NewMessagesCard } from '@/components/messages/NewMessages'
+import { ScheduledCard } from '@/components/messages/ScheduledCard'
 import { buildToday, groupToday, type TodayEntry } from '@/lib/queue/today'
 
 function TaskRow({ entry }: { entry: Extract<TodayEntry, { type: 'task' }> }) {
@@ -237,6 +238,7 @@ export function TodayPage() {
           <SectionTitle eyebrow="Today" title="Your day," highlight="at a glance" />
           {tasks.isSuccess && <PriorityListCard tasks={tasks.data} />}
           <NewMessagesCard />
+          <ScheduledCard />
           <WebLeadsCard />
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>

@@ -27,6 +27,16 @@ export function isStopReply(body: string | null | undefined): boolean {
   return ['stop', 'stopall', 'unsubscribe', 'cancel', 'end', 'quit'].includes(word)
 }
 
+/**
+ * An email reply asking to stop: its first line (before any quoted earlier
+ * email) is only "unsubscribe", "stop", "remove me" and the like.
+ */
+export function isEmailUnsubscribe(body: string | null | undefined): boolean {
+  const first = (body ?? '').split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? ''
+  const words = first.toLowerCase().replace(/[^a-z ]/g, '').replace(/\s+/g, ' ').trim()
+  return ['unsubscribe', 'stop', 'stopall', 'remove me', 'remove', 'opt out', 'optout', 'please unsubscribe', 'unsubscribe me', 'please remove me'].includes(words)
+}
+
 export interface GhlContact {
   id: string
   firstName: string | null

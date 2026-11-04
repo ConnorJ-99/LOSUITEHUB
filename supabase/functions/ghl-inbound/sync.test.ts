@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { channelOf, htmlToText, keepInTestMode, isStopReply, isTestContact, pickContact, pickConversations, pickEmail, pickMessages, secretMatches, webhookContactId } from './sync'
+import { channelOf, htmlToText, keepInTestMode, isEmailUnsubscribe, isStopReply, isTestContact, pickContact, pickConversations, pickEmail, pickMessages, secretMatches, webhookContactId } from './sync'
 
 describe('which GHL messages are kept', () => {
   it('keeps texts and emails, including workflow ones, and nothing else', () => {
@@ -101,5 +101,14 @@ describe('opt-outs and webhooks', () => {
 
   it('reads conversations from a search', () => {
     expect(pickConversations({ conversations: [{ id: 'c1', contactId: 'g1', fullName: 'Gina TEST', lastMessageDate: 1761746000000 }, { id: 'c2' }] })).toEqual([{ id: 'c1', contactId: 'g1', name: 'Gina TEST', lastMessageAt: 1761746000000 }])
+  })
+})
+
+describe('isEmailUnsubscribe', () => {
+  it('reads a reply whose first line only asks to stop, ignoring the quoted email below', () => {
+    for (const s of ['Unsubscribe', 'STOP', '  Please remove me.\n\nOn Mon, MPS wrote:\n> Hi', '\n\nunsubscribe me\n> earlier text', 'Opt out']) expect(isEmailUnsubscribe(s)).toBe(true)
+  })
+  it('leaves real replies alone', () => {
+    for (const s of ['Can you stop by Tuesday?', 'Thanks! How do I unsubscribe from the other list?', 'Remove me from the loan, add my wife', '', null]) expect(isEmailUnsubscribe(s)).toBe(false)
   })
 })

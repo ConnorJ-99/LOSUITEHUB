@@ -21,6 +21,7 @@ const msgKeys = {
   consent: (ids: string) => ['messages', 'consent', ids] as const,
   fresh: ['messages', 'fresh'] as const,
   failed: ['messages', 'failed'] as const,
+  scheduled: ['messages', 'scheduled'] as const,
 }
 
 /**
@@ -272,6 +273,109 @@ export function useInbox() {
       }
       return [...byPerson.values()]
     },
+  })
+}
+
+/**
+ * Approves one text or email now, to go out at a chosen time (Phase 2a).
+ * Nothing is sent here: the every-minute timer sends it when it's due, as
+ * the person who approved it, with every check run again then.
+ */
+export function useScheduleMessage() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (v: { contactId: string; loanId: string; channel: MessageChannel; body: string; subject: string | null; idempotencyKey: string; documentIds?: string[]; sendAt: Date }) =>
+      unwrap<string>(
+        await db().rpc('approve_send', {
+          p_loan_id: v.loanId,
+          p_contact_id: v.contactId,
+          p_channel: v.channel,
+          p_subject: v.channel === 'email' ? v.subject : null,
+          p_body: v.body,
+          p_document_ids: v.documentIds ?? [],
+          p_client_key: v.idempotencyKey,
+          p_send_at: v.sendAt.toISOString(),
+        }),
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: msgKeys.all }),
+  })
+}
+
+export interface ScheduledSend {
+  id: string
+  contactId: string
+  loanId: string
+  name: string
+  channel: MessageChannel
+  subject: string | null
+  body: string
+  sendAt: string
+  approvedBy: string
+  /** Set when it was cancelled, missed, or couldn't go at its time (with the reason). */
+  voidedAt: string | null
+  voidReason: string | null
+}
+
+/** Messages scheduled for later that haven't gone yet, plus ones from the last 3 days that didn't go (not the ones someone cancelled). */
+export function useScheduledSends() {
+  const { state } = useAuth()
+  return useQuery({
+    queryKey: msgKeys.scheduled,
+    enabled: state.status === 'signedIn',
+    refetchInterval: LIVE_MS,
+    queryFn: async (): Promise<ScheduledSend[]> => {
+      const since = new Date(Date.now() - 3 * 86400e3).toISOString()
+      const rows = unwrap<
+        {
+          id: string
+          contact_id: string
+          loan_id: string
+          channel: MessageChannel
+          subject: string | null
+          body: string
+          send_at: string
+          approved_by: string
+          voided_at: string | null
+          void_reason: string | null
+          contact: { first_name: string; last_name: string } | null
+        }[]
+      >(
+        await db()
+          .from('send_approvals')
+          .select('id, contact_id, loan_id, channel, subject, body, send_at, approved_by, voided_at, void_reason, contact:contacts!send_approvals_contact_id_fkey ( first_name, last_name )')
+          .not('send_at', 'is', null)
+          .is('used_at', null)
+          .or(`voided_at.is.null,voided_at.gte.${since}`)
+          .order('send_at')
+          .limit(100),
+      )
+      return rows
+        .filter((r) => r.void_reason !== 'cancelled')
+        .map((r) => ({
+          id: r.id,
+          contactId: r.contact_id,
+          loanId: r.loan_id,
+          name: [r.contact?.first_name, r.contact?.last_name].filter(Boolean).join(' ') || 'Unknown',
+          channel: r.channel,
+          subject: r.subject,
+          body: r.body,
+          sendAt: r.send_at,
+          approvedBy: r.approved_by,
+          voidedAt: r.voided_at,
+          voidReason: r.void_reason,
+        }))
+    },
+  })
+}
+
+/** Cancels a scheduled message before it goes (whoever scheduled it, or an admin). */
+export function useCancelScheduled() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (approvalId: string) => {
+      unwrap(await db().rpc('cancel_scheduled_send', { p_approval_id: approvalId }))
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: msgKeys.all }),
   })
 }
 

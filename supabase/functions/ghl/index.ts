@@ -58,7 +58,7 @@ import {
 } from './checks.ts'
 import { e164, hasTestName, planSend, textToHtml, type SendHoursValue } from './sendRules.ts'
 import { chooseOpportunity, newContactBody, pickOpportunities, pickOpportunity, pickPipelines, planMove, suggestClosed, type OpportunityMove } from './opportunities.ts'
-import { pickContact } from '../ghl-inbound/sync.ts'
+import { pickContact, secretMatches } from '../ghl-inbound/sync.ts'
 
 const TIMEOUT_MS = 10_000
 const UPLOAD_TIMEOUT_MS = 30_000
@@ -809,9 +809,61 @@ async function linkContact(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   return { linked: true, created: contact.created }
 }
 
+/**
+ * Sends every scheduled message that's due, each as the person who approved
+ * it, through the same sendMessage (every check again). One that can't go
+ * (consent, sending hours, Do Not Disturb, the approver lost the file…) is
+ * cancelled with the reason, so it shows as "Didn't send" in Scheduled and is
+ * never tried again; one GHL refuses is a failed send, like any other.
+ */
+async function sendDue(token: string, locationId: string) {
+  const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+  const due = await admin
+    .from('send_approvals')
+    .select('id, organization_id, approved_by')
+    .not('send_at', 'is', null)
+    .lte('send_at', new Date(Date.now() + 30_000).toISOString())
+    .is('used_at', null)
+    .is('voided_at', null)
+    .order('send_at')
+    .limit(20)
+  if (due.error) return { error: due.error.message }
+  let sent = 0
+  let stopped = 0
+  for (const a of (due.data ?? []) as { id: string; organization_id: string; approved_by: string }[]) {
+    const g = new Ghl(token, locationId)
+    try {
+      const r = await sendMessage(admin, admin, g, a.organization_id, a.approved_by, { approvalId: a.id })
+      if ((r as { sent?: boolean }).sent) sent++
+    } catch (e) {
+      const why = (e as Error).message.replace(/^Nothing was sent: /, '')
+      // A few seconds early: the next minute sends it.
+      if (why.includes('not_due')) continue
+      stopped++
+      // Not used yet (a check failed before sending): cancel it with the reason. A used one already has its failed message.
+      await admin.from('send_approvals').update({ voided_at: new Date().toISOString(), void_reason: why.slice(0, 500) }).eq('id', a.id).is('used_at', null).is('voided_at', null)
+    } finally {
+      if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: a.organization_id, called_by: a.approved_by, task: 'scheduled_send', ...c })))
+    }
+  }
+  return { due: due.data?.length ?? 0, sent, stopped }
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (request.method !== 'POST') return reply(405, { error: 'Use POST.' })
+
+  // The every-minute timer (scheduled_ghl_send in the database) sends approved, scheduled messages that are due.
+  const timerKey = new URL(request.url).searchParams.get('key')
+  if (timerKey !== null) {
+    if (!secretMatches(timerKey, Deno.env.get('GHL_WEBHOOK_SECRET'))) return reply(401, { error: 'Wrong or missing key.' })
+    const timerBody = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>
+    if (timerBody.task !== 'send_due') return reply(400, { error: 'Unknown task.' })
+    const timerToken = Deno.env.get('GHL_PRIVATE_TOKEN')
+    const timerLocation = Deno.env.get('GHL_LOCATION_ID')
+    if (!timerToken || !timerLocation) return reply(500, { error: 'GHL is not set up yet.' })
+    return reply(200, await sendDue(timerToken, timerLocation))
+  }
 
   const auth = request.headers.get('Authorization')
   if (!auth) return reply(401, { error: 'Sign in first.' })
