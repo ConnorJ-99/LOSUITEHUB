@@ -180,27 +180,76 @@ export async function readAll<T>(query: (from: number, to: number) => PromiseLik
   }
 }
 
+/** Like readAll, but asks for several pages at once once the row count is known (a big table read a page after another took ~25 seconds). */
+export async function readAllAtOnce<T>(
+  count: () => PromiseLike<{ count: number | null; error: { message: string } | null }>,
+  query: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+  atOnce = 8,
+): Promise<T[]> {
+  const counted = await count()
+  if (counted.error) throw new Error(counted.error.message)
+  const pageCount = Math.max(1, Math.ceil((counted.count ?? 0) / PAGE))
+  const pages: T[][] = new Array(pageCount)
+  let next = 0
+  const worker = async () => {
+    for (let i = next++; i < pageCount; i = next++) pages[i] = unwrap<T[]>(await query(i * PAGE, i * PAGE + PAGE - 1))
+  }
+  await Promise.all(Array.from({ length: Math.min(atOnce, pageCount) }, worker))
+  const all = pages.flat()
+  // Rows added while loading: carry on a page at a time from where the count ended.
+  if (pages[pageCount - 1].length === PAGE) all.push(...(await readAll<T>((a, b) => query(pageCount * PAGE + a, pageCount * PAGE + b))))
+  return all
+}
+
+/** Reads rows for a list of ids in groups of `size`, several groups at once. Each group hits an index directly instead of skipping past earlier pages. */
+export async function readByIds<T>(
+  ids: string[],
+  query: (ids: string[], from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+  size = 10,
+  atOnce = 8,
+): Promise<T[]> {
+  const groups: string[][] = []
+  for (let i = 0; i < ids.length; i += size) groups.push(ids.slice(i, i + size))
+  const results: T[][] = new Array(groups.length)
+  let next = 0
+  const worker = async () => {
+    for (let i = next++; i < groups.length; i = next++) results[i] = await readAll<T>((a, b) => query(groups[i], a, b))
+  }
+  await Promise.all(Array.from({ length: Math.min(atOnce, groups.length) }, worker))
+  return results.flat()
+}
+
 /** The company's whole lender catalog, approved matrices only. One load; every search after that is in memory. */
 export function useCatalog() {
   return useQuery({
     queryKey: keys.catalog,
     staleTime: 5 * 60_000,
     queryFn: async () => {
-      const [lenders, programs, versions, rules, overlays] = await Promise.all([
+      // Everything loads side by side; the two big tables also fetch several pieces at once.
+      const versionsLoad = readAll<VersionRow>((a, b) => db().from('matrix_versions').select('id, program_id').eq('status', 'approved').order('id').range(a, b))
+      const [lenders, programs, versions, rules, overlays, cells] = await Promise.all([
         readAll<LenderRow>((a, b) => db().from('lenders').select('id, name, status, states').order('name').range(a, b)),
         readAll<ProgramRow>((a, b) => db().from('programs').select('id, lender_id, name, product_family, lien, doc_types, features, purposes, term_options, loan_amount_basis, active, last_verified_on').order('name').range(a, b)),
-        readAll<VersionRow>((a, b) => db().from('matrix_versions').select('id, program_id').eq('status', 'approved').range(a, b)),
-        readAll<RuleRow>((a, b) => db().from('program_rules').select('id, program_id, matrix_version_id, field, op, value, applies_when, severity, message, source_page, source_quote').order('created_at').range(a, b)),
+        versionsLoad,
+        readAllAtOnce<RuleRow>(
+          () => db().from('program_rules').select('id', { count: 'exact', head: true }),
+          (a, b) => db().from('program_rules').select('id, program_id, matrix_version_id, field, op, value, applies_when, severity, message, source_page, source_quote').order('created_at').order('id').range(a, b),
+        ),
         readAll<RuleRow & { program_id: string | null }>((a, b) => db().from('overlays').select('id, scope, lender_id, program_id, field, op, value, applies_when, severity, message').eq('active', true).range(a, b)),
+        // Approved matrices' cells only, a few matrices per request.
+        versionsLoad.then((vs) =>
+          readByIds<CellRow>(
+            vs.map((v) => v.id),
+            (ids, a, b) =>
+              db()
+                .from('program_matrix_cells')
+                .select('id, matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, dscr_min, citizenship, offered, max_ltv, max_cltv, max_dti, reserves_months, source_page, notes')
+                .in('matrix_version_id', ids)
+                .order('id')
+                .range(a, b),
+          ),
+        ),
       ])
-      const cells = await readAll<CellRow>((a, b) =>
-        db()
-          .from('program_matrix_cells')
-          .select('id, matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, dscr_min, citizenship, offered, max_ltv, max_cltv, max_dti, reserves_months, source_page, notes, matrix_versions!inner(status)')
-          .eq('matrix_versions.status', 'approved')
-          .order('id')
-          .range(a, b),
-      )
       return toCatalog({ lenders, programs, versions, cells, rules, overlays: overlays.map((o) => ({ ...o, program_id: o.program_id ?? undefined })) })
     },
   })
