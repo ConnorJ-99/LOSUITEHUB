@@ -1,7 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import App from './App.tsx'
 
 // The service worker only shows push notifications (public/sw.js); it caches nothing.
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
@@ -12,8 +11,13 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
   })
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
+// A public page (/p/{slug}) loads only the page, not the whole app.
+const isPublicPage = /^\/p\/[^/]+\/?$/.test(window.location.pathname)
+const root = createRoot(document.getElementById('root')!)
+void (isPublicPage ? import('./PublicApp.tsx') : import('./App.tsx')).then(({ default: Root }) =>
+  root.render(
+    <StrictMode>
+      <Root />
+    </StrictMode>,
+  ),
 )

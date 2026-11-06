@@ -22,6 +22,10 @@ import { AssistantPage } from '@/pages/AssistantPage'
 import { InboxPage } from '@/pages/InboxPage'
 import { LeadsHomePage } from '@/pages/LeadsHomePage'
 import { PartnersPage } from '@/pages/PartnersPage'
+import { PageBuilderPage } from '@/pages/PageBuilderPage'
+import { PagesPage } from '@/pages/PagesPage'
+import { PageSubmissionsPage } from '@/pages/PageSubmissionsPage'
+import { PublicPage } from '@/pages/PublicPage'
 import { ProductSearchPage } from '@/pages/ProductSearchPage'
 import { RefiBenchmarksPage } from '@/pages/RefiBenchmarksPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -37,6 +41,8 @@ function AuthGate() {
 }
 
 const router = createBrowserRouter([
+  // Public pages need no sign-in (main.tsx normally loads PublicApp for these).
+  { path: 'p/:slug', element: <PublicPage /> },
   {
     element: <AuthGate />,
     children: [
@@ -47,6 +53,9 @@ const router = createBrowserRouter([
       { path: 'pipeline/:pipelineId', element: <PipelinePage /> },
       { path: 'contacts', element: <ContactsPage /> },
       { path: 'partners', element: <PartnersPage /> },
+      { path: 'pages', element: <PagesPage /> },
+      { path: 'pages/:pageId', element: <PageBuilderPage /> },
+      { path: 'pages/:pageId/submissions', element: <PageSubmissionsPage /> },
       { path: 'assistant', element: <AssistantPage /> },
       { path: 'loans/:loanId', element: <LoanPage /> },
       { path: 'product-search', element: <ProductSearchPage /> },

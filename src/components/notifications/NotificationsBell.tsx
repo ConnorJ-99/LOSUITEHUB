@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
-import { AlertTriangleIcon, BellIcon, BellOffIcon, CalendarClockIcon, CheckIcon, MessageSquareIcon, UserSearchIcon } from 'lucide-react'
+import { AlertTriangleIcon, BellIcon, BellOffIcon, CalendarClockIcon, CheckIcon, FileTextIcon, MessageSquareIcon, UserSearchIcon } from 'lucide-react'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -15,6 +15,7 @@ const ICON: Record<AppNotification['kind'], typeof BellIcon> = {
   opted_out: BellOffIcon,
   scheduled_sent: CalendarClockIcon,
   scheduled_stopped: AlertTriangleIcon,
+  page_submission: FileTextIcon,
   test: BellIcon,
 }
 

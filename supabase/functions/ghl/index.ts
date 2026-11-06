@@ -849,6 +849,26 @@ async function sendDue(token: string, locationId: string) {
   return { due: due.data?.length ?? 0, sent, stopped }
 }
 
+/**
+ * Pages (2026-11-06): someone filled out a page, so match or add them in GHL,
+ * assigned to the file's loan officer, exactly like "contact" (test mode only
+ * touches TEST people; no tags). Called by the page-submit function with the
+ * timer key, so it runs with the service role.
+ */
+async function pageContact(token: string, locationId: string, body: Record<string, unknown>) {
+  const organizationId = typeof body.organizationId === 'string' ? body.organizationId : null
+  if (!organizationId) return reply(400, { error: 'Which company?' })
+  const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+  const g = new Ghl(token, locationId)
+  try {
+    return reply(200, await linkContact(admin, admin, g, organizationId, body))
+  } catch (e) {
+    return reply(e instanceof UserError ? 400 : 500, { error: (e as Error).message })
+  } finally {
+    if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: null, task: 'page_contact', ...c })))
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (request.method !== 'POST') return reply(405, { error: 'Use POST.' })
@@ -858,10 +878,11 @@ Deno.serve(async (request) => {
   if (timerKey !== null) {
     if (!secretMatches(timerKey, Deno.env.get('GHL_WEBHOOK_SECRET'))) return reply(401, { error: 'Wrong or missing key.' })
     const timerBody = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>
-    if (timerBody.task !== 'send_due') return reply(400, { error: 'Unknown task.' })
+    if (timerBody.task !== 'send_due' && timerBody.task !== 'page_contact') return reply(400, { error: 'Unknown task.' })
     const timerToken = Deno.env.get('GHL_PRIVATE_TOKEN')
     const timerLocation = Deno.env.get('GHL_LOCATION_ID')
     if (!timerToken || !timerLocation) return reply(500, { error: 'GHL is not set up yet.' })
+    if (timerBody.task === 'page_contact') return await pageContact(timerToken, timerLocation, timerBody)
     return reply(200, await sendDue(timerToken, timerLocation))
   }
 

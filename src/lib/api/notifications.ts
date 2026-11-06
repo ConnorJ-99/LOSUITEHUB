@@ -9,7 +9,7 @@ import { db, unwrap } from './client'
 // app shows your own, marks them read, keeps your settings and turns phone
 // push on for a device.
 
-export type NotificationKind = 'reply' | 'needs_matching' | 'send_failed' | 'opted_out' | 'scheduled_sent' | 'scheduled_stopped' | 'test'
+export type NotificationKind = 'reply' | 'needs_matching' | 'send_failed' | 'opted_out' | 'scheduled_sent' | 'scheduled_stopped' | 'page_submission' | 'test'
 
 export interface AppNotification {
   id: string
@@ -28,6 +28,7 @@ export const NOTIFICATION_KINDS: { kind: Exclude<NotificationKind, 'test'>; labe
   { kind: 'opted_out', label: 'A client opts out (STOP or unsubscribe)', pushDefault: true },
   { kind: 'scheduled_stopped', label: 'A scheduled message couldn\'t go at its time', pushDefault: true },
   { kind: 'scheduled_sent', label: 'A scheduled message went out', pushDefault: false },
+  { kind: 'page_submission', label: 'Someone fills out one of your Pages', pushDefault: true },
   { kind: 'needs_matching', label: 'A message needs matching', adminsOnly: true, pushDefault: true },
 ]
 
