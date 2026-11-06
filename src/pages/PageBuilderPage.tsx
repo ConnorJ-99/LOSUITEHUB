@@ -11,7 +11,11 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Card, confirmAction, EmptyState, Input, Select, TextArea, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { PageRenderer } from '@/components/pages/PageRenderer'
+import { FinancingTable, LivePageCard, PropertyPanel, SignInsCard } from '@/components/pages/OpenHouseEditor'
 import { useOrgMembers } from '@/lib/api/loans'
+import { usePartners } from '@/lib/api/partners'
+import { useFeeTemplates } from '@/lib/api/pricing'
+import { openHouseTag, readProperty, refigure, type OpenHouseProperty } from '@/lib/pages/openHouse'
 import { publishHeadshot, uploadPageImage, useDeletePage, usePage, useSavePage, type PageRecord, type PagePatch } from '@/lib/api/pages'
 import { useProfile } from '@/lib/api/settings'
 import { useAuth } from '@/lib/auth/context'
@@ -312,6 +316,11 @@ function Builder({ page }: { page: PageRecord }) {
   const [showSettings, setShowSettings] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)
+  const isOpenHouse = page.type === 'open_house'
+  const [view, setView] = useState<'property' | 'form'>(isOpenHouse ? 'property' : 'form')
+  const [property, setProperty] = useState<OpenHouseProperty>(() => readProperty(page.property))
+  const fees = useFeeTemplates()
+  const partners = usePartners()
   const dirty = useRef<PagePatch>({})
   const timer = useRef<number | undefined>(undefined)
 
@@ -346,6 +355,30 @@ function Builder({ page }: { page: PageRecord }) {
     queue({ blocks: next })
   }
   const selectedBlock = blocks.find((b) => b.id === selected) ?? null
+
+  // Open houses: every change figures the financing table again with the Settings fee list,
+  // and the sign-in tag follows the address.
+  const changeProperty = (patch: Partial<OpenHouseProperty>) => {
+    const next = refigure({ ...property, ...patch }, fees.data ?? [])
+    setProperty(next)
+    const extra: PagePatch = {}
+    if (patch.address !== undefined) {
+      const tags = [openHouseTag(next.address), ...(settings.tags ?? []).filter((t) => !t.startsWith('Open House – '))]
+      const nextSettings = { ...settings, tags }
+      setSettings(nextSettings)
+      extra.settings = nextSettings
+    }
+    queue({ property: next as unknown as Record<string, unknown>, ...extra })
+  }
+  // Once the fee list loads, make sure the saved figures match it.
+  useEffect(() => {
+    if (!isOpenHouse || !fees.data) return
+    const next = refigure(property, fees.data)
+    if (JSON.stringify(next.financing) !== JSON.stringify(property.financing)) {
+      setProperty(next)
+      queue({ property: next as unknown as Record<string, unknown> })
+    }
+  }, [fees.data]) // eslint-disable-line react-hooks/exhaustive-deps
   const indexOf = (id: string) => blocks.findIndex((b) => b.id === id)
 
   const add = (type: BlockType) => {
@@ -393,12 +426,20 @@ function Builder({ page }: { page: PageRecord }) {
       settings,
       owner: { name: owner.data?.fullName ?? page.ownerName, nmls: owner.data?.nmls ?? null, phone: owner.data?.personalCell || owner.data?.phone || null, email: owner.data?.email ?? null, bookingUrl: null, photoPath: null },
       company: { name: 'MPS Mortgage LLC', nmls: '2501110' },
+      type: page.type,
+      property: isOpenHouse ? (property as unknown as Record<string, unknown>) : null,
+      agent: (() => {
+        const a = partners.data?.find((x) => x.id === property.agentPartnerId)
+        return a ? { name: a.name, company: a.company, phone: a.phone, email: a.email } : null
+      })(),
     }),
-    [title, blocks, settings, owner.data, page.ownerName],
+    [title, blocks, settings, owner.data, page.ownerName, page.type, isOpenHouse, property, partners.data],
   )
 
   const publish = async () => {
     const problems = publishProblems(title, slug, blocks)
+    if (isOpenHouse && !property.address.trim()) problems.push("Add the home's address.")
+    if (isOpenHouse && !property.listPrice) problems.push('Add the list price.')
     if (problems.length) {
       toast.error(problems.join(' '))
       return
@@ -536,7 +577,41 @@ function Builder({ page }: { page: PageRecord }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-[minmax(0,1fr)] lg:grid-cols-[260px_minmax(0,1fr)_320px]">
+      {isOpenHouse && (
+        <div className="flex gap-1 border-b bg-card px-4 md:px-6">
+          {(
+            [
+              ['property', 'Property & financing'],
+              ['form', 'Sign-in form'],
+            ] as const
+          ).map(([v, label]) => (
+            <button key={v} type="button" onClick={() => setView(v)} className={cn('-mb-px border-b-2 px-3 py-2.5 text-sm font-semibold', view === v ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {isOpenHouse && view === 'property' && (
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 p-4 md:p-6 lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)_380px]">
+          <PropertyPanel property={property} onChange={changeProperty} organizationId={page.organizationId} pageId={page.id} />
+          <div className="space-y-4">
+            <FinancingTable property={property} onChange={changeProperty} />
+            <div className="grid gap-4 md:grid-cols-2">
+              <LivePageCard slug={slug} published={status === 'published'} />
+              <SignInsCard pageId={page.id} />
+            </div>
+          </div>
+          <div className="hidden 2xl:block">
+            <p className="mb-2 text-sm font-semibold">Live page preview</p>
+            <div className="sticky top-20 max-h-[calc(100svh-120px)] overflow-y-auto rounded-[28px] border bg-background shadow-soft">
+              <PageRenderer page={preview} mode="preview" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className={cn('grid grid-cols-[minmax(0,1fr)] lg:grid-cols-[260px_minmax(0,1fr)_320px]', isOpenHouse && view === 'property' && 'hidden')}>
         <aside className="border-b p-4 lg:sticky lg:top-[57px] lg:h-[calc(100svh-57px)] lg:overflow-y-auto lg:border-r lg:border-b-0">{palette}</aside>
         <section className="hidden bg-muted/40 p-6 lg:block">
           <div className={cn('mx-auto overflow-hidden rounded-[28px] border bg-background shadow-soft', device === 'phone' ? 'max-w-[400px]' : 'max-w-3xl rounded-xl')}>

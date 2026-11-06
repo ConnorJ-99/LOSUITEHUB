@@ -9,6 +9,8 @@ import logo from '@/assets/mps-logo.png'
 import { formatPhone } from '@/lib/pipeline/helpers'
 import { isField, isSafeHref, type Block, type PageSettings, type UploadedFile } from '../../../supabase/functions/page-submit/blocks'
 import type { PublicPage } from '@/lib/api/pages'
+import { readProperty } from '@/lib/pages/openHouse'
+import { FinancingCard, LoAndAgentCards, OpenHouseHeader } from './OpenHouse'
 
 export const CONSENT_TEXT = 'I agree MPS Mortgage may contact me by call, text or email about my request. Msg & data rates may apply. Reply STOP to opt out.'
 
@@ -23,7 +25,7 @@ export interface FormState {
 export const emptyFormState = (): FormState => ({ answers: {}, files: {}, consent: false, errors: {}, uploading: {} })
 
 interface Props {
-  page: Pick<PublicPage, 'blocks' | 'settings' | 'owner' | 'company' | 'title'>
+  page: Pick<PublicPage, 'blocks' | 'settings' | 'owner' | 'company' | 'title'> & Partial<Pick<PublicPage, 'type' | 'property' | 'agent'>>
   /** live: a working form. preview: the builder (inputs don't type; blocks select). */
   mode: 'live' | 'preview'
   form?: FormState
@@ -85,12 +87,18 @@ function LoCard({ owner }: { owner: PublicPage['owner'] }) {
   )
 }
 
-export function Footer({ company }: { company: PublicPage['company'] }) {
+export function Footer({ company, listing }: { company: PublicPage['company']; listing?: boolean }) {
   return (
     <p className="px-2 text-center text-xs leading-relaxed text-muted-foreground">
       {company?.name ?? 'MPS Mortgage LLC'} · NMLS #{company?.nmls ?? '2501110'} · Equal Housing Opportunity.
       <br />
       This is not a commitment to lend.
+      {listing && (
+        <>
+          <br />
+          Listing information deemed reliable but not guaranteed.
+        </>
+      )}
     </p>
   )
 }
@@ -292,6 +300,7 @@ export function PageRenderer(props: Props) {
   const main = blocks.filter((b) => !inBand.has(b.id) && b.type !== 'lo_card' && b.type !== 'footer')
   const after = blocks.filter((b) => b.type === 'lo_card' || b.type === 'footer')
   const hasFields = blocks.some((b) => isField(b.type))
+  const openHouse = page.type === 'open_house' ? readProperty(page.property) : null
 
   const wrap = (b: Block, node: React.ReactNode) =>
     live || !onSelect ? (
@@ -311,7 +320,12 @@ export function PageRenderer(props: Props) {
 
   return (
     <div className="min-h-full bg-background">
-      <div className="bg-navy px-5 pt-5 pb-14 text-white">
+      {openHouse && (
+        <div className={cn('mx-auto', wide ? 'max-w-2xl' : 'max-w-lg')}>
+          <OpenHouseHeader property={openHouse} />
+        </div>
+      )}
+      <div className={cn('bg-navy px-5 pt-5 pb-14 text-white', openHouse && 'hidden')}>
         <div className={cn('mx-auto', wide ? 'max-w-2xl' : 'max-w-lg')}>
           <BrandBar />
           {heroIdx >= 0 &&
@@ -322,7 +336,8 @@ export function PageRenderer(props: Props) {
           {heroText && wrap(heroText, <p className="mt-3 text-base leading-relaxed text-white/80">{heroText.text}</p>)}
         </div>
       </div>
-      <div className={cn('mx-auto -mt-8 space-y-4 px-3 pb-8', wide ? 'max-w-2xl' : 'max-w-lg')}>
+      <div className={cn('mx-auto space-y-4 px-3 pb-8', openHouse ? 'mt-4' : '-mt-8', wide ? 'max-w-2xl' : 'max-w-lg')}>
+        {openHouse && <FinancingCard property={openHouse} />}
         <form
           noValidate
           onSubmit={(e) => {
@@ -355,7 +370,18 @@ export function PageRenderer(props: Props) {
             </>
           )}
         </form>
-        {after.map((b) => wrap(b, b.type === 'lo_card' ? <LoCard owner={page.owner} /> : <Footer company={page.company} />))}
+        {after.map((b) =>
+          wrap(
+            b,
+            b.type === 'footer' ? (
+              <Footer company={page.company} listing={!!openHouse} />
+            ) : openHouse ? (
+              <LoAndAgentCards owner={page.owner} agent={page.agent ?? null} agentPhotoUrl={openHouse.agentPhotoUrl} company={page.company} />
+            ) : (
+              <LoCard owner={page.owner} />
+            ),
+          ),
+        )}
       </div>
     </div>
   )

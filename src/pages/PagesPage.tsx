@@ -3,14 +3,16 @@
 // lead (or a note on an open file) in MPS-HQ.
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { FileTextIcon, PlusIcon, TriangleAlertIcon } from 'lucide-react'
+import { FileTextIcon, HomeIcon, PlusIcon, TriangleAlertIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Card, DataTable, EmptyState, Input, PageHeader, SearchInput, ToggleChip, ToggleChipGroup, type Column } from '@/components/shared'
-import { freeSlug, useCreatePage, usePages, type PageRecord } from '@/lib/api/pages'
+import { Card, CurrencyInput, DataTable, DateInput, EmptyState, Input, PageHeader, SearchInput, ToggleChip, ToggleChipGroup, type Column } from '@/components/shared'
+import { freeSlug, uploadPageImage, useCreatePage, usePages, useSavePage, type PageRecord } from '@/lib/api/pages'
+import { useAuth } from '@/lib/auth/context'
 import { formatIsoDate, todayIso } from '@/lib/dates'
-import { blankPage, fromTemplate, PAGE_TEMPLATES, PAGE_TYPE_LABEL, type PageTemplate, type PageType } from '@/lib/pages/templates'
+import { blankProperty, estimatedHousing, openHouseSlugBase, openHouseTag } from '@/lib/pages/openHouse'
+import { ALL_TEMPLATES, blankPage, fromTemplate, OPEN_HOUSE_TEMPLATE, PAGE_TYPE_LABEL, type PageTemplate, type PageType } from '@/lib/pages/templates'
 import { slugify } from '../../supabase/functions/page-submit/blocks'
 
 type Filter = 'all' | PageType | 'templates'
@@ -79,6 +81,81 @@ function NewPageDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
+/** New open house: address, price, date and a photo, then the builder fills in the rest. */
+export function NewOpenHouseDialog({ onClose }: { onClose: () => void }) {
+  const { state } = useAuth()
+  const orgId = state.status === 'signedIn' ? state.user.organizationId : null
+  const [address, setAddress] = useState('')
+  const [cityLine, setCityLine] = useState('')
+  const [price, setPrice] = useState<number | null>(null)
+  const [openDate, setOpenDate] = useState<string | null>(null)
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const create = useCreatePage()
+  const save = useSavePage()
+  const navigate = useNavigate()
+
+  const go = async () => {
+    setBusy(true)
+    try {
+      const street = address.trim()
+      const property = { ...blankProperty(), address: street, cityLine: cityLine.trim(), listPrice: price, openDate, ...(price ? estimatedHousing(price) : {}) }
+      const id = await create.mutateAsync({
+        type: 'open_house',
+        title: `Open House · ${street}`,
+        slug: await freeSlug(openHouseSlugBase(street)),
+        blocks: fromTemplate(OPEN_HOUSE_TEMPLATE),
+        settings: { ...structuredClone(OPEN_HOUSE_TEMPLATE.settings), tags: [openHouseTag(street)] },
+        property: property as unknown as Record<string, unknown>,
+      })
+      if (photo && orgId) {
+        try {
+          const url = await uploadPageImage(orgId, id, photo)
+          await save.mutateAsync({ id, patch: { property: { ...property, photos: [url] } as unknown as Record<string, unknown> } })
+        } catch (e) {
+          toast.error(`The page was made, but the photo didn't upload: ${(e as Error).message}`)
+        }
+      }
+      navigate(`/pages/${id}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New open house</DialogTitle>
+          <DialogDescription>The listing site, financing table and visitor sign-in. Add more photos, taxes, HOA and the listing agent next.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <Input label="Street address" required value={address} onChange={setAddress} placeholder="4218 Fairway Bend Dr" autoFocus />
+          <Input label="City, state ZIP" value={cityLine} onChange={setCityLine} placeholder="Frisco, TX 75034" />
+          <div className="grid grid-cols-2 gap-3">
+            <CurrencyInput label="List price" required value={price} onChange={setPrice} />
+            <DateInput label="Open house date" value={openDate} onChange={setOpenDate} />
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed px-3 py-2.5 text-sm font-medium text-primary hover:bg-primary/5">
+            <HomeIcon className="size-4 shrink-0" />
+            <span className="truncate">{photo ? photo.name : 'Hero photo (optional)'}</span>
+            <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => setPhoto(e.target.files?.[0] ?? null)} />
+          </label>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={!address.trim() || !price || busy} onClick={go}>
+            Create open house
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function PagesPage() {
   const pages = usePages()
   const create = useCreatePage()
@@ -86,6 +163,7 @@ export function PagesPage() {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [creating, setCreating] = useState(false)
+  const [openHouse, setOpenHouse] = useState(false)
 
   const all = useMemo(() => pages.data ?? [], [pages.data])
   const rows = useMemo(() => {
@@ -94,6 +172,10 @@ export function PagesPage() {
   }, [all, search, filter])
 
   const fromTemplateClick = async (t: PageTemplate) => {
+    if (t.type === 'open_house') {
+      setOpenHouse(true)
+      return
+    }
     try {
       const id = await create.mutateAsync({ type: t.type, title: t.title, slug: await freeSlug(t.slug), blocks: fromTemplate(t), settings: structuredClone(t.settings) })
       toast.success(`${t.title} copied as a draft`)
@@ -123,7 +205,7 @@ export function PagesPage() {
     { key: 'updated', header: 'Updated', hideOnMobile: true, cell: (p) => (p.updatedAt.slice(0, 10) === today ? 'Today' : formatIsoDate(p.updatedAt.slice(0, 10))) },
   ]
 
-  const templates = filter === 'templates' ? PAGE_TEMPLATES : PAGE_TEMPLATES.slice(0, 3)
+  const templates = filter === 'templates' ? ALL_TEMPLATES : ALL_TEMPLATES.slice(0, 3)
 
   return (
     <>
@@ -132,10 +214,16 @@ export function PagesPage() {
         title="Pages"
         description="Quick forms, landing pages and open house sites. Every submission becomes a lead in MPS-HQ."
         action={
-          <Button onClick={() => setCreating(true)}>
-            <PlusIcon />
-            New page
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setOpenHouse(true)}>
+              <HomeIcon />
+              New open house
+            </Button>
+            <Button onClick={() => setCreating(true)}>
+              <PlusIcon />
+              New page
+            </Button>
+          </div>
         }
       />
 
@@ -192,13 +280,14 @@ export function PagesPage() {
           </div>
           {filter !== 'templates' && (
             <button type="button" className="mt-2 text-sm font-medium text-primary hover:underline" onClick={() => setFilter('templates')}>
-              See all {PAGE_TEMPLATES.length} templates
+              See all {ALL_TEMPLATES.length} templates
             </button>
           )}
         </>
       )}
 
       {creating && <NewPageDialog onClose={() => setCreating(false)} />}
+      {openHouse && <NewOpenHouseDialog onClose={() => setOpenHouse(false)} />}
     </>
   )
 }

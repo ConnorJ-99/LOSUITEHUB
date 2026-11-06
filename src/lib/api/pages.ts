@@ -144,11 +144,11 @@ export function useCreatePage() {
   const qc = useQueryClient()
   const { state } = useAuth()
   return useMutation({
-    mutationFn: async (p: { type: PageType; title: string; slug: string; blocks: Block[]; settings: PageSettings }) => {
+    mutationFn: async (p: { type: PageType; title: string; slug: string; blocks: Block[]; settings: PageSettings; property?: Record<string, unknown> | null }) => {
       if (state.status !== 'signedIn' || !state.user.organizationId) throw new Error('Sign in first.')
       const r = await db()
         .from('pages')
-        .insert({ organization_id: state.user.organizationId, owner_id: state.user.id, type: p.type, title: p.title, slug: p.slug, blocks: p.blocks, settings: p.settings })
+        .insert({ organization_id: state.user.organizationId, owner_id: state.user.id, type: p.type, title: p.title, slug: p.slug, blocks: p.blocks, settings: p.settings, property: p.property ?? null })
         .select('id')
         .single()
       if (r.error) throw new Error(/pages_slug_key/.test(r.error.message) ? 'That web address is taken. Pick another.' : explain(r.error.message))
@@ -158,7 +158,7 @@ export function useCreatePage() {
   })
 }
 
-export type PagePatch = Partial<{ title: string; slug: string; status: PageStatus; blocks: Block[]; settings: PageSettings; ownerId: string | null; type: PageType }>
+export type PagePatch = Partial<{ title: string; slug: string; status: PageStatus; blocks: Block[]; settings: PageSettings; ownerId: string | null; type: PageType; property: Record<string, unknown> | null }>
 
 export function useSavePage() {
   const qc = useQueryClient()
@@ -172,6 +172,7 @@ export function useSavePage() {
       if (patch.settings !== undefined) row.settings = patch.settings
       if (patch.ownerId !== undefined) row.owner_id = patch.ownerId
       if (patch.type !== undefined) row.type = patch.type
+      if (patch.property !== undefined) row.property = patch.property
       const r = await db().from('pages').update(row).eq('id', id).select('updated_at').single()
       if (r.error) throw new Error(/pages_slug_key/.test(r.error.message) ? 'That web address is taken. Pick another.' : explain(r.error.message))
       return (r.data as { updated_at: string }).updated_at
@@ -241,6 +242,8 @@ export interface PublicPage {
   settings: PageSettings
   property: Record<string, unknown> | null
   owner: { name: string | null; nmls: string | null; phone: string | null; email: string | null; bookingUrl: string | null; photoPath: string | null } | null
+  /** Open houses: the listing agent from Partners. */
+  agent?: { name: string; company: string | null; phone: string | null; email: string | null } | null
   company: { name: string; nmls: string } | null
 }
 

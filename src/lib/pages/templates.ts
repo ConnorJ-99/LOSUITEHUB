@@ -152,6 +152,34 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   },
 ]
 
+/**
+ * Open House (Phase 2): the visitor sign-in. The home, photos and financing
+ * table come from the page's Property panel, above this form.
+ */
+export const OPEN_HOUSE_TEMPLATE: PageTemplate = {
+  key: 'open-house',
+  title: 'Open House',
+  description: 'Listing site + visitor sign-in + financing table',
+  type: 'open_house',
+  slug: 'open-house',
+  blocks: [
+    { type: 'heading', text: 'Sign in' },
+    { type: 'text', text: 'Get the full photo set and your own payment breakdown.' },
+    { type: 'short_text', label: 'Name', required: true, mapsTo: 'full_name' },
+    { type: 'phone', label: 'Mobile phone', required: true, mapsTo: 'phone' },
+    { type: 'email', label: 'Email', mapsTo: 'email' },
+    { type: 'yes_no', label: 'Already pre-approved?' },
+    { type: 'yes_no', label: 'Working with an agent?' },
+    { type: 'dropdown', label: 'When are you hoping to buy?', options: TIMELINE, mapsTo: 'timeline' },
+    { type: 'lo_card' },
+    { type: 'footer' },
+  ],
+  settings: { submitLabel: 'Sign in', successTitle: "You're signed in — thanks!", successMessage: "I'll text you the full photo set and your own payment breakdown.", tags: [], consent: true, notify: true },
+}
+
+/** Every starter, Open House second (the Pages list shows the first three). */
+export const ALL_TEMPLATES: PageTemplate[] = [PAGE_TEMPLATES[0], OPEN_HOUSE_TEMPLATE, ...PAGE_TEMPLATES.slice(1)]
+
 export const newBlockId = () => Math.random().toString(36).slice(2, 10)
 
 /** A template's blocks with fresh ids, ready to save as a new Draft. */
