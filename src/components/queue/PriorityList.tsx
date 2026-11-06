@@ -118,7 +118,7 @@ function ItemRow({ item, today, showing, snoozed }: { item: Item; today: string;
   const [pickDate, setPickDate] = useState(false)
   const { heading, showNote } = itemHeading(item)
   const note = showNote ? itemNote(item) : null
-  const link = itemLink(item.loanId, item.action, item.stage)
+  const link = itemLink(item.loanId, item.action, item.stage, item.sourceKey)
   const due = item.dueOn ? dueLabel(item.dueOn, today) : null
   const onError = (e: Error) => toast.error(e.message)
   const snooze = (until: string | null) => update.mutate([{ id: item.id, snoozedUntil: until }], { onSuccess: () => toast.success(until ? `Snoozed until ${formatIsoDate(until)}` : 'Back on the list'), onError })

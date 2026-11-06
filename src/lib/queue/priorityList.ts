@@ -98,9 +98,12 @@ export function snoozeDate(today: string, length: keyof typeof SNOOZE_DAYS): str
 /** From Submitted / Processing on, documents are asked for as loan conditions. */
 const CONDITION_STAGES: PipelineStage[] = ['processing', 'clear_to_close']
 
-/** Where clicking an item goes: the file, opened on the tab that action needs (nowhere for a no-file to-do). */
-export function itemLink(loanId: string | null, action: PriorityAction, stage: PipelineStage | null): string | null {
-  if (!loanId) return null
+/** The Mon/Wed/Fri "Price refi benchmarks" task the timer gives each Admin. */
+export const REFI_BENCHMARK_TASK_PREFIX = 'refi_benchmarks:'
+
+/** Where clicking an item goes: the file, opened on the tab that action needs (nowhere for a no-file to-do, except the refi benchmark task). */
+export function itemLink(loanId: string | null, action: PriorityAction, stage: PipelineStage | null, sourceKey: string | null = null): string | null {
+  if (!loanId) return sourceKey?.startsWith(REFI_BENCHMARK_TASK_PREFIX) ? '/refi-watch/benchmarks' : null
   const tab =
     action === 'lock' || action === 'price'
       ? 'estimates'

@@ -10,6 +10,7 @@ import { GhlCard, GhlPipelinesCard, SendingCard } from '@/components/messaging/G
 import { NotificationSettingsCard } from '@/components/notifications/NotificationSettingsCard'
 import { FeeListCard } from '@/components/pricing/FeeListCard'
 import { MessageTemplatesCard } from '@/components/queue/MessageTemplatesCard'
+import { RefiScenariosCard } from '@/components/refi/RefiScenariosCard'
 import { useDraft } from '@/components/urla/useDraft'
 import { useOrgMembers } from '@/lib/api/loans'
 import { phoneDigits } from '@/lib/pipeline/helpers'
@@ -283,6 +284,7 @@ export function SettingsPage() {
         <MessageTemplatesCard />
         <DocumentRulesCard canEdit={canEditCompany} />
         <FeeListCard canEdit={canEditCompany} />
+        <RefiScenariosCard canEdit={canEditCompany} />
         {me && <TeamCard members={members.data ?? []} me={me} />}
         {canEditCompany && <GhlCard members={members.data ?? []} />}
         <SendingCard canEdit={canEditCompany} />

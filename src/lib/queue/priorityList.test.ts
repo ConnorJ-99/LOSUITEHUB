@@ -95,5 +95,7 @@ describe('where a click goes', () => {
   })
   it('goes nowhere for a no-file to-do', () => {
     expect(itemLink(null, 'call', null)).toBeNull()
+    expect(itemLink(null, 'other', null, 'refi_benchmarks:2026-11-06')).toBe('/refi-watch/benchmarks')
+    expect(itemLink(null, 'other', null, 'something-else')).toBeNull()
   })
 })

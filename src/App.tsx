@@ -23,6 +23,7 @@ import { InboxPage } from '@/pages/InboxPage'
 import { LeadsHomePage } from '@/pages/LeadsHomePage'
 import { PartnersPage } from '@/pages/PartnersPage'
 import { ProductSearchPage } from '@/pages/ProductSearchPage'
+import { RefiBenchmarksPage } from '@/pages/RefiBenchmarksPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
 /** Shows the sign-in page until there's a session, then the app shell. */
@@ -51,6 +52,7 @@ const router = createBrowserRouter([
       { path: 'product-search', element: <ProductSearchPage /> },
       { path: 'admin/lenders', element: <LendersPage /> },
       { path: 'admin/lenders/imports/:importId', element: <MatrixImportPage /> },
+      { path: 'refi-watch/benchmarks', element: <RefiBenchmarksPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'dev/components', element: <ComponentLibraryPage /> },
       { path: 'dev/loan-file', element: <LoanFileGalleryPage /> },
