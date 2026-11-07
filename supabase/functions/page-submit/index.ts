@@ -6,7 +6,8 @@
 //
 //   POST { action: "upload", slug, submissionId, blockId, fileName, size, type }
 //     → a one-time upload link into the private page-uploads bucket.
-//   POST { action: "submit", slug, submissionId, answers, files, consent, source, website }
+//   POST { action: "submit", slug, submissionId, answers, files, consent, source, website, t }
+//     (t: a personal link's code; the answers go to that person and file, no matching)
 //     → checks every answer (blocks.ts, the same rules the page shows), then
 //       record_page_submission() runs the website's intake_web_lead(): match
 //       by email or phone, new lead for the page owner or a note + task on the
@@ -108,7 +109,9 @@ async function submit(request: Request, db: SupabaseClient, body: Record<string,
 
   const answers = (typeof body.answers === 'object' && body.answers ? body.answers : {}) as Record<string, unknown>
   const consent = page.settings.consent !== false && body.consent === true
-  const read = readSubmission(page.blocks, answers, files, consent)
+  // A personal link (?t=): the database checks it and ties the answers to that person.
+  const linkToken = typeof body.t === 'string' && /^[0-9a-f]{64}$/.test(body.t) ? body.t : null
+  const read = readSubmission(page.blocks, answers, files, consent, { linked: !!linkToken })
   if (Object.keys(read.errors).length) return reply(400, { error: 'Please check the highlighted answers.', errors: read.errors })
 
   const src = (typeof body.source === 'object' && body.source ? body.source : {}) as Record<string, unknown>
@@ -119,12 +122,13 @@ async function submit(request: Request, db: SupabaseClient, body: Record<string,
 
   const recorded = await db.rpc('record_page_submission', {
     p_page_id: page.id,
-    p_sub: { id: sid, data: read.data, files: read.files, mapped: read.mapped, answers: read.answers, source, ip_hash: await ipHash(request) },
+    p_sub: { id: sid, data: read.data, files: read.files, mapped: read.mapped, answers: read.answers, source, ip_hash: await ipHash(request), link_token: linkToken },
   })
   if (recorded.error) {
     const m = recorded.error.message
     if (m.includes('rate_limited')) return reply(429, { error: 'Thanks! We already have a few submissions from you. Please try again in a few minutes.' })
     if (m.includes('page_not_found')) return reply(404, { error: 'This page is not available.' })
+    if (m.includes('link_invalid')) return reply(400, { error: 'This personal link has expired or was switched off. Ask your loan officer for a new one.' })
     if (/email or phone/.test(m)) return reply(400, { error: 'Please add your email or phone so we can reach you.' })
     console.error('record_page_submission failed:', m)
     return reply(500, { error: 'Your answers could not be saved. Please try again.' })

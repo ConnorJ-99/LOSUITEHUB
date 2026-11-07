@@ -49,9 +49,10 @@ describe('readSubmission', () => {
     expect(r.errors.phone).toMatch(/10-digit/)
   })
 
-  it('needs an email or a phone', () => {
+  it('needs an email or a phone, unless it came through a personal link', () => {
     const r = readSubmission(prequal, { goal: 'Buying', price: '400000', name: 'A TEST' }, {}, false)
     expect(r.errors._contact).toBeTruthy()
+    expect(readSubmission(prequal, { goal: 'Buying', price: '400000', name: 'A TEST' }, {}, false, { linked: true }).errors).toEqual({})
   })
 
   it('refuses an SSN typed into a text box, and skips forbidden questions', () => {

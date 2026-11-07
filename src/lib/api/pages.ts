@@ -8,7 +8,7 @@ import type { PageType } from '@/lib/pages/templates'
 import type { Block, DataRow, PageSettings, UploadedFile } from '../../../supabase/functions/page-submit/blocks'
 import { finalBody, type Signer } from '../../../supabase/functions/assistant/followUp'
 
-export type PageStatus = 'draft' | 'published' | 'archived'
+export type PageStatus = 'draft' | 'published' | 'archived' | 'template'
 
 export interface PageRecord {
   id: string
@@ -85,7 +85,7 @@ function toPage(r: PageRow, extra?: { views30: number; submissionCount: number; 
   }
 }
 
-/** Your pages (an admin sees all), newest first, with views and submissions. */
+/** Your pages (an admin sees all), newest first, with views and submissions; archived pages and your templates included (the list filters them). */
 export function usePages() {
   const { state } = useAuth()
   const orgId = state.status === 'signedIn' ? state.user.organizationId : null
@@ -93,7 +93,7 @@ export function usePages() {
     queryKey: pageKeys.list,
     enabled: !!orgId,
     queryFn: async () => {
-      const pages = await db().from('pages').select(PAGE_SELECT).neq('status', 'archived').order('updated_at', { ascending: false })
+      const pages = await db().from('pages').select(PAGE_SELECT).order('updated_at', { ascending: false })
       if (pages.error) throw new Error(explain(pages.error.message))
       const rows = (pages.data ?? []) as unknown as PageRow[]
       if (!rows.length) return []
@@ -274,7 +274,7 @@ export async function uploadVisitorFile(slug: string, submissionId: string, bloc
   return { path: String(link.path), name: file.name, size: file.size, type: file.type }
 }
 
-export async function submitPage(body: { slug: string; submissionId: string; answers: Record<string, unknown>; files: Record<string, UploadedFile[]>; consent: boolean; source: Record<string, string>; website: string }) {
+export async function submitPage(body: { slug: string; submissionId: string; answers: Record<string, unknown>; files: Record<string, UploadedFile[]>; consent: boolean; source: Record<string, string>; website: string; t?: string | null }) {
   return (await callPageSubmit({ action: 'submit', ...body })) as { ok: boolean; successTitle: string | null; successMessage: string | null; redirectUrl: string | null }
 }
 
@@ -401,6 +401,7 @@ export const OUTCOME_LABEL: Record<string, string> = {
   new_lead: 'New lead',
   new_loan_existing_person: 'Past client · new file',
   existing_open_loan: 'Added to open file',
+  personal_link: 'Personal link',
   form_update: 'Added to open file',
   partner_inquiry: 'Partner',
 }

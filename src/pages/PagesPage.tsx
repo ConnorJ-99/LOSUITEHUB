@@ -9,11 +9,12 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Card, DataTable, EmptyState, Input, PageHeader, SearchInput, ToggleChip, ToggleChipGroup, type Column } from '@/components/shared'
 import { freeSlug, useCreatePage, usePages, type PageRecord } from '@/lib/api/pages'
+import { useCopyPage } from '@/lib/api/pagesPhase3'
 import { formatIsoDate, todayIso } from '@/lib/dates'
 import { ALL_TEMPLATES, blankPage, fromTemplate, PAGE_TYPE_LABEL, type PageTemplate, type PageType } from '@/lib/pages/templates'
 import { slugify } from '../../supabase/functions/page-submit/blocks'
 
-type Filter = 'all' | PageType | 'templates'
+type Filter = 'all' | PageType | 'templates' | 'archived'
 
 export const pageAddress = (slug: string) => `${window.location.host}/p/${slug}`
 
@@ -21,7 +22,7 @@ export function StatusBadge({ status }: { status: PageRecord['status'] }) {
   return status === 'published' ? (
     <span className="inline-flex rounded-full bg-nurture/10 px-2.5 py-0.5 text-xs font-semibold text-nurture">Published</span>
   ) : (
-    <span className="inline-flex rounded-full bg-money/10 px-2.5 py-0.5 text-xs font-semibold text-money">{status === 'archived' ? 'Archived' : 'Draft'}</span>
+    <span className="inline-flex rounded-full bg-money/10 px-2.5 py-0.5 text-xs font-semibold text-money">{status === 'archived' ? 'Archived' : status === 'template' ? 'My template' : 'Draft'}</span>
   )
 }
 
@@ -82,16 +83,22 @@ function NewPageDialog({ onClose }: { onClose: () => void }) {
 export function PagesPage() {
   const pages = usePages()
   const create = useCreatePage()
+  const copy = useCopyPage()
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [creating, setCreating] = useState(false)
 
-  const all = useMemo(() => pages.data ?? [], [pages.data])
+  const everything = useMemo(() => pages.data ?? [], [pages.data])
+  // The table and stats are your pages; archived ones have their own filter, your templates show under Templates.
+  const all = useMemo(() => everything.filter((p) => p.status !== 'template' && p.status !== 'archived'), [everything])
+  const archived = useMemo(() => everything.filter((p) => p.status === 'archived'), [everything])
+  const myTemplates = useMemo(() => everything.filter((p) => p.status === 'template'), [everything])
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return all.filter((p) => (filter === 'all' || filter === 'templates' || p.type === filter) && (!q || p.title.toLowerCase().includes(q) || p.slug.includes(q)))
-  }, [all, search, filter])
+    const list = filter === 'archived' ? archived : all
+    return list.filter((p) => (filter === 'all' || filter === 'templates' || filter === 'archived' || p.type === filter) && (!q || p.title.toLowerCase().includes(q) || p.slug.includes(q)))
+  }, [all, archived, search, filter])
 
   const fromTemplateClick = async (t: PageTemplate) => {
     if (t.type === 'open_house') {
@@ -172,6 +179,7 @@ export function PagesPage() {
               <ToggleChip label="Landing pages" pressed={filter === 'landing'} onChange={(on) => setFilter(on ? 'landing' : 'all')} />
               <ToggleChip label="Open houses" pressed={filter === 'open_house'} onChange={(on) => setFilter(on ? 'open_house' : 'all')} />
               <ToggleChip label="Templates" pressed={filter === 'templates'} onChange={(on) => setFilter(on ? 'templates' : 'all')} />
+              {archived.length > 0 && <ToggleChip label={`Archived · ${archived.length}`} pressed={filter === 'archived'} onChange={(on) => setFilter(on ? 'archived' : 'all')} />}
             </ToggleChipGroup>
           </div>
 
@@ -189,6 +197,28 @@ export function PagesPage() {
                 />
               )}
             </Card>
+          )}
+
+          {filter === 'templates' && myTemplates.length > 0 && (
+            <>
+              <h2 className="mb-3 text-lg font-bold">My templates</h2>
+              <div className="mb-8 grid grid-cols-1 gap-3 md:grid-cols-3">
+                {myTemplates.map((t) => (
+                  <div key={t.id} className="flex flex-col rounded-xl border bg-card p-4 shadow-soft">
+                    <p className="font-semibold">{t.title}</p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">{PAGE_TYPE_LABEL[t.type]} · {t.blocks.length} blocks</p>
+                    <div className="mt-3 flex gap-2">
+                      <Button size="sm" disabled={copy.isPending} onClick={() => copy.mutate({ page: t, as: 'draft' }, { onSuccess: (id) => navigate(`/pages/${id}`), onError: (e) => toast.error(e.message) })}>
+                        Use
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => navigate(`/pages/${t.id}`)}>
+                        Edit
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
 
           <h2 className="mt-8 mb-3 text-lg font-bold">Start from a template</h2>

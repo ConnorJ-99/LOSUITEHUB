@@ -43,6 +43,8 @@ interface Props {
   onHoneypot?: (v: string) => void
   /** Desktop preview: a wider column. */
   wide?: boolean
+  /** A line at the top of the form (a personal link's note). */
+  notice?: string | null
 }
 
 const inputClass = 'h-12 w-full rounded-lg border border-input bg-white px-3.5 text-base text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/20 aria-invalid:border-destructive'
@@ -346,6 +348,7 @@ export function PageRenderer(props: Props) {
           }}
           className="space-y-6 rounded-2xl border bg-white p-5 shadow-soft"
         >
+          {props.notice && <p className="rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary">{props.notice}</p>}
           {main.map((b) => wrap(b, isField(b.type) ? <FieldBlock b={b} mode={mode} form={form} onAnswer={props.onAnswer} onFiles={props.onFiles} onRemoveFile={props.onRemoveFile} /> : <ContentBlock b={b} />))}
           {hasFields && (
             <>

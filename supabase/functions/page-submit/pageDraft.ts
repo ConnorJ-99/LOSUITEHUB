@@ -10,7 +10,7 @@ export const PAGE_DRAFT_MODEL = 'claude-sonnet-5-5'
 export interface PageDraftFacts {
   firstName: string
   pageTitle: string
-  /** new_lead, existing_open_loan, new_loan_existing_person, form_update */
+  /** new_lead, existing_open_loan, new_loan_existing_person, form_update, personal_link */
   outcome: string
   /** Label → answer (no files, nothing sensitive). */
   answers: Record<string, string>
@@ -22,7 +22,7 @@ export function templateDrafts(f: PageDraftFacts, company: string): { text: stri
   const first = f.firstName.trim() || 'there'
   const me = f.loName ? f.loName.split(/\s+/)[0] : null
   const intro = me ? `this is ${me} with ${company}` : `this is ${company}`
-  const known = f.outcome === 'existing_open_loan' || f.outcome === 'form_update'
+  const known = f.outcome === 'existing_open_loan' || f.outcome === 'form_update' || f.outcome === 'personal_link'
   return {
     text: known
       ? `Hi ${first}, ${intro}. Got your answers on the ${f.pageTitle} form, thank you! I'll review them and follow up shortly.`
@@ -77,7 +77,7 @@ export function buildPageDraftPrompt(f: PageDraftFacts): string {
     '',
     '<facts>',
     `Form: ${f.pageTitle}`,
-    `Already has an open file: ${f.outcome === 'existing_open_loan' || f.outcome === 'form_update' ? 'yes' : 'no'}`,
+    `Already has an open file: ${f.outcome === 'existing_open_loan' || f.outcome === 'form_update' || f.outcome === 'personal_link' ? 'yes' : 'no'}`,
     `Loan officer: ${f.loName ?? 'unknown'}`,
     '</facts>',
     '',

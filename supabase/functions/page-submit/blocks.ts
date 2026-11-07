@@ -237,9 +237,9 @@ const display = (v: DataRow['value']) => (v === null ? '' : Array.isArray(v) ? v
 /**
  * Checks every answer against its question and reads the mapped ones.
  * answers: block id → what the visitor entered; files: block id → uploads;
- * consent: the call/text box.
+ * consent: the call/text box; opts.linked: sent through a personal link (no email or phone needed).
  */
-export function readSubmission(blocks: Block[], answers: Record<string, unknown>, files: Record<string, UploadedFile[]>, consent: boolean): ReadResult {
+export function readSubmission(blocks: Block[], answers: Record<string, unknown>, files: Record<string, UploadedFile[]>, consent: boolean, opts: { linked?: boolean } = {}): ReadResult {
   const errors: Record<string, string> = {}
   const data: DataRow[] = []
   const outFiles: ReadResult['files'] = []
@@ -368,7 +368,8 @@ export function readSubmission(blocks: Block[], answers: Record<string, unknown>
     }
   }
 
-  if (!Object.keys(errors).length && !mapped.email && !mapped.phone) errors._contact = 'Please add your email or phone so we can reach you.'
+  // A personal link already says who this is.
+  if (!opts.linked && !Object.keys(errors).length && !mapped.email && !mapped.phone) errors._contact = 'Please add your email or phone so we can reach you.'
   if (consent) mapped.sms_consent = 'true'
   return { errors, data, files: outFiles, mapped, answers: labeled }
 }

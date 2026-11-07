@@ -5,6 +5,8 @@ import { useParams } from 'react-router'
 import { Loader2Icon } from 'lucide-react'
 import { PageRenderer, SuccessScreen, emptyFormState, type FormState } from '@/components/pages/PageRenderer'
 import { fetchPublicPage, publicAssetUrl, submitPage, uploadVisitorFile, type PublicPage as PublicPageData } from '@/lib/api/pages'
+import { fetchPageLink } from '@/lib/api/pagesPhase3'
+import { prefillAnswers } from '@/lib/pages/prefill'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { MAX_FILE_BYTES, MAX_FILES_PER_FIELD, readSubmission, UPLOAD_TYPES } from '../../supabase/functions/page-submit/blocks'
 
@@ -40,6 +42,12 @@ export function PublicPage() {
   const [done, setDone] = useState<{ title: string | null; message: string | null } | null>(null)
   // Made when the form opens: uploads go under it, and a double tap is saved once.
   const submissionId = useMemo(() => crypto.randomUUID(), [])
+  // A personal link (?t=): the answers go to that person's file. Dropped if it has expired.
+  const [token, setToken] = useState<string | null>(() => {
+    const t = new URLSearchParams(window.location.search).get('t')
+    return t && /^[0-9a-f]{64}$/.test(t) ? t : null
+  })
+  const [linkNote, setLinkNote] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -48,12 +56,25 @@ export function PublicPage() {
     }
     let gone = false
     fetchPublicPage(slug, true)
-      .then((p) => !gone && setPage(p ? { ...p, owner: p.owner ? { ...p.owner, photoPath: p.owner.photoPath ? publicAssetUrl(p.owner.photoPath) : null } : null } : null))
+      .then(async (p) => {
+        if (gone) return
+        setPage(p ? { ...p, owner: p.owner ? { ...p.owner, photoPath: p.owner.photoPath ? publicAssetUrl(p.owner.photoPath) : null } : null } : null)
+        if (!p || !token) return
+        const link = await fetchPageLink(slug, token)
+        if (gone) return
+        if (!link) {
+          setToken(null)
+          setLinkNote('This personal link has expired or was switched off, so nothing is filled in. You can still send the form.')
+          return
+        }
+        setForm((s) => ({ ...s, answers: { ...prefillAnswers(p.blocks, link.values), ...s.answers } }))
+        setLinkNote(link.submitted ? "You've already sent this form. Sending it again updates your answers." : "We've filled in what we have on file. Check it and add the rest.")
+      })
       .catch(() => !gone && setPage(null))
     return () => {
       gone = true
     }
-  }, [slug])
+  }, [slug]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!page || page === 'loading') {
@@ -111,7 +132,7 @@ export function PublicPage() {
   const onSubmit = async () => {
     setFormError(null)
     // The same checks the server runs, so mistakes show right away.
-    const check = readSubmission(page.blocks, form.answers, form.files, form.consent)
+    const check = readSubmission(page.blocks, form.answers, form.files, form.consent, { linked: !!token })
     const fieldErrors = Object.fromEntries(Object.entries(check.errors).filter(([k]) => k !== '_contact'))
     if (Object.keys(check.errors).length) {
       setForm((s) => ({ ...s, errors: fieldErrors }))
@@ -121,7 +142,7 @@ export function PublicPage() {
     }
     setSubmitting(true)
     try {
-      const r = await submitPage({ slug: page.slug, submissionId, answers: form.answers, files: form.files, consent: form.consent, source: sourceParams(), website: honeypot })
+      const r = await submitPage({ slug: page.slug, submissionId, answers: form.answers, files: form.files, consent: form.consent, source: sourceParams(), website: honeypot, t: token })
       if (r.redirectUrl && /^https:\/\//.test(r.redirectUrl)) {
         window.location.href = r.redirectUrl
         return
@@ -142,6 +163,7 @@ export function PublicPage() {
       page={page}
       mode="live"
       form={form}
+      notice={linkNote}
       onAnswer={(id, v) => {
         setFormError(null)
         setForm((s) => ({ ...s, answers: { ...s.answers, [id]: v }, errors: { ...s.errors, [id]: '' } }))

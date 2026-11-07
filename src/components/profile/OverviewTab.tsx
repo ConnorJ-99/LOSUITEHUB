@@ -22,6 +22,7 @@ import { noteKindLabel, OCCUPANCY_OPTIONS, TERM_OPTIONS } from './options'
 import { TasksCard } from './TasksCard'
 import { WebFormsCard } from './WebFormsCard'
 import { ProposedUpdatesCard } from '@/components/pages/ProposedUpdatesCard'
+import { SendFormCard } from '@/components/pages/SendFormCard'
 import { ReadinessCard, useSavedReadiness } from '@/components/prequal/Readiness'
 import { TexasFlags } from './TexasFlags'
 import { ActionQueueCard } from '@/components/queue/ActionQueueCard'
@@ -438,6 +439,8 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
           </Card>
 
           <ProposedUpdatesCard loanId={loan.id} />
+
+          <SendFormCard loan={loan} />
 
           <WebFormsCard loan={loan} />
 

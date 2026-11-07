@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Card, DataTable, EmptyState, PageHeader, type Column } from '@/components/shared'
+import { PageAnalytics } from '@/components/pages/PageAnalytics'
 import { proposedValue } from '@/components/pages/ProposedUpdatesCard'
 import { OUTCOME_LABEL, uploadUrl, usePage, usePageSubmissions, type PageSubmission } from '@/lib/api/pages'
 import { downloadText } from '@/lib/download'
@@ -154,7 +155,7 @@ export function PageSubmissionsPage() {
       </Link>
       <PageHeader
         eyebrow="Pages"
-        title={page.data ? `${page.data.title} · submissions` : 'Submissions'}
+        title={page.data ? `${page.data.title} · submissions & analytics` : 'Submissions'}
         description={page.data ? `${pageAddress(page.data.slug)} · ${rows.length} ${rows.length === 1 ? 'submission' : 'submissions'}` : undefined}
         action={
           <div className="flex items-center gap-2">
@@ -174,6 +175,7 @@ export function PageSubmissionsPage() {
           </div>
         }
       />
+      {page.data && subs.data && <PageAnalytics pageId={pageId} viewCountAll={page.data.viewCount} submissions={subs.data} />}
       {subs.isError ? (
         <Card>
           <EmptyState icon={TriangleAlertIcon} title="Couldn't load submissions" description={subs.error.message} />

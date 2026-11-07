@@ -4,7 +4,7 @@
 // a Preview button.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, CopyIcon, EyeIcon, ExternalLinkIcon, GripVerticalIcon, ImageUpIcon, InboxIcon, Loader2Icon, SettingsIcon, Trash2Icon, TriangleAlertIcon } from 'lucide-react'
+import { ArchiveIcon, ArchiveRestoreIcon, ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, CopyIcon, EyeIcon, ExternalLinkIcon, GripVerticalIcon, ImageUpIcon, InboxIcon, LayoutTemplateIcon, Loader2Icon, SettingsIcon, Trash2Icon, TriangleAlertIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,7 @@ import { usePartners } from '@/lib/api/partners'
 import { useFeeTemplates } from '@/lib/api/pricing'
 import { openHouseTag, readProperty, refigure, type OpenHouseProperty } from '@/lib/pages/openHouse'
 import { publishHeadshot, uploadPageImage, useDeletePage, usePage, useSavePage, type PageRecord, type PagePatch } from '@/lib/api/pages'
+import { useCopyPage, useSetPageStatus } from '@/lib/api/pagesPhase3'
 import { useProfile } from '@/lib/api/settings'
 import { useAuth } from '@/lib/auth/context'
 import { newBlockId, PAGE_TYPE_LABEL } from '@/lib/pages/templates'
@@ -304,6 +305,8 @@ function Builder({ page }: { page: PageRecord }) {
   const isAdmin = state.status === 'signedIn' && state.user.role === 'admin'
   const save = useSavePage()
   const remove = useDeletePage()
+  const copy = useCopyPage()
+  const setPageStatus = useSetPageStatus()
   const owner = useProfile(page.ownerId)
   const [title, setTitle] = useState(page.title)
   const [slug, setSlug] = useState(page.slug)
@@ -463,6 +466,35 @@ function Builder({ page }: { page: PageRecord }) {
     save.mutate({ id: page.id, patch: { status: 'draft' } }, { onSuccess: () => setStatus('draft'), onError: (e) => toast.error(e.message) })
   }
 
+  const copyAs = async (as: 'draft' | 'template') => {
+    if (!(await flush())) return
+    const current: PageRecord = { ...page, title, slug, blocks, settings, status, property: isOpenHouse ? (property as unknown as Record<string, unknown>) : page.property }
+    copy.mutate(
+      { page: current, as },
+      {
+        onSuccess: (id) => {
+          toast.success(as === 'template' ? 'Saved as your template. Find it under Pages → Templates.' : 'Copied as a new draft.')
+          if (as === 'draft') navigate(`/pages/${id}`)
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    )
+  }
+  const setStatusTo = async (next: 'draft' | 'archived') => {
+    if (next === 'archived' && !(await confirmAction(`Archive "${title}"? Its link stops working and it moves to Pages → Archived. Submissions are kept, and you can restore it.`, { confirmLabel: 'Archive' }))) return
+    if (!(await flush())) return
+    setPageStatus.mutate(
+      { id: page.id, status: next },
+      {
+        onSuccess: () => {
+          setStatus(next)
+          toast.success(next === 'archived' ? 'Archived' : 'Restored as a draft')
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    )
+  }
+
   const saveLabel = { saved: 'saved', saving: 'saving…', unsaved: 'editing…', error: 'not saved' }[saveState]
 
   const palette = (
@@ -570,6 +602,10 @@ function Builder({ page }: { page: PageRecord }) {
                 Unpublish
               </Button>
             </>
+          ) : status === 'template' ? (
+            <Button size="sm" onClick={() => copyAs('draft')} disabled={copy.isPending}>
+              Use this template
+            </Button>
           ) : (
             <Button size="sm" onClick={publish} disabled={save.isPending}>
               Publish
@@ -625,7 +661,30 @@ function Builder({ page }: { page: PageRecord }) {
         <aside className="p-4 lg:sticky lg:top-[57px] lg:h-[calc(100svh-57px)] lg:overflow-y-auto lg:border-l">{inspector}</aside>
       </div>
 
-      <div className="flex justify-end px-4 pb-6 md:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-6 md:px-6">
+        <div className="flex flex-wrap gap-1">
+          <Button variant="ghost" size="sm" disabled={copy.isPending} onClick={() => copyAs('draft')}>
+            <CopyIcon />
+            Duplicate
+          </Button>
+          {status !== 'template' && (
+            <Button variant="ghost" size="sm" disabled={copy.isPending} onClick={() => copyAs('template')}>
+              <LayoutTemplateIcon />
+              Save as my template
+            </Button>
+          )}
+          {status === 'archived' ? (
+            <Button variant="ghost" size="sm" onClick={() => setStatusTo('draft')}>
+              <ArchiveRestoreIcon />
+              Restore as a draft
+            </Button>
+          ) : status !== 'template' ? (
+            <Button variant="ghost" size="sm" onClick={() => setStatusTo('archived')}>
+              <ArchiveIcon />
+              Archive
+            </Button>
+          ) : null}
+        </div>
         <Button
           variant="ghost"
           size="sm"
