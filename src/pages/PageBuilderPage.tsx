@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Card, confirmAction, EmptyState, Input, Select, TextArea, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { PageRenderer } from '@/components/pages/PageRenderer'
 import { FinancingTable, LivePageCard, PropertyPanel, SignInsCard } from '@/components/pages/OpenHouseEditor'
+import { FlyerCard } from '@/components/pages/FlyerCard'
 import { useOrgMembers } from '@/lib/api/loans'
 import { usePartners } from '@/lib/api/partners'
 import { useFeeTemplates } from '@/lib/api/pricing'
@@ -598,8 +599,11 @@ function Builder({ page }: { page: PageRecord }) {
           <div className="space-y-4">
             <FinancingTable property={property} onChange={changeProperty} />
             <div className="grid gap-4 md:grid-cols-2">
-              <LivePageCard slug={slug} published={status === 'published'} />
-              <SignInsCard pageId={page.id} />
+              <div className="space-y-4">
+                <LivePageCard slug={slug} published={status === 'published'} />
+                <SignInsCard pageId={page.id} />
+              </div>
+              <FlyerCard slug={slug} published={status === 'published'} property={property} ownerId={ownerId} />
             </div>
           </div>
           <div className="hidden 2xl:block">

@@ -6,9 +6,11 @@ import type { DocBrand } from '@/lib/documents/brand'
 import type { FeeWorksheet } from '@/lib/documents/feeWorksheet'
 import { fitToOnePage } from '@/lib/documents/fit'
 import type { LoanComparison } from '@/lib/documents/loanComparison'
+import type { FlyerView } from '@/lib/documents/openHouseFlyer'
 import { pdfPageCount } from '@/lib/documents/pdfText'
 import { FeeWorksheetPdf } from './FeeWorksheetPdf'
 import { LoanComparisonPdf } from './LoanComparisonPdf'
+import { OpenHouseFlyerPdf } from './OpenHouseFlyerPdf'
 import { PreapprovalLetterPdf } from './PreapprovalLetterPdf'
 import { PrequalResultsPdf } from './PrequalResultsPdf'
 import type { LetterView } from '@/lib/documents/preapproval'
@@ -29,3 +31,5 @@ export const loanComparisonPdf = (comparison: LoanComparison, brand: DocBrand) =
 export const preapprovalLetterPdf = (letter: LetterView, brand: DocBrand) => renderOnePage((scale) => <PreapprovalLetterPdf letter={letter} brand={brand} scale={scale} />)
 
 export const prequalResultsPdf = (results: PrequalResultsView, brand: DocBrand) => renderOnePage((scale) => <PrequalResultsPdf results={results} brand={brand} scale={scale} />)
+
+export const openHouseFlyerPdf = (flyer: FlyerView) => renderOnePage((scale) => <OpenHouseFlyerPdf flyer={flyer} scale={scale} />)
