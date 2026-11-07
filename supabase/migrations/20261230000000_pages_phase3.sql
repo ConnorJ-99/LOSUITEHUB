@@ -74,7 +74,9 @@ begin
     if not exists (select 1 from public.pages p where p.id = new.page_id and p.status = 'published') then
       raise exception 'Publish the page before sending a link to it.';
     end if;
+  -- get_page_link() stamps "opened" for a signed-in visitor too (mps.link_stamp).
   elsif auth.uid() is not null
+    and coalesce(current_setting('mps.link_stamp', true), '') <> 'on'
     and (new.page_id, new.contact_id, new.loan_id, new.token, new.created_by, new.created_at, new.expires_at, new.last_opened_at, new.submitted_at)
         is distinct from (old.page_id, old.contact_id, old.loan_id, old.token, old.created_by, old.created_at, old.expires_at, old.last_opened_at, old.submitted_at) then
     raise exception 'A link can only be switched off.';
@@ -137,7 +139,9 @@ begin
   if not found then
     return null;
   end if;
+  perform set_config('mps.link_stamp', 'on', true);
   update public.page_links set last_opened_at = now() where id = v_link.id;
+  perform set_config('mps.link_stamp', '', true);
   foreach v_key in array array['first_name', 'last_name', 'email', 'phone', 'purchase_price', 'loan_amount', 'cash_out', 'timeline'] loop
     v_val := public.page_field_current(v_link.contact_id, v_link.loan_id, v_key);
     if v_val <> '' then
