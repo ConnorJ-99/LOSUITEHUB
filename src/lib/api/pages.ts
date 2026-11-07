@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth/context'
 import { supabase } from '@/lib/supabase'
 import type { PageType } from '@/lib/pages/templates'
 import type { Block, DataRow, PageSettings, UploadedFile } from '../../../supabase/functions/page-submit/blocks'
+import { finalBody, type Signer } from '../../../supabase/functions/assistant/followUp'
 
 export type PageStatus = 'draft' | 'published' | 'archived'
 
@@ -402,4 +403,49 @@ export const OUTCOME_LABEL: Record<string, string> = {
   existing_open_loan: 'Added to open file',
   form_update: 'Added to open file',
   partner_inquiry: 'Partner',
+}
+
+// ---------------------------------------------------------------------------
+// After the open house: "thanks for coming" drafts (Action Queue only)
+// ---------------------------------------------------------------------------
+
+/**
+ * One draft per sign-in that went to a file: a text when they gave a phone
+ * (and haven't opted out), else an email. Pressing it again adds only new
+ * sign-ins (each has its own source key). Nothing is sent.
+ */
+export function useDraftOpenHouseThanks(pageId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ subs, address, signer }: { subs: PageSubmission[]; address: string; signer: Signer }) => {
+      const { thanksEmail, thanksFacts, thanksKey, thanksText } = await import('@/lib/pages/openHouseFollowUp')
+      const onFile = subs.filter((s) => s.contactId && s.loanId)
+      if (!onFile.length) return { drafted: 0, skipped: subs.length }
+      const people = unwrap<{ id: string; organization_id: string; first_name: string; email: string | null; phone: string | null; sms_opted_out_at: string | null; email_opted_out_at: string | null }[]>(
+        await db().from('contacts').select('id, organization_id, first_name, email, phone, sms_opted_out_at, email_opted_out_at').in('id', [...new Set(onFile.map((s) => s.contactId!))]),
+      )
+      const loFirst = signer.loName ? signer.loName.split(/\s+/)[0] : null
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date())
+      const rows = onFile.flatMap((s) => {
+        const p = people.find((x) => x.id === s.contactId)
+        if (!p) return []
+        const f = thanksFacts(s.data, p.first_name, address, loFirst, signer.companyName.replace(/ LLC$/, ''))
+        const text = p.phone && !p.sms_opted_out_at
+        const email = !text && p.email && !p.email_opted_out_at
+        if (!text && !email) return []
+        const e = thanksEmail(f)
+        const payload = text
+          ? { channel: 'text', to: p.phone, subject: null, body: thanksText(f), contactId: p.id, pageId, submissionId: s.id }
+          : { channel: 'email', to: p.email, subject: e.subject, body: finalBody('email', e.body, signer), contactId: p.id, pageId, submissionId: s.id }
+        return [{ organization_id: p.organization_id, loan_id: s.loanId, kind: 'draft_message', title: `Thank ${p.first_name} for visiting ${address}`, payload, sources: [], confidence: null, due_on: today, ai_run_id: null, source_key: thanksKey(s.id) }]
+      })
+      if (!rows.length) return { drafted: 0, skipped: subs.length }
+      const saved = unwrap<{ id: string }[]>(await db().from('action_items').upsert(rows, { onConflict: 'organization_id,source_key', ignoreDuplicates: true }).select('id'))
+      return { drafted: saved.length, skipped: subs.length - saved.length }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['today'] })
+      qc.invalidateQueries({ queryKey: ['queue'] })
+    },
+  })
 }

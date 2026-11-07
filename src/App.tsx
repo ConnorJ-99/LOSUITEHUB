@@ -24,6 +24,7 @@ import { LeadsHomePage } from '@/pages/LeadsHomePage'
 import { PartnersPage } from '@/pages/PartnersPage'
 import { PageBuilderPage } from '@/pages/PageBuilderPage'
 import { PagesPage } from '@/pages/PagesPage'
+import { NewOpenHousePage } from '@/pages/NewOpenHousePage'
 import { PageSubmissionsPage } from '@/pages/PageSubmissionsPage'
 import { PublicPage } from '@/pages/PublicPage'
 import { ProductSearchPage } from '@/pages/ProductSearchPage'
@@ -54,6 +55,7 @@ const router = createBrowserRouter([
       { path: 'contacts', element: <ContactsPage /> },
       { path: 'partners', element: <PartnersPage /> },
       { path: 'pages', element: <PagesPage /> },
+      { path: 'pages/open-house/new', element: <NewOpenHousePage /> },
       { path: 'pages/:pageId', element: <PageBuilderPage /> },
       { path: 'pages/:pageId/submissions', element: <PageSubmissionsPage /> },
       { path: 'assistant', element: <AssistantPage /> },

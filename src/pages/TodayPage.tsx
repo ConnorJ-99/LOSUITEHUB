@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
 import { cn } from 'cn'
-import { CalculatorIcon, CalendarClockIcon, CalendarDaysIcon, CheckIcon, FilePlus2Icon, InboxIcon, KanbanIcon, ListTodoIcon, PlusIcon } from 'lucide-react'
+import { CalculatorIcon, CalendarClockIcon, CalendarDaysIcon, CheckIcon, FilePlus2Icon, HouseIcon, InboxIcon, KanbanIcon, ListTodoIcon, PlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, HeroBand, PageHeader, QuickAction, SectionTitle } from '@/components/shared'
@@ -225,6 +225,10 @@ export function TodayPage() {
         <QuickAction icon={CalculatorIcon} title="Price a loan" description="Search your lenders' matrices for a scenario." to="/product-search" />
         <QuickAction icon={FilePlus2Icon} title="Start a new lead" description="Add a borrower and take the prequal call." onClick={() => openNewLead()} />
         <QuickAction icon={KanbanIcon} title="Open the pipeline" description="Every file by stage, with tasks under each card." to="/pipeline" tone="green" />
+        {/* The phone quick action (Pages, open houses): on a computer it's under Pages. */}
+        <div className="md:hidden">
+          <QuickAction icon={HouseIcon} title="New open house" description="Live page, sign-in and flyer in under a minute." to="/pages/open-house/new" />
+        </div>
       </div>
       {/* On a phone closings come first, then the day, then the pipeline; on a computer both boxes sit in the right column. */}
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem] lg:grid-rows-[auto_1fr]">

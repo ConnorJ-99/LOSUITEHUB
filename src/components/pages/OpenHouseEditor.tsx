@@ -10,7 +10,8 @@ import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, CurrencyInput, DateInput, Input, NumberInput, PercentInput, Select } from '@/components/shared'
 import { usePartners } from '@/lib/api/partners'
-import { uploadPageImage, usePageSubmissions } from '@/lib/api/pages'
+import { uploadPageImage, useDraftOpenHouseThanks, usePageSubmissions } from '@/lib/api/pages'
+import { useOrganization, useProfile } from '@/lib/api/settings'
 import { estimatedHousing, type FinancingOption, type OpenHouseProperty } from '@/lib/pages/openHouse'
 import { todayIso } from '@/lib/dates'
 
@@ -279,21 +280,43 @@ export function LivePageCard({ slug, published }: { slug: string; published: boo
   )
 }
 
-/** How many visitors signed in, and the two answers that matter most. */
-export function SignInsCard({ pageId }: { pageId: string }) {
+/** How many visitors signed in, the two answers that matter most, and the after-event thank-you drafts. */
+export function SignInsCard({ pageId, address, ownerId }: { pageId: string; address: string; ownerId: string | null }) {
   const subs = usePageSubmissions(pageId)
+  const draft = useDraftOpenHouseThanks(pageId)
+  const owner = useProfile(ownerId)
+  const org = useOrganization()
   const rows = subs.data ?? []
   const said = (re: RegExp, value: boolean) => rows.filter((s) => s.data.some((d) => re.test(d.label) && d.value === value)).length
+  const run = () =>
+    draft.mutate(
+      {
+        subs: rows,
+        address: address.trim() || 'the open house',
+        signer: { loName: owner.data?.fullName ?? null, loNmls: owner.data?.nmls ?? null, loPhone: owner.data?.personalCell || owner.data?.phone || null, companyName: org.data?.name ?? 'MPS Mortgage LLC', companyNmls: org.data?.nmls ?? '2501110' },
+      },
+      {
+        onSuccess: (r) =>
+          r.drafted
+            ? toast.success(`${r.drafted} thank-you ${r.drafted === 1 ? 'draft is' : 'drafts are'} waiting in your approval queue on Today.`, { description: r.skipped ? `${r.skipped} skipped: already drafted, opted out, or no file.` : undefined })
+            : toast.info('No new drafts: everyone already has one, opted out, or has no file.'),
+        onError: (e) => toast.error(e.message),
+      },
+    )
   return (
     <Card title="Visitor sign-ins" action={<span className="text-3xl font-bold tabular-nums">{rows.length}</span>}>
       <div className="space-y-3 text-sm">
         <p className="text-muted-foreground">
           {said(/pre-?approved/i, false)} not pre-approved · {said(/working with an agent/i, true)} working with an agent
         </p>
+        <Button className="w-full" disabled={!rows.length || draft.isPending} onClick={run}>
+          {draft.isPending && <Loader2Icon className="animate-spin" />}
+          Draft follow-ups for review
+        </Button>
         <Button size="sm" variant="outline" asChild>
           <Link to={`/pages/${pageId}/submissions`}>See sign-ins</Link>
         </Button>
-        <p className="text-xs text-muted-foreground">Each sign-in already has a follow-up text and email waiting for your approval in the Action Queue.</p>
+        <p className="text-xs text-muted-foreground">After the event: one thank-you per visitor (a text, or an email with no phone), fitted to their answers. They wait in your approval queue; nothing sends on its own.</p>
       </div>
     </Card>
   )

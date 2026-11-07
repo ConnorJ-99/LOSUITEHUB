@@ -30,10 +30,64 @@ async function asJpeg(url: string | null | undefined): Promise<string | null> {
   }
 }
 
+/** The flyer PDF, from what's live: the published page's owner card (with the headshot) and agent. Throws with a plain reason. */
+export async function makeFlyer(slug: string, property: OpenHouseProperty): Promise<{ blob: Blob; name: string }> {
+  const live = await fetchPublicPage(slug, false)
+  if (!live) throw new Error('The page is not live. Publish it first.')
+  const [hero, loPhoto, agentPhoto] = await Promise.all([asJpeg(property.photos[0]), asJpeg(live.owner?.photoPath ? publicAssetUrl(live.owner.photoPath) : null), asJpeg(property.agentPhotoUrl)])
+  const flyer: FlyerView = flyerView({
+    property,
+    url: `${window.location.origin}/p/${slug}`,
+    hero,
+    lo: { name: live.owner?.name ?? null, nmls: live.owner?.nmls ?? null, phone: live.owner?.phone ?? null, email: live.owner?.email ?? null, photo: loPhoto },
+    agent: live.agent ? { ...live.agent, photo: agentPhoto } : null,
+    company: live.company,
+  })
+  const { openHouseFlyerPdf } = await import('@/components/pdf/render')
+  const fit = await openHouseFlyerPdf(flyer)
+  if (!fit.ok) throw new Error(`The flyer runs to ${fit.pages} pages. Show fewer programs or shorten the address.`)
+  return { blob: fit.file, name: flyerFileName(property.address) }
+}
+
+export type FlyerAction = 'download' | 'share' | 'print'
+
+/** Makes the flyer and downloads, shares (the phone's share sheet) or prints it. */
+export async function flyerAction(kind: FlyerAction, slug: string, property: OpenHouseProperty, title: string) {
+  const made = await makeFlyer(slug, property)
+  const url = `${window.location.origin}/p/${slug}`
+  const file = new File([made.blob], made.name, { type: 'application/pdf' })
+  if (kind === 'share' && navigator.canShare?.({ files: [file] })) {
+    await navigator.share({ files: [file], title, text: `Open house: ${url}` }).catch(() => null)
+    return
+  }
+  const href = URL.createObjectURL(made.blob)
+  if (kind === 'print') {
+    const frame = document.createElement('iframe')
+    frame.style.position = 'fixed'
+    frame.style.width = '0'
+    frame.style.height = '0'
+    frame.style.border = '0'
+    frame.src = href
+    frame.onload = () => frame.contentWindow?.print()
+    document.body.appendChild(frame)
+    window.setTimeout(() => {
+      frame.remove()
+      URL.revokeObjectURL(href)
+    }, 60_000)
+    return
+  }
+  const a = document.createElement('a')
+  a.href = href
+  a.download = made.name
+  a.click()
+  window.setTimeout(() => URL.revokeObjectURL(href), 10_000)
+  if (kind === 'share') toast.info('Sharing files is not available in this browser, so the flyer was downloaded instead.')
+}
+
 export function FlyerCard({ slug, published, property, ownerId }: { slug: string; published: boolean; property: OpenHouseProperty; ownerId: string | null }) {
   const owner = useProfile(ownerId)
   const partners = usePartners()
-  const [busy, setBusy] = useState<'download' | 'share' | 'print' | null>(null)
+  const [busy, setBusy] = useState<FlyerAction | null>(null)
   const url = `${window.location.origin}/p/${slug}`
   const agent = partners.data?.find((p) => p.id === property.agentPartnerId) ?? null
   const problems = flyerProblems({ published, property, loNmls: owner.data?.nmls ?? null })
@@ -46,67 +100,14 @@ export function FlyerCard({ slug, published, property, ownerId }: { slug: string
     company: null,
   })
 
-  /** The PDF, from what's live: the published page's owner card (with the headshot) and agent. */
-  const make = async (): Promise<{ blob: Blob; name: string } | null> => {
+  const run = async (kind: FlyerAction) => {
     if (problems.length) {
       toast.error(problems.join(' '))
-      return null
+      return
     }
-    const live = await fetchPublicPage(slug, false)
-    if (!live) {
-      toast.error('The page is not live. Publish it first.')
-      return null
-    }
-    const [hero, loPhoto, agentPhoto] = await Promise.all([asJpeg(property.photos[0]), asJpeg(live.owner?.photoPath ? publicAssetUrl(live.owner.photoPath) : null), asJpeg(property.agentPhotoUrl)])
-    const flyer: FlyerView = flyerView({
-      property,
-      url,
-      hero,
-      lo: { name: live.owner?.name ?? null, nmls: live.owner?.nmls ?? null, phone: live.owner?.phone ?? null, email: live.owner?.email ?? null, photo: loPhoto },
-      agent: live.agent ? { ...live.agent, photo: agentPhoto } : null,
-      company: live.company,
-    })
-    const { openHouseFlyerPdf } = await import('@/components/pdf/render')
-    const fit = await openHouseFlyerPdf(flyer)
-    if (!fit.ok) {
-      toast.error(`The flyer runs to ${fit.pages} pages. Show fewer programs or shorten the address.`)
-      return null
-    }
-    return { blob: fit.file, name: flyerFileName(property.address) }
-  }
-
-  const run = async (kind: 'download' | 'share' | 'print') => {
     setBusy(kind)
     try {
-      const made = await make()
-      if (!made) return
-      const file = new File([made.blob], made.name, { type: 'application/pdf' })
-      if (kind === 'share' && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: preview.dateLine, text: `Open house: ${url}` }).catch(() => null)
-        return
-      }
-      const href = URL.createObjectURL(made.blob)
-      if (kind === 'print') {
-        const frame = document.createElement('iframe')
-        frame.style.position = 'fixed'
-        frame.style.width = '0'
-        frame.style.height = '0'
-        frame.style.border = '0'
-        frame.src = href
-        frame.onload = () => frame.contentWindow?.print()
-        document.body.appendChild(frame)
-        window.setTimeout(() => {
-          frame.remove()
-          URL.revokeObjectURL(href)
-        }, 60_000)
-        return
-      }
-      const a = document.createElement('a')
-      a.href = href
-      a.download = made.name
-      a.click()
-      window.setTimeout(() => URL.revokeObjectURL(href), 10_000)
-      if (kind === 'share') toast.info('Sharing files is not available in this browser, so the flyer was downloaded instead.')
+      await flyerAction(kind, slug, property, preview.dateLine)
     } catch (e) {
       toast.error(`The flyer could not be made: ${(e as Error).message}`)
     } finally {

@@ -601,7 +601,7 @@ function Builder({ page }: { page: PageRecord }) {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-4">
                 <LivePageCard slug={slug} published={status === 'published'} />
-                <SignInsCard pageId={page.id} />
+                <SignInsCard pageId={page.id} address={property.address} ownerId={ownerId} />
               </div>
               <FlyerCard slug={slug} published={status === 'published'} property={property} ownerId={ownerId} />
             </div>
