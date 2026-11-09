@@ -5,6 +5,7 @@
 
 import type { Occupancy, PropertyType } from '@/lib/api/types'
 import type { LoanPurpose } from '@/lib/pipeline/stages'
+import type { DscrTransaction } from '@/lib/calc/loan'
 
 const labels = <T extends string>(entries: readonly (readonly [T, string])[]) => ({
   values: entries.map(([v]) => v) as T[],
@@ -198,7 +199,8 @@ export function lienFor(purpose: LoanPurpose): Lien {
 }
 
 /** The matrix purpose of a loan. 2nd liens and DSCR files are treated as cash-out unless they're purchases. */
-export function matrixPurposeFor(purpose: LoanPurpose): MatrixPurpose {
+export function matrixPurposeFor(purpose: LoanPurpose, dscr: DscrTransaction = 'cash_out'): MatrixPurpose {
+  if (purpose === 'investment_dscr') return dscr
   if (purpose === 'purchase') return 'purchase'
   if (purpose === 'refinance_rate_term') return 'rate_term'
   return 'cash_out'

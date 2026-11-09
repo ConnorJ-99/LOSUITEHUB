@@ -58,6 +58,19 @@ export type LoanPurposeKind =
   | 'heloan'
   | 'investment_dscr'
 
+/** What an Investment / DSCR loan is doing. */
+export type DscrTransaction = 'purchase' | 'rate_term' | 'cash_out'
+
+/**
+ * A DSCR loan's transaction, from the facts already saved on the loan: a
+ * purchase price means a purchase; otherwise a cash-out amount (0 counts)
+ * means a cash-out refinance; neither means a rate/term refinance.
+ */
+export function dscrTransaction(purchasePrice: number | null, cashOutAmount: number | null): DscrTransaction {
+  if (purchasePrice !== null && purchasePrice > 0) return 'purchase'
+  return cashOutAmount !== null ? 'cash_out' : 'rate_term'
+}
+
 export interface ExistingLien {
   position: 'first' | 'second'
   balance: number

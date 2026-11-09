@@ -4,6 +4,7 @@ import {
   combinedLienAmounts,
   downPayment,
   dscr,
+  dscrTransaction,
   isTexasHomeEquity,
   refinanceBenefit,
   texasHomeEquityFlags,
@@ -18,6 +19,19 @@ describe('downPayment', () => {
 
   it('returns a null percent with no price', () => {
     expect(downPayment(0, 0).percent).toBeNull()
+  })
+})
+
+describe('dscrTransaction', () => {
+  it('a purchase price means a purchase', () => {
+    expect(dscrTransaction(350_000, null)).toBe('purchase')
+    expect(dscrTransaction(350_000, 20_000)).toBe('purchase')
+  })
+  it('without a price: a cash-out amount (even 0 while it is being typed) means cash-out, else rate/term', () => {
+    expect(dscrTransaction(null, 75_000)).toBe('cash_out')
+    expect(dscrTransaction(null, 0)).toBe('cash_out')
+    expect(dscrTransaction(null, null)).toBe('rate_term')
+    expect(dscrTransaction(0, null)).toBe('rate_term')
   })
 })
 

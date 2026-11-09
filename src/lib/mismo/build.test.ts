@@ -113,6 +113,14 @@ describe('MISMO 3.4 export', () => {
     expect(xml).toContain('<PropertyEstimatedValueAmount>500000</PropertyEstimatedValueAmount>')
   })
 
+  it('an Investment / DSCR refinance is cash-out with a cash-out amount, else rate/term', () => {
+    const dscr = (cashOutAmount: number | null) =>
+      buildMismo34({ createdAt: '2026-10-25T12:00:00Z', loan: { ...loan, purpose: 'investment_dscr', details: { ...loan.details, purchasePrice: null, cashOutAmount } }, application, properties, organization, originator })
+    expect(dscr(75000)).toContain('<RefinanceCashOutDeterminationType>CashOut</RefinanceCashOutDeterminationType>')
+    expect(dscr(75000)).toContain('<RefinanceCashOutAmount>75000</RefinanceCashOutAmount>')
+    expect(dscr(null)).toContain('<RefinanceCashOutDeterminationType>LimitedCashOut</RefinanceCashOutDeterminationType>')
+  })
+
   it('maps declarations, bankruptcy chapter and demographics', () => {
     expect(xml).toContain('<IntentToOccupyType>Yes</IntentToOccupyType>')
     expect(xml).toContain('<HomeownerPastThreeYearsType>No</HomeownerPastThreeYearsType>')

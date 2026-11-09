@@ -52,6 +52,12 @@ describe('pre-filling from a borrower file', () => {
     const s = scenarioFromFile({ loan: file('purchase'), app: application, properties: [home], creditEvents: [ev('bankruptcy_ch7', '2022-04-15'), ev('late_payment', '2026-01-10', true), ev('late_payment', '2025-03-01', true), ev('foreclosure', null)], today })
     expect(s).toMatchObject({ bkSeasoningMonths: 54, mortgageLates12: 1, mortgageLates24: 2, fcSeasoningMonths: 'unknown' })
   })
+  it('an Investment / DSCR file searches as a purchase, rate/term or cash-out by what the loan holds', () => {
+    const search = (over: object) => scenarioFromFile({ loan: file('investment_dscr', over), app: application, properties: [home], creditEvents: [], today })
+    expect(search({ purchasePrice: 400000, cashOutAmount: null })).toMatchObject({ purpose: 'purchase', purchasePrice: 400000, docType: 'dscr' })
+    expect(search({ purchasePrice: null, cashOutAmount: 75000 })).toMatchObject({ purpose: 'cash_out', purchasePrice: null })
+    expect(search({ purchasePrice: null, cashOutAmount: null })).toMatchObject({ purpose: 'rate_term', purchasePrice: null })
+  })
   it('a cross-collateralized DSCR loan adds the other collateral homes to the value LTV is figured on', () => {
     const rental = property({ id: 'p2', estimatedValue: 300000, isCollateral: true, liens: [] })
     const notCollateral = property({ id: 'p3', estimatedValue: 900000, isCollateral: false, liens: [] })

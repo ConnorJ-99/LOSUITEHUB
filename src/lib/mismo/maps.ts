@@ -144,7 +144,7 @@ export const propertyUsage: Record<string, string> = { primary: 'PrimaryResidenc
 export const ownedDisposition: Record<string, string> = { retain: 'Retain', pending_sale: 'PendingSale', sold: 'Sold' }
 
 /** Loan purpose and lien position. Second liens (HELOC/HELOAN) are refinances of the existing home behind the 1st. */
-export function loanPurpose(purpose: LoanPurposeKind, hasPurchasePrice: boolean): { purpose: string; lien: string; cashOut?: string } {
+export function loanPurpose(purpose: LoanPurposeKind, hasPurchasePrice: boolean, hasCashOut = true): { purpose: string; lien: string; cashOut?: string } {
   switch (purpose) {
     case 'purchase':
       return { purpose: 'Purchase', lien: 'FirstLien' }
@@ -156,7 +156,8 @@ export function loanPurpose(purpose: LoanPurposeKind, hasPurchasePrice: boolean)
     case 'heloan':
       return { purpose: 'Refinance', lien: 'SecondLien', cashOut: 'CashOut' }
     case 'investment_dscr':
-      return hasPurchasePrice ? { purpose: 'Purchase', lien: 'FirstLien' } : { purpose: 'Refinance', lien: 'FirstLien', cashOut: 'CashOut' }
+      // A DSCR refinance is cash-out when it has a cash-out amount, else rate/term (limited cash-out).
+      return hasPurchasePrice ? { purpose: 'Purchase', lien: 'FirstLien' } : { purpose: 'Refinance', lien: 'FirstLien', cashOut: hasCashOut ? 'CashOut' : 'LimitedCashOut' }
   }
 }
 

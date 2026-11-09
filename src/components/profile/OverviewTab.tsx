@@ -4,7 +4,7 @@ import { Link } from 'react-router'
 import { HomeIcon, MailIcon, PhoneIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card, confirmAction, CurrencyInput, DateInput, FormGrid, Input, PercentInput, Select, SummaryBar, ToggleChip, type SummaryItem } from '@/components/shared'
+import { Card, confirmAction, CurrencyInput, DateInput, FormGrid, Input, PercentInput, Select, SummaryBar, ToggleChip, ToggleChipGroup, type SummaryItem } from '@/components/shared'
 import { StageBadge } from '@/components/pipeline/StageBadge'
 import { lastContact, useNotes } from '@/lib/api/notes'
 import { useLenders } from '@/lib/api/lenders'
@@ -13,7 +13,7 @@ import { useEstimates } from '@/lib/api/estimates'
 import type { SavedFigures } from '@/lib/estimates/estimate'
 import { useProperties, useSaveHomeFigures, type HomeFigures } from '@/lib/api/properties'
 import type { Lien, LoanDetails, LoanProfile, Property } from '@/lib/api/types'
-import { computeScenario, loanRevenue, texasHomeEquityFlags, type ScenarioResult } from '@/lib/calc'
+import { computeScenario, dscrTransaction, loanRevenue, texasHomeEquityFlags, type DscrTransaction, type ScenarioResult } from '@/lib/calc'
 import { formatIsoDate, relativeTime, todayIso } from '@/lib/dates'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { formatPhone } from '@/lib/pipeline/helpers'
@@ -76,6 +76,7 @@ function summaryItems(loan: LoanProfile, form: EditableDetails, r: ScenarioResul
       return [
         { label: 'Loan amount', value: formatCurrency(form.loanAmount) },
         { label: 'LTV', value: formatPercent(r.ltv) },
+        ...(form.cashOutAmount ? [{ label: 'Cash out', value: formatCurrency(form.cashOutAmount) }] : []),
         { label: 'PITIA', value: formatCurrency(est?.pitia ?? r.payment?.total) },
         { label: r.otherCollateralCount ? 'Combined rent' : 'Rent', value: formatCurrency(r.rent ?? subject?.monthlyRent) },
         { label: 'DSCR', value: r.dscr?.toFixed(2) ?? '—', warning: r.dscr !== null && r.dscr < 1 },
@@ -213,6 +214,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
   const readinessResult = useSavedReadiness(loan)
   const saved = editable(loan.details)
   const [form, setForm] = useState<EditableDetails>(saved)
+  const [dscrPick, setDscrPick] = useState<DscrTransaction | null>(null)
   const set = <K extends keyof EditableDetails>(key: K) => (value: EditableDetails[K]) => setForm((f) => ({ ...f, [key]: value }))
 
   const saveHome = useSaveHomeFigures(loan.id, loan.organizationId)
@@ -286,6 +288,16 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
 
   const purpose = loan.purpose
   const isRefi = purpose === 'refinance_rate_term' || purpose === 'refinance_cash_out'
+  // Investment / DSCR can be a purchase or a refinance; the pick holds until saved (a purchase with no price yet would otherwise read as a refi).
+  const dscrKind: DscrTransaction = dscrPick ?? dscrTransaction(form.purchasePrice, form.cashOutAmount)
+  const pickDscr = (kind: DscrTransaction) => {
+    setDscrPick(kind)
+    setForm((f) => ({
+      ...f,
+      purchasePrice: kind === 'purchase' ? f.purchasePrice : null,
+      cashOutAmount: kind === 'cash_out' ? (f.cashOutAmount ?? 0) : null,
+    }))
+  }
   const isSecond = purpose === 'heloc' || purpose === 'heloan'
   const contact = lastContact(notes.data)
   const b = loan.borrower
@@ -379,9 +391,27 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
 
               {purpose === 'investment_dscr' && (
                 <>
-                  <CurrencyInput label="Purchase price" value={form.purchasePrice} onChange={set('purchasePrice')} hint="Leave blank for a refinance" span={2} />
-                  <CurrencyInput label="Loan amount" value={form.loanAmount} onChange={set('loanAmount')} required span={2} />
+                  <div className="col-span-full">
+                    <p className="mb-1.5 text-xs font-medium text-muted-foreground">Transaction</p>
+                    <ToggleChipGroup>
+                      <ToggleChip label="Purchase" pressed={dscrKind === 'purchase'} onChange={() => pickDscr('purchase')} />
+                      <ToggleChip label="Rate/term refinance" pressed={dscrKind === 'rate_term'} onChange={() => pickDscr('rate_term')} />
+                      <ToggleChip label="Cash-out refinance" pressed={dscrKind === 'cash_out'} onChange={() => pickDscr('cash_out')} />
+                    </ToggleChipGroup>
+                  </div>
+                  {dscrKind === 'purchase' ? (
+                    <CurrencyInput label="Purchase price" value={form.purchasePrice} onChange={set('purchasePrice')} required span={2} />
+                  ) : (
+                    <>
+                      <CurrencyInput label="Home value" value={homeValue('estimatedValue')} onChange={setHomeValue('estimatedValue')} readOnly={!subject} hint={subject ? FROM_PROPERTY : NEEDS_PROPERTY} span={2} />
+                      <CurrencyInput label="Current 1st lien" value={homeValue('firstLienBalance')} onChange={setHomeValue('firstLienBalance')} readOnly={!subject} hint={subject ? FROM_PROPERTY : NEEDS_PROPERTY} span={2} />
+                      <CurrencyInput label="Current P&I" value={homeValue('firstLienPayment')} onChange={setHomeValue('firstLienPayment')} readOnly={!subject} hint={subject ? FROM_PROPERTY : NEEDS_PROPERTY} span={2} />
+                    </>
+                  )}
+                  <CurrencyInput label={dscrKind === 'purchase' ? 'Loan amount' : 'New loan amount'} value={form.loanAmount} onChange={set('loanAmount')} required span={2} />
+                  {dscrKind === 'cash_out' && <CurrencyInput label="Cash-out amount" value={form.cashOutAmount} onChange={set('cashOutAmount')} hint="Cash to the borrower at closing" span={2} />}
                   <PercentInput label="LTV" value={result.ltv} readOnly hint={result.otherCollateralCount ? 'Over the combined value' : 'Calculated'} span={2} />
+                  {dscrKind !== 'purchase' && !loan.details.crossCollateral && <PercentInput label="CLTV" value={result.cltv} readOnly hint="Calculated" span={2} />}
                   <div className="col-span-full">
                     <ToggleChip
                       label="Cross-collateralized"
@@ -532,7 +562,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
         action={
           <div className="flex items-center gap-2">
             {dirty && (
-              <Button variant="ghost" onClick={() => (setForm(saved), setHome({}))}>
+              <Button variant="ghost" onClick={() => (setForm(saved), setHome({}), setDscrPick(null))}>
                 Discard
               </Button>
             )}

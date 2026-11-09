@@ -375,7 +375,7 @@ export function buildMismo34(input: MismoInput): string {
   const relationships: Relationship[] = []
   const subject = properties.find((p) => p.id === d.subjectPropertyId) ?? null
   const hasPurchasePrice = d.purchasePrice !== null
-  const purpose = map.loanPurpose(loan.purpose, hasPurchasePrice)
+  const purpose = map.loanPurpose(loan.purpose, hasPurchasePrice, d.cashOutAmount !== null)
   const isRefinance = purpose.purpose === 'Refinance'
   const isSecondLien = purpose.lien === 'SecondLien'
 

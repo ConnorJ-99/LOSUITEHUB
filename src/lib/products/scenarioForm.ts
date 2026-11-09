@@ -2,7 +2,7 @@
 // borrower file, down payment as % or $, and the chips that describe it.
 // Pre-filling never changes the file.
 
-import { collateralHomes, otherCollateral, round } from '@/lib/calc'
+import { collateralHomes, dscrTransaction, otherCollateral, round } from '@/lib/calc'
 import type { CreditEvent } from '@/lib/api/creditEvents'
 import type { LoanProfile, MortgageType, Property } from '@/lib/api/types'
 import type { Application } from '@/lib/api/urla'
@@ -89,14 +89,15 @@ export function scenarioFromFile({ loan, app, properties, creditEvents, today }:
   const scores = app.borrowers.map((b) => b.estimatedCreditScore).filter((s): s is number => s != null)
   const primary = app.borrowers[0]
   const first = subject?.liens.find((l) => l.position === 'first')
-  const price = loan.purpose === 'purchase' ? d.purchasePrice : null
+  const dscr = dscrTransaction(d.purchasePrice, d.cashOutAmount)
+  const price = loan.purpose === 'purchase' || (loan.purpose === 'investment_dscr' && dscr === 'purchase') ? d.purchasePrice : null
   const other = otherCollateral(collateralHomes(d.crossCollateral, subject?.id ?? null, properties))
   return {
     ...blankScenario(),
     lien,
     family,
     docType,
-    purpose: matrixPurposeFor(loan.purpose),
+    purpose: matrixPurposeFor(loan.purpose, dscr),
     occupancy: d.occupancy,
     propertyType: matrixPropertyTypeFor(subject?.propertyType ?? null, subject?.unitCount ?? null) ?? 'sfr_pud',
     units: subject?.unitCount ?? 1,
