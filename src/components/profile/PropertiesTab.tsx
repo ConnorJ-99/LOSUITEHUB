@@ -252,7 +252,7 @@ export function PropertiesTab({ loan }: { loan: LoanProfile }) {
   const price = (property: Property) => {
     const existing = (scenarios.data ?? []).filter((x) => x.propertyId === property.id).at(-1)
     if (existing) return openFees(existing.id)
-    createScenario.mutate(scenarioFrom(loan, property, scenarioName(property, scenarios.data?.length ?? 0)), { onSuccess: (x) => openFees(x.id), onError })
+    createScenario.mutate(scenarioFrom(loan, property, scenarioName(property, scenarios.data?.length ?? 0), list), { onSuccess: (x) => openFees(x.id), onError })
   }
   const sorted = [...list].sort((a, b) => Number(b.id === subjectId) - Number(a.id === subjectId))
 

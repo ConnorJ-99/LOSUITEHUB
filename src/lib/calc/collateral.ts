@@ -25,9 +25,19 @@ export interface OtherCollateral {
   annualInsurance: number
   monthlyHoa: number
   monthlyRent: number
-  /** Their existing mortgages that stay after closing (marked "paid off at closing" = not counted). */
+  /**
+   * Their mortgages that stay after closing. The new loan must be in 1st
+   * position on every home, so their 1st mortgages are always paid off; a 2nd
+   * stays unless it's marked "paid off at closing".
+   */
   remainingLienBalance: number
+  /** Monthly payments on the mortgages that stay. */
+  remainingMonthlyPayment: number
+  /** Balances the new loan pays off on these homes (their 1st mortgages, plus any marked paid off). */
+  payoffBalance: number
 }
+
+const staysOn = (l: ScenarioLien) => l.position !== 'first' && !l.toBePaidOff
 
 const sum = (values: (number | null)[]) => round(values.reduce<number>((total, v) => total + (v ?? 0), 0))
 
@@ -42,7 +52,9 @@ export function otherCollateral(homes: CollateralHome[]): OtherCollateral | null
     annualInsurance: sum(homes.map((h) => h.annualInsurance)),
     monthlyHoa: sum(homes.map((h) => h.monthlyHoa)),
     monthlyRent: sum(homes.map((h) => h.monthlyRent)),
-    remainingLienBalance: sum(homes.flatMap((h) => h.liens.filter((l) => !l.toBePaidOff).map((l) => l.balance))),
+    remainingLienBalance: sum(homes.flatMap((h) => h.liens.filter(staysOn).map((l) => l.balance))),
+    remainingMonthlyPayment: sum(homes.flatMap((h) => h.liens.filter(staysOn).map((l) => l.monthlyPayment))),
+    payoffBalance: sum(homes.flatMap((h) => h.liens.filter((l) => !staysOn(l)).map((l) => l.balance))),
   }
 }
 

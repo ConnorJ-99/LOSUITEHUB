@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FeeTemplate } from '@/lib/calc'
 import { details as baseDetails } from '@/lib/mismo/testFixture'
 import type { LoanDetails, Property } from '@/lib/api/types'
+import { loanFactsFor } from '@/lib/estimates/facts'
 import { cashFigure, followHome, homeDifferences, loanChangesFrom, otherFinancingFor, payoffsFor, priceScenario, remainingLiensFor, scenarioFigures, scenarioFrom, type PricingScenario } from './scenario'
 
 const t = (key: string, section: FeeTemplate['section'], amount: number): FeeTemplate => ({
@@ -126,5 +127,26 @@ describe('scenarios follow their home', () => {
   it('lists where a scenario no longer matches its home', () => {
     expect(homeDifferences({ ...s, insuranceValue: 1500 }, { ...before, annualInsurance: 2400 })).toEqual([{ label: 'Insurance / yr', field: 'insuranceValue', scenario: 1500, home: 2400 }])
     expect(homeDifferences(s, before)).toEqual([])
+  })
+})
+
+describe('cross-collateralized DSCR estimates', () => {
+  const subject = home({ id: 'p1', status: 'current_home', listPrice: null, estimatedValue: 400000, annualTaxes: 7200, annualInsurance: 1800, monthlyHoa: null, liens: [{ id: 'm1', propertyId: 'p1', position: 'first', lender: null, balance: 250000, noteRate: 3.5, monthlyPayment: 1500, isHeloc: false, originatedOn: null, isTexasCashOut: false, toBePaidOff: false, creditLimit: null, mortgageType: null }] })
+  const rental = home({ id: 'p2', status: 'current_home', listPrice: null, estimatedValue: 300000, annualTaxes: 4800, annualInsurance: 1200, monthlyHoa: 25, isCollateral: true, liens: [{ id: 'm2', propertyId: 'p2', position: 'first', lender: null, balance: 120000, noteRate: 4, monthlyPayment: 900, isHeloc: false, originatedOn: null, isTexasCashOut: false, toBePaidOff: false, creditLimit: null, mortgageType: null }] })
+  const notCollateral = home({ id: 'p3', estimatedValue: 900000, annualTaxes: 9000, isCollateral: false })
+  const loan = (crossCollateral: boolean) => ({ id: 'l1', purpose: 'investment_dscr' as const, details: details({ subjectPropertyId: 'p1', purchasePrice: null, loanAmount: 500000, crossCollateral }) })
+
+  it('an estimate on the subject starts from every collateral home: value, taxes, insurance and HOA', () => {
+    const s = scenarioFrom(loan(true), subject, 'Blanket', [subject, rental, notCollateral])
+    expect(s).toMatchObject({ propertyValue: 700000, taxesValue: 12000, taxesFactor: 'annual', insuranceValue: 3000, monthlyHoa: 25 })
+  })
+  it('switched off, or priced on another home, only that home counts', () => {
+    expect(scenarioFrom(loan(false), subject, 'One', [subject, rental])).toMatchObject({ propertyValue: 400000, taxesValue: 7200, insuranceValue: 1800 })
+    expect(scenarioFrom(loan(true), rental, 'Rental', [subject, rental])).toMatchObject({ propertyValue: 300000, taxesValue: 4800 })
+  })
+  it("the estimate pays off the other collateral homes' 1st mortgages too", () => {
+    const facts = loanFactsFor(loan(true), { borrowers: [], assets: [], liabilities: [] }, [subject, rental, notCollateral], null)
+    expect(facts.mortgagePayoffs).toBe(370000)
+    expect(loanFactsFor(loan(false), { borrowers: [], assets: [], liabilities: [] }, [subject, rental], null).mortgagePayoffs).toBe(250000)
   })
 })

@@ -6,9 +6,11 @@
 
 import {
   cashToClose,
+  collateralHomes,
   feeSheet,
   firstMortgagePayment,
   mortgageInsurance,
+  otherCollateral,
   pct,
   pointsAmount,
   pointsPct,
@@ -90,18 +92,31 @@ export interface PricingLoan {
 
 const isPurchase = (purpose: LoanPurpose) => purpose === 'purchase'
 
-/** A new scenario from the loan, or from one of its homes. */
-export function scenarioFrom(loan: PricingLoan, property: Property | null, name: string): ScenarioDraft {
+/** The other homes securing a cross-collateralized loan, added together (null when there are none or the loan isn't cross-collateralized). */
+export function otherCollateralFor(details: Pick<LoanDetails, 'crossCollateral' | 'subjectPropertyId'>, homes: Property[]) {
+  return otherCollateral(collateralHomes(details.crossCollateral, details.subjectPropertyId, homes))
+}
+
+const plus = (a: number | null, b: number) => (a === null ? (b ? b : null) : round(a + b))
+
+/**
+ * A new scenario from the loan, or from one of its homes. Pass the loan's
+ * homes so a cross-collateralized loan's estimate on the subject property
+ * counts every collateral home's value, taxes, insurance and HOA.
+ */
+export function scenarioFrom(loan: PricingLoan, property: Property | null, name: string, homes: Property[] = []): ScenarioDraft {
   const d = loan.details
   const purchase = isPurchase(loan.purpose)
   const isSubject = !property || property.id === d.subjectPropertyId
+  const other = isSubject && property ? otherCollateralFor(d, homes) : null
   const price = purchase ? (isSubject ? (d.purchasePrice ?? property?.listPrice ?? null) : (property!.listPrice ?? d.purchasePrice)) : null
-  const value = property?.estimatedValue ?? price
+  const ownValue = property?.estimatedValue ?? price
+  const value = other && ownValue !== null ? round(ownValue + other.estimatedValue) : ownValue
   // Another house keeps the same down payment percent.
   const loanAmount =
     !isSubject && purchase && price && d.loanAmount && d.purchasePrice ? round((price * d.loanAmount) / d.purchasePrice, 0) : d.loanAmount
   const taxes: [number | null, Factor] =
-    property?.annualTaxes != null ? [property.annualTaxes, 'annual'] : d.estimatedTaxRatePct != null ? [d.estimatedTaxRatePct, 'pct_of_value'] : [null, 'annual']
+    property?.annualTaxes != null ? [plus(property.annualTaxes, other?.annualTaxes ?? 0), 'annual'] : d.estimatedTaxRatePct != null ? [d.estimatedTaxRatePct, 'pct_of_value'] : [null, 'annual']
   return {
     loanId: loan.id,
     propertyId: property?.id ?? null,
@@ -121,10 +136,10 @@ export function scenarioFrom(loan: PricingLoan, property: Property | null, name:
     propertyValue: value,
     taxesValue: taxes[0],
     taxesFactor: taxes[1],
-    insuranceValue: property?.annualInsurance ?? d.estimatedAnnualInsurance,
+    insuranceValue: plus(property?.annualInsurance ?? d.estimatedAnnualInsurance, other?.annualInsurance ?? 0),
     insuranceFactor: 'annual',
     supplementalInsuranceMonthly: d.supplementalInsuranceMonthly,
-    monthlyHoa: property?.monthlyHoa ?? d.estimatedMonthlyHoa,
+    monthlyHoa: plus(property?.monthlyHoa ?? d.estimatedMonthlyHoa, other?.monthlyHoa ?? 0),
     monthlyMi: null,
     otherPaymentMonthly: d.otherPaymentMonthly,
     otherPaymentLabel: d.otherPaymentLabel,

@@ -126,7 +126,7 @@ export async function createFeeEstimates(input: Record<string, unknown>): Promis
     return r.program
   })
 
-  const base = { ...scenarioFrom(loan, home, ''), ...ESTIMATE_DEFAULTS }
+  const base = { ...scenarioFrom(loan, home, '', data.properties), ...ESTIMATE_DEFAULTS }
   const shared = { purchasePrice: isPurchase ? price : null, propertyValue: null, closingDate: d.closingDate ?? d.estimatedFundingDate, sellerCredits: null, earnestMoney: null, propertyId: home?.id ?? null }
   const taken = data.list.map((e) => e.name)
   const created: Estimate[] = []

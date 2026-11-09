@@ -2,18 +2,21 @@ import { describe, expect, it } from 'vitest'
 import { collateralHomes, collateralSummary, otherCollateral } from './collateral'
 import { computeScenario, type ScenarioInput } from './scenario'
 
-const rental = (value: number | null, rent: number | null, balance: number | null, toBePaidOff = false) => ({
+const rental = (value: number | null, rent: number | null, balance: number | null, toBePaidOff = false, second: number | null = null) => ({
   estimatedValue: value,
   annualTaxes: 4_800,
   annualInsurance: 1_200,
   monthlyHoa: null,
   monthlyRent: rent,
-  liens: balance === null ? [] : [{ position: 'first' as const, balance, monthlyPayment: 900, noteRate: 4, toBePaidOff }],
+  liens: [
+    ...(balance === null ? [] : [{ position: 'first' as const, balance, monthlyPayment: 900, noteRate: 4, toBePaidOff }]),
+    ...(second === null ? [] : [{ position: 'second' as const, balance: second, monthlyPayment: 300, noteRate: 8 }]),
+  ],
 })
 
 describe('otherCollateral', () => {
   it('adds the other homes together', () => {
-    const o = otherCollateral([rental(300_000, 2_200, 120_000), rental(250_000, 1_900, 80_000, true)])
+    const o = otherCollateral([rental(300_000, 2_200, 120_000, false, 40_000), rental(250_000, 1_900, 80_000, true)])
     expect(o).toEqual({
       count: 2,
       estimatedValue: 550_000,
@@ -22,8 +25,10 @@ describe('otherCollateral', () => {
       annualInsurance: 2_400,
       monthlyHoa: 0,
       monthlyRent: 4_100,
-      // The 80k mortgage is paid off at closing, so only the 120k stays.
-      remainingLienBalance: 120_000,
+      // The new loan must be 1st on every home, so both 1st mortgages are paid off; the 40k 2nd stays.
+      remainingLienBalance: 40_000,
+      remainingMonthlyPayment: 300,
+      payoffBalance: 200_000,
     })
   })
 
@@ -88,11 +93,12 @@ describe('computeScenario with cross-collateral', () => {
     expect(r.otherCollateralCount).toBe(2)
   })
 
-  it('a mortgage on another home that stays counts toward CLTV', () => {
-    const other = otherCollateral([rental(300_000, 2_200, 120_000), rental(300_000, 2_000, 100_000, true)])
-    const r = computeScenario({ ...base, otherCollateral: other })
-    expect(r.ltv).toBe(60)
-    expect(r.cltv).toBe(72)
+  it("another home's 1st mortgage is always paid off; a 2nd that stays counts toward CLTV", () => {
+    const firstsOnly = computeScenario({ ...base, otherCollateral: otherCollateral([rental(300_000, 2_200, 120_000), rental(300_000, 2_000, 100_000)]) })
+    expect(firstsOnly.cltv).toBe(60)
+    const withSecond = computeScenario({ ...base, otherCollateral: otherCollateral([rental(300_000, 2_200, 120_000, false, 50_000), rental(300_000, 2_000, 100_000)]) })
+    expect(withSecond.ltv).toBe(60)
+    expect(withSecond.cltv).toBe(65)
   })
 
   it('purchase: lower of price and value for the new home, plus the full value of the others', () => {

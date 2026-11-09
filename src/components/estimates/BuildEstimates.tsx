@@ -64,7 +64,7 @@ export function BuildEstimates({ loan, data, onClose, onCreated }: { loan: LoanP
     .filter((p) => !q || `${p.programName} ${p.lenderName}`.toLowerCase().includes(q))
 
   const subject = data.properties.find((p) => p.id === shared.propertyId) ?? null
-  const base = { ...scenarioFrom(loan, subject, ''), ...ESTIMATE_DEFAULTS }
+  const base = { ...scenarioFrom(loan, subject, '', data.properties), ...ESTIMATE_DEFAULTS }
   const facts = data.factsFor(shared.propertyId)
   const loanSeller = d.sellerCredits
   const takenBefore = data.list.map((e) => e.name)

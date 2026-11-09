@@ -403,7 +403,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
                     <CurrencyInput label="Purchase price" value={form.purchasePrice} onChange={set('purchasePrice')} required span={2} />
                   ) : (
                     <>
-                      <CurrencyInput label="Home value" value={homeValue('estimatedValue')} onChange={setHomeValue('estimatedValue')} readOnly={!subject} hint={subject ? FROM_PROPERTY : NEEDS_PROPERTY} span={2} />
+                      <CurrencyInput label={result.otherCollateralCount ? 'Subject home value' : 'Home value'} value={homeValue('estimatedValue')} onChange={setHomeValue('estimatedValue')} readOnly={!subject} hint={subject ? (result.otherCollateralCount ? 'This home only; combined value below' : FROM_PROPERTY) : NEEDS_PROPERTY} span={2} />
                       <CurrencyInput label="Current 1st lien" value={homeValue('firstLienBalance')} onChange={setHomeValue('firstLienBalance')} readOnly={!subject} hint={subject ? FROM_PROPERTY : NEEDS_PROPERTY} span={2} />
                       <CurrencyInput label="Current P&I" value={homeValue('firstLienPayment')} onChange={setHomeValue('firstLienPayment')} readOnly={!subject} hint={subject ? FROM_PROPERTY : NEEDS_PROPERTY} span={2} />
                     </>

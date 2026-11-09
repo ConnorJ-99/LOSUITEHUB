@@ -78,7 +78,7 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
   const newBlank = () =>
     run(async () => {
       const subject = data.properties.find((p) => p.id === loan.details.subjectPropertyId) ?? null
-      const base = scenarioFrom(loan, subject, estimateName('New estimate', all.map((e) => e.name)))
+      const base = scenarioFrom(loan, subject, estimateName('New estimate', all.map((e) => e.name)), data.properties)
       const created = await data.create({ ...base, ...ESTIMATE_DEFAULTS })
       openEstimate(created.id)
     }, 'Started a new estimate')
