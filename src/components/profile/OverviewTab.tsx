@@ -4,7 +4,7 @@ import { Link } from 'react-router'
 import { HomeIcon, MailIcon, PhoneIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card, confirmAction, CurrencyInput, DateInput, FormGrid, Input, PercentInput, Select, SummaryBar, type SummaryItem } from '@/components/shared'
+import { Card, confirmAction, CurrencyInput, DateInput, FormGrid, Input, PercentInput, Select, SummaryBar, ToggleChip, type SummaryItem } from '@/components/shared'
 import { StageBadge } from '@/components/pipeline/StageBadge'
 import { lastContact, useNotes } from '@/lib/api/notes'
 import { useLenders } from '@/lib/api/lenders'
@@ -77,7 +77,7 @@ function summaryItems(loan: LoanProfile, form: EditableDetails, r: ScenarioResul
         { label: 'Loan amount', value: formatCurrency(form.loanAmount) },
         { label: 'LTV', value: formatPercent(r.ltv) },
         { label: 'PITIA', value: formatCurrency(est?.pitia ?? r.payment?.total) },
-        { label: 'Rent', value: formatCurrency(subject?.monthlyRent) },
+        { label: r.otherCollateralCount ? 'Combined rent' : 'Rent', value: formatCurrency(r.rent ?? subject?.monthlyRent) },
         { label: 'DSCR', value: r.dscr?.toFixed(2) ?? '—', warning: r.dscr !== null && r.dscr < 1 },
       ]
   }
@@ -237,7 +237,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
         ? [...savedSubject.liens, newFirstLien(savedSubject.id, homeValue('firstLienBalance'), homeValue('firstLienPayment'))]
         : savedSubject.liens,
   }
-  const result = computeScenario(loanScenarioInput(loan.purpose, { ...loan.details, ...form }, subject))
+  const result = computeScenario(loanScenarioInput(loan.purpose, { ...loan.details, ...form }, subject, properties.data))
   const texasFlags = texasHomeEquityFlags({
     purpose: loan.purpose,
     propertyState: subject?.state ?? null,
@@ -381,8 +381,28 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
                 <>
                   <CurrencyInput label="Purchase price" value={form.purchasePrice} onChange={set('purchasePrice')} hint="Leave blank for a refinance" span={2} />
                   <CurrencyInput label="Loan amount" value={form.loanAmount} onChange={set('loanAmount')} required span={2} />
-                  <PercentInput label="LTV" value={result.ltv} readOnly hint="Calculated" span={2} />
-                  <CurrencyInput label="Monthly rent" value={subject?.monthlyRent ?? null} readOnly hint={FROM_PROPERTY} span={2} />
+                  <PercentInput label="LTV" value={result.ltv} readOnly hint={result.otherCollateralCount ? 'Over the combined value' : 'Calculated'} span={2} />
+                  <div className="col-span-full">
+                    <ToggleChip
+                      label="Cross-collateralized"
+                      pressed={loan.details.crossCollateral}
+                      onChange={(on) => updateDetails.mutate({ crossCollateral: on }, { onSuccess: () => toast.success(on ? 'Cross-collateral on' : 'Cross-collateral off'), onError: (e) => toast.error(e.message) })}
+                    />
+                    <p className="mt-1.5 text-xs text-muted-foreground">Several properties secure this loan; pick them on the Properties tab.</p>
+                  </div>
+                  {loan.details.crossCollateral && (
+                    <>
+                      <CurrencyInput label="Combined value" value={result.value} readOnly hint={`${result.otherCollateralCount + 1} properties (Properties tab)`} span={2} />
+                      <PercentInput label="CLTV" value={result.cltv} readOnly hint="Mortgages that stay, over the combined value" span={2} />
+                    </>
+                  )}
+                  <CurrencyInput
+                    label={result.otherCollateralCount ? 'Combined rent' : 'Monthly rent'}
+                    value={result.otherCollateralCount ? result.rent : (subject?.monthlyRent ?? null)}
+                    readOnly
+                    hint={result.otherCollateralCount ? `${result.otherCollateralCount + 1} properties` : FROM_PROPERTY}
+                    span={2}
+                  />
                   <CurrencyInput label="PITIA" value={result.payment?.total ?? null} readOnly hint="Calculated" span={2} />
                   <Input label="DSCR" value={result.dscr?.toFixed(2) ?? ''} readOnly hint="Rent ÷ PITIA" span={2} />
                   <Input label="Vesting entity (LLC)" value={form.vestingEntity ?? ''} onChange={(v) => set('vestingEntity')(v || null)} span={4} />
@@ -402,6 +422,13 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
               )}
               <Select label="Occupancy" value={form.occupancy} onChange={set('occupancy')} options={OCCUPANCY_OPTIONS} required span={2} />
               <DateInput label="Closing date" value={form.closingDate} onChange={set('closingDate')} span={2} />
+              <div className="col-span-full">
+                <ToggleChip
+                  label={form.impoundWaiver === 'taxes' ? 'Escrows waived (taxes only)' : form.impoundWaiver === 'insurance' ? 'Escrows waived (insurance only)' : 'Escrows waived'}
+                  pressed={form.impoundWaiver !== 'none'}
+                  onChange={(on) => set('impoundWaiver')(on ? 'all' : 'none')}
+                />
+              </div>
               <LenderFields loan={loan} lenderName={form.lenderName} programName={form.programName} onLender={(v) => set('lenderName')(v.trim() ? v : null)} onProgram={(v) => set('programName')(v.trim() ? v : null)} />
               <RevenueFields loanAmount={form.loanAmount} type={form.revenueType} value={form.revenueValue} onChange={(type, value) => setForm((f) => ({ ...f, revenueType: value === null ? null : type, revenueValue: value }))} />
               {purpose === 'purchase' && (

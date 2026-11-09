@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { application, details as baseDetails, loan as baseLoan, property } from '@/lib/mismo/testFixture'
 import { blankScenario, downPayment, scenarioChips, scenarioFromFile, scenarioLabel, typeChips, withDownAmount, withDownPct, withPrice } from './scenarioForm'
+import { round } from '@/lib/calc'
+import { ratios } from './engine'
 import { conventionalPurchase, dscrSecond } from './testCatalog'
 
 describe('down payment', () => {
@@ -49,5 +51,17 @@ describe('pre-filling from a borrower file', () => {
     const ev = (eventType: 'bankruptcy_ch7' | 'late_payment' | 'foreclosure', eventDate: string | null, isMortgage = false) => ({ id: eventType + eventDate, contactId: 'c', eventType, eventDate, daysLate: 30, isMortgage, amount: null, notes: null })
     const s = scenarioFromFile({ loan: file('purchase'), app: application, properties: [home], creditEvents: [ev('bankruptcy_ch7', '2022-04-15'), ev('late_payment', '2026-01-10', true), ev('late_payment', '2025-03-01', true), ev('foreclosure', null)], today })
     expect(s).toMatchObject({ bkSeasoningMonths: 54, mortgageLates12: 1, mortgageLates24: 2, fcSeasoningMonths: 'unknown' })
+  })
+  it('a cross-collateralized DSCR loan adds the other collateral homes to the value LTV is figured on', () => {
+    const rental = property({ id: 'p2', estimatedValue: 300000, isCollateral: true, liens: [] })
+    const notCollateral = property({ id: 'p3', estimatedValue: 900000, isCollateral: false, liens: [] })
+    const loan = file('investment_dscr', { purchasePrice: null, loanAmount: 500000, crossCollateral: true })
+    const s = scenarioFromFile({ loan, app: application, properties: [home, rental, notCollateral], creditEvents: [], today })
+    expect(s).toMatchObject({ value: 410000, otherCollateralValue: 300000 })
+    expect(round(ratios(s).ltv, 3)).toBe(70.423)
+    expect(scenarioChips(s)).toContain('+ $300,000 other collateral')
+    // Switched off, the other homes don't count.
+    const off = scenarioFromFile({ loan: { ...loan, details: { ...loan.details, crossCollateral: false } }, app: application, properties: [home, rental], creditEvents: [], today })
+    expect(off.otherCollateralValue).toBeUndefined()
   })
 })

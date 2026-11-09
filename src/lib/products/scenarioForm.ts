@@ -2,7 +2,7 @@
 // borrower file, down payment as % or $, and the chips that describe it.
 // Pre-filling never changes the file.
 
-import { round } from '@/lib/calc'
+import { collateralHomes, otherCollateral, round } from '@/lib/calc'
 import type { CreditEvent } from '@/lib/api/creditEvents'
 import type { LoanProfile, MortgageType, Property } from '@/lib/api/types'
 import type { Application } from '@/lib/api/urla'
@@ -90,6 +90,7 @@ export function scenarioFromFile({ loan, app, properties, creditEvents, today }:
   const primary = app.borrowers[0]
   const first = subject?.liens.find((l) => l.position === 'first')
   const price = loan.purpose === 'purchase' ? d.purchasePrice : null
+  const other = otherCollateral(collateralHomes(d.crossCollateral, subject?.id ?? null, properties))
   return {
     ...blankScenario(),
     lien,
@@ -114,6 +115,7 @@ export function scenarioFromFile({ loan, app, properties, creditEvents, today }:
     fcSeasoningMonths: seasoning(creditEvents, ['foreclosure', 'short_sale', 'deed_in_lieu'], today),
     firstTimeBuyer: loan.purpose === 'purchase' && app.borrowers.some((b) => b.declarations.ownedPropertyPast3Years === false),
     homestead: subject?.isHomestead ?? (d.occupancy === 'primary' && loan.purpose !== 'purchase'),
+    ...(other ? { otherCollateralValue: other.estimatedValue } : {}),
   }
 }
 
@@ -160,6 +162,7 @@ export function scenarioChips(s: Scenario): string[] {
   ]
   if (down) chips.push(formatCurrency(s.purchasePrice), `${formatPercent(down.pct, 2)} down`)
   else chips.push(`Value ${formatCurrency(s.value)}`)
+  if (s.otherCollateralValue) chips.push(`+ ${formatCurrency(s.otherCollateralValue)} other collateral`)
   if (s.lien !== 'first') chips.push(`1st lien ${formatCurrency(s.firstLienBalance)}`, `${s.lien === 'heloc' ? 'HELOC' : '2nd'} ${formatCurrency(s.loanAmount)}`, `CLTV ${formatPercent(cltv, 2)}`)
   else chips.push(formatCurrency(s.loanAmount), `LTV ${formatPercent(ltv, 2)}`)
   if (s.fico != null) chips.push(`${s.fico} FICO`)

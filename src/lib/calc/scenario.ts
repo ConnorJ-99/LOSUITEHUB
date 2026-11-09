@@ -1,3 +1,4 @@
+import type { OtherCollateral } from './collateral'
 import { combinedLienAmounts, downPayment, dscr, refinanceBenefit, type DownPayment, type LoanPurposeKind, type RefinanceBenefit } from './loan'
 import { mortgageInsurance, type MortgageInsurance, type MortgageTypeKind } from './mortgageInsurance'
 import { monthlyInterestOnly, monthlyPrincipalAndInterest, piti, type PitiResult } from './payment'
@@ -37,6 +38,8 @@ export interface ScenarioInput {
   upfrontFeePct?: number | null
   /** Estimates for a home not picked yet, used where the subject property has no figure. */
   estimates?: ScenarioEstimates
+  /** Cross-collateralized loan: the other homes securing it, added to the subject's value, liens, costs and rent. */
+  otherCollateral?: OtherCollateral | null
 }
 
 export interface ScenarioEstimates {
@@ -62,6 +65,10 @@ export interface ScenarioResult {
   mi: MortgageInsurance | null
   dscr: number | null
   refinance: RefinanceBenefit | null
+  /** Monthly rent used for DSCR: the subject's, plus the other collateral homes' (null when none is entered). */
+  rent: number | null
+  /** Homes securing the loan besides the subject (cross-collateral); 0 on a normal loan. */
+  otherCollateralCount: number
 }
 
 /** Taxes, insurance and HOA: the subject property's figures, or the estimates where it has none. */
@@ -89,6 +96,9 @@ export function computeScenario(input: ScenarioInput): ScenarioResult {
   if (usesPrice) value = hasPrice ? qualifyingValue(homeValue ?? 0, purchasePrice) : homeValue
   else value = homeValue
   if (value !== null && value <= 0) value = null
+  // Cross-collateral: the other homes' full value counts on top of the subject's (which is still required).
+  const other = input.otherCollateral ?? null
+  if (value !== null && other) value = round(value + other.estimatedValue)
 
   const knownLiens = liens.filter((l) => l.balance !== null).map((l) => ({ position: l.position, balance: l.balance as number, toBePaidOff: l.toBePaidOff }))
   const firstLien = liens.find((l) => l.position === 'first') ?? null
@@ -97,7 +107,7 @@ export function computeScenario(input: ScenarioInput): ScenarioResult {
   const amount = loanAmount ?? 0
   const loanLtv = loanAmount !== null && value !== null ? ltv(amount, value) : null
   const loanCltv =
-    loanAmount !== null && value !== null ? cltv(combinedLienAmounts(purpose, amount, knownLiens, hasPrice), value) : null
+    loanAmount !== null && value !== null ? cltv([...combinedLienAmounts(purpose, amount, knownLiens, hasPrice), other?.remainingLienBalance ?? 0], value) : null
 
   let payment: PitiResult | null = null
   let mi: MortgageInsurance | null = null
@@ -106,7 +116,14 @@ export function computeScenario(input: ScenarioInput): ScenarioResult {
       const pi = purpose === 'heloc' ? monthlyInterestOnly(amount, noteRatePct) : monthlyPrincipalAndInterest(amount, noteRatePct, termMonths!)
       payment = { principalAndInterest: pi, taxes: 0, insurance: 0, hoa: 0, mortgageInsurance: 0, total: pi }
     } else {
-      const housing = housingCosts(input, usesPrice && hasPrice ? purchasePrice : homeValue)
+      const subjectHousing = housingCosts(input, usesPrice && hasPrice ? purchasePrice : homeValue)
+      const housing = other
+        ? {
+            annualTaxes: round(subjectHousing.annualTaxes + other.annualTaxes),
+            annualInsurance: round(subjectHousing.annualInsurance + other.annualInsurance),
+            monthlyHoa: round(subjectHousing.monthlyHoa + other.monthlyHoa),
+          }
+        : subjectHousing
       mi = mortgageInsurance({ mortgageType: input.mortgageType ?? null, baseLoanAmount: amount, ltvPct: loanLtv, annualRatePct: input.miRatePct, upfrontFeePct: input.upfrontFeePct })
       payment = piti({
         principal: mi.totalLoanAmount,
@@ -118,8 +135,9 @@ export function computeScenario(input: ScenarioInput): ScenarioResult {
     }
   }
 
+  // A blanket refinance replaces several mortgages, so a one-loan savings comparison doesn't apply.
   const refinance =
-    isRefinance(purpose) && payment && firstLien?.monthlyPayment != null && firstLien.noteRate != null
+    isRefinance(purpose) && !other && payment && firstLien?.monthlyPayment != null && firstLien.noteRate != null
       ? refinanceBenefit({
           currentPayment: firstLien.monthlyPayment,
           currentRatePct: firstLien.noteRate,
@@ -128,6 +146,7 @@ export function computeScenario(input: ScenarioInput): ScenarioResult {
         })
       : null
 
+  const rent = property?.monthlyRent == null && !other?.monthlyRent ? null : round((property?.monthlyRent ?? 0) + (other?.monthlyRent ?? 0))
   return {
     value,
     ltv: loanLtv,
@@ -136,8 +155,10 @@ export function computeScenario(input: ScenarioInput): ScenarioResult {
     downPayment: usesPrice && hasPrice && loanAmount !== null ? downPayment(purchasePrice, amount) : null,
     payment,
     mi,
-    dscr: purpose === 'investment_dscr' && payment && property?.monthlyRent ? dscr(property.monthlyRent, payment.total) : null,
+    dscr: purpose === 'investment_dscr' && payment && rent ? dscr(rent, payment.total) : null,
     refinance,
+    rent,
+    otherCollateralCount: other?.count ?? 0,
   }
 }
 

@@ -25,6 +25,8 @@ export interface Scenario {
   purchasePrice: number | null
   /** Appraised or estimated value. For a purchase, LTV uses the lower of price and value. */
   value: number
+  /** Cross-collateralized loan: the other homes' full value, added on top of the subject's (blank = none). */
+  otherCollateralValue?: number
   /** The new loan (for a 2nd lien: the new 2nd alone). */
   loanAmount: number
   /** Existing 1st lien balance that stays (2nd liens only; 0 otherwise). */

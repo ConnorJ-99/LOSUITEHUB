@@ -130,6 +130,8 @@ export interface LoanDetails {
   incomeDocType: IncomeDocType | null
   /** When they want to buy or refinance, in their words. */
   timeline: string | null
+  /** Cross-collateralized: the subject property plus the homes marked as collateral secure the loan together. */
+  crossCollateral: boolean
   // Pricing (filled by "Use for this loan" on the Pricing tab, or typed)
   estimatedFundingDate: string | null
   firstPaymentDate: string | null
@@ -203,6 +205,8 @@ export interface Property {
   monthlyHoa: number | null
   monthlyRent: number | null
   isHomestead: boolean
+  /** Also secures the loan (counts only while the loan is cross-collateralized; the subject property always counts). */
+  isCollateral: boolean
   listingUrl: string | null
   unitCount: number | null
   reoDisposition: ReoDisposition | null

@@ -1,6 +1,7 @@
 import type { Organization, Profile } from '@/lib/api/settings'
 import type { LoanProfile, Property } from '@/lib/api/types'
 import type { Application, Declarations } from '@/lib/api/urla'
+import { collateralHomes } from '@/lib/calc/collateral'
 import { fullName } from '@/lib/pipeline/helpers'
 
 export interface ChecklistItem {
@@ -42,6 +43,8 @@ export function exportChecklist(input: {
   if (isPurchase && d.purchasePrice === null) add('Loan', 'section-4', 'Sales contract price')
   if (!subject) add('Loan', 'section-4', isPurchase ? 'Subject property (choose it on Properties once under contract)' : 'Subject property: add the home on the Properties tab')
   else if (subject.estimatedValue === null) add('Loan', 'section-4', 'Subject property value')
+  const otherCollateral = collateralHomes(d.crossCollateral, subject?.id ?? null, properties).length
+  if (otherCollateral > 0) add('Loan', 'section-4', `Cross-collateral: the file carries only the subject property, so add the other ${otherCollateral === 1 ? 'collateral home' : `${otherCollateral} collateral homes`} as collateral in Arive`)
 
   for (const b of application.borrowers) {
     const name = fullName(b.person)

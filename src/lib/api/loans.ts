@@ -92,6 +92,7 @@ const DETAIL_COLUMNS: Record<keyof LoanDetails, [string, boolean]> = {
   hasHoaAddendum: ['has_hoa_addendum', false],
   incomeDocType: ['income_doc_type', false],
   timeline: ['timeline', false],
+  crossCollateral: ['cross_collateral', false],
   estimatedFundingDate: ['estimated_funding_date', false],
   firstPaymentDate: ['first_payment_date', false],
   impoundWaiver: ['impound_waiver', false],

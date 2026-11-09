@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { LoanDetails, LoanProfile } from '@/lib/api/types'
 import { emptyDeclarations, type Application, type ApplicationBorrower } from '@/lib/api/urla'
 import { exportChecklist, exportFileName } from './checklist'
+import { property } from './testFixture'
 
 const details = (over: Partial<LoanDetails> = {}): LoanDetails => ({
   occupancy: 'primary', purchasePrice: null, loanAmount: null, noteRate: null, termMonths: null, cashOutAmount: null, contractDate: null,
   optionEndDate: null, closingDate: null, vestingEntity: null, financedPropertiesCount: null, subjectPropertyId: null, mortgageType: null,
   amortizationType: 'fixed', titleNames: null, titleManner: null, estateType: 'fee_simple', hasBalloon: false, hasInterestOnly: false,
   hasNegativeAmortization: false, hasPrepaymentPenalty: false, improvementsAmount: null, estimatedClosingCosts: null, prepaidItemsAmount: null,
-  discountPointsAmount: null, sellerCredits: null, lenderCredits: null, estimatedTaxRatePct: null, estimatedAnnualInsurance: null, estimatedMonthlyHoa: null, miRatePct: null, upfrontFeePct: null, ariveLoanNumber: null, optionFee: null, contractFinancingAmount: null, financingDeadline: null, surveyDeadline: null, titlePolicyPaidBy: null, possession: null, hasHoaAddendum: null, incomeDocType: null, timeline: null, estimatedFundingDate: null, firstPaymentDate: null, impoundWaiver: 'none', qualifyingRate: null, buydown: null, supplementalInsuranceMonthly: null, otherPaymentMonthly: null, otherPaymentLabel: null, pricingScenarioId: null, programId: null, chosenQuoteId: null, preapprovalMaxPrice: null, preapprovalMaxLoanAmount: null, preapprovalExpiresOn: null, lenderName: null, programName: null, monthlyPayment: null, revenueType: null, revenueValue: null, ...over,
+  discountPointsAmount: null, sellerCredits: null, lenderCredits: null, estimatedTaxRatePct: null, estimatedAnnualInsurance: null, estimatedMonthlyHoa: null, miRatePct: null, upfrontFeePct: null, ariveLoanNumber: null, optionFee: null, contractFinancingAmount: null, financingDeadline: null, surveyDeadline: null, titlePolicyPaidBy: null, possession: null, hasHoaAddendum: null, incomeDocType: null, timeline: null, crossCollateral: false, estimatedFundingDate: null, firstPaymentDate: null, impoundWaiver: 'none', qualifyingRate: null, buydown: null, supplementalInsuranceMonthly: null, otherPaymentMonthly: null, otherPaymentLabel: null, pricingScenarioId: null, programId: null, chosenQuoteId: null, preapprovalMaxPrice: null, preapprovalMaxLoanAmount: null, preapprovalExpiresOn: null, lenderName: null, programName: null, monthlyPayment: null, revenueType: null, revenueValue: null, ...over,
 })
 
 const loan = (over: Partial<LoanDetails> = {}): LoanProfile => ({
@@ -30,6 +31,14 @@ const borrower: ApplicationBorrower = {
 }
 
 describe('export checklist', () => {
+  it('reminds you to add the other cross-collateral homes in Arive', () => {
+    const app: Application = { borrowers: [borrower], assets: [], liabilities: [] }
+    const homes = [property({ id: 'p1', estimatedValue: 400000 }), property({ id: 'p2', isCollateral: true }), property({ id: 'p3', isCollateral: true })]
+    const messages = (over: Partial<LoanDetails>) => exportChecklist({ loan: loan({ subjectPropertyId: 'p1', ...over }), application: app, properties: homes, organization: null, originator: null }).map((i) => i.message)
+    expect(messages({ crossCollateral: true })).toContain('Cross-collateral: the file carries only the subject property, so add the other 2 collateral homes as collateral in Arive')
+    expect(messages({ crossCollateral: false }).some((m) => m.startsWith('Cross-collateral'))).toBe(false)
+  })
+
   it('lists what a bare application is missing', () => {
     const app: Application = { borrowers: [borrower], assets: [], liabilities: [] }
     const messages = exportChecklist({ loan: loan(), application: app, properties: [], organization: null, originator: null }).map((i) => `${i.area}: ${i.message}`)

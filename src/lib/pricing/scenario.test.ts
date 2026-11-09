@@ -13,7 +13,7 @@ const templates = [t('admin', 'A', 1505.75), t('appraisal', 'B', 650), t('credit
 const details = (over: Partial<LoanDetails> = {}): LoanDetails => ({ ...baseDetails, ...over })
 const home = (over: Partial<Property> = {}): Property => ({
   id: 'p1', loanId: 'l1', addressLine: '1 Test St', city: null, state: 'TX', zip: null, county: null, propertyType: null, status: 'interested',
-  listPrice: 400000, estimatedValue: null, annualTaxes: 8800, annualInsurance: 3600, monthlyHoa: 50, monthlyRent: null, isHomestead: false, listingUrl: null,
+  listPrice: 400000, estimatedValue: null, annualTaxes: 8800, annualInsurance: 3600, monthlyHoa: 50, monthlyRent: null, isHomestead: false, isCollateral: false, listingUrl: null,
   unitCount: null, reoDisposition: null, reoOccupancy: null, rentalIncomeMethod: 'lease', scheduleEMonthlyIncome: null, createdAt: '', liens: [], ...over,
 })
 

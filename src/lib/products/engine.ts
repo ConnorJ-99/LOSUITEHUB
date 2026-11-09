@@ -48,10 +48,10 @@ export function gate(s: Scenario, programs: CatalogProgram[], lenders: Map<strin
 /** The price, on a 1st-lien purchase only (a price left over from editing never counts on a refinance or a 2nd). */
 export const purchasePriceOf = (s: Scenario) => (s.purpose === 'purchase' && s.lien === 'first' ? s.purchasePrice : null)
 
-/** The value LTV is figured on: the lower of price and value for a purchase. */
+/** The value LTV is figured on: the lower of price and value for a purchase, plus any other collateral homes' full value. */
 export const ratioBasis = (s: Scenario) => {
   const price = purchasePriceOf(s)
-  return price ? Math.min(price, s.value || price) : s.value
+  return (price ? Math.min(price, s.value || price) : s.value) + (s.otherCollateralValue ?? 0)
 }
 
 /** LTV of this lien and CLTV of all liens, as percents (unrounded). */

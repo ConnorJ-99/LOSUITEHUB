@@ -1,15 +1,18 @@
 import type { LoanDetails, LoanProfile, Property } from '@/lib/api/types'
 import type { Application } from '@/lib/api/urla'
-import { assetDepletionIncome, borrowerMonthlyIncome, computeScenario, proposedHousingPayment, qualifying, type LoanPurposeKind, type QualifyingResult, type ScenarioInput, type ScenarioResult } from '@/lib/calc'
+import { assetDepletionIncome, borrowerMonthlyIncome, collateralHomes, computeScenario, otherCollateral, proposedHousingPayment, qualifying, type LoanPurposeKind, type QualifyingResult, type ScenarioInput, type ScenarioResult } from '@/lib/calc'
 import { ownedProperties, propertyNetRental } from './realEstate'
 
 export type ScenarioDetails = Pick<
   LoanDetails,
-  'purchasePrice' | 'loanAmount' | 'noteRate' | 'termMonths' | 'mortgageType' | 'miRatePct' | 'upfrontFeePct' | 'estimatedTaxRatePct' | 'estimatedAnnualInsurance' | 'estimatedMonthlyHoa'
+  'purchasePrice' | 'loanAmount' | 'noteRate' | 'termMonths' | 'mortgageType' | 'miRatePct' | 'upfrontFeePct' | 'estimatedTaxRatePct' | 'estimatedAnnualInsurance' | 'estimatedMonthlyHoa' | 'crossCollateral'
 >
 
-/** Everything the payment math needs from a loan: deal facts, subject property, loan type, MI settings and estimates. */
-export function loanScenarioInput(purpose: LoanPurposeKind, d: ScenarioDetails, subject: Property | null): ScenarioInput {
+/**
+ * Everything the payment math needs from a loan: deal facts, subject property, loan type, MI settings and estimates.
+ * Pass the loan's homes so a cross-collateralized loan adds the other homes marked "Use as collateral".
+ */
+export function loanScenarioInput(purpose: LoanPurposeKind, d: ScenarioDetails, subject: Property | null, homes: Property[] = []): ScenarioInput {
   return {
     purpose,
     purchasePrice: d.purchasePrice,
@@ -22,6 +25,7 @@ export function loanScenarioInput(purpose: LoanPurposeKind, d: ScenarioDetails, 
     miRatePct: d.miRatePct,
     upfrontFeePct: d.upfrontFeePct,
     estimates: { taxRatePct: d.estimatedTaxRatePct, annualInsurance: d.estimatedAnnualInsurance, monthlyHoa: d.estimatedMonthlyHoa },
+    otherCollateral: otherCollateral(collateralHomes(d.crossCollateral, subject?.id ?? null, homes)),
   }
 }
 
@@ -42,7 +46,7 @@ export interface ApplicationSummary {
 export function applicationSummary(loan: LoanProfile, app: Application, properties: Property[] | undefined): ApplicationSummary {
   const subject = properties?.find((p) => p.id === loan.details.subjectPropertyId) ?? null
   const isPurchase = loan.purpose === 'purchase' || (loan.purpose === 'investment_dscr' && loan.details.purchasePrice !== null)
-  const scenarioInput = loanScenarioInput(loan.purpose, loan.details, subject)
+  const scenarioInput = loanScenarioInput(loan.purpose, loan.details, subject, properties)
   const scenario = computeScenario(scenarioInput)
   const housing = proposedHousingPayment(scenarioInput, scenario)
   const rentalNets = ownedProperties(properties)

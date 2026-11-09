@@ -36,6 +36,7 @@ interface PropertyRow {
   monthly_hoa: number | string | null
   monthly_rent: number | string | null
   is_homestead: boolean
+  is_collateral: boolean
   listing_url: string | null
   unit_count: number | null
   reo_disposition: ReoDisposition | null
@@ -48,7 +49,7 @@ interface PropertyRow {
 
 const PROPERTY_SELECT = `
   id, loan_id, address_line, city, state, zip, county, property_type, status, list_price, estimated_value,
-  annual_taxes, annual_insurance, monthly_hoa, monthly_rent, is_homestead, listing_url, unit_count, reo_disposition, reo_occupancy,
+  annual_taxes, annual_insurance, monthly_hoa, monthly_rent, is_homestead, is_collateral, listing_url, unit_count, reo_disposition, reo_occupancy,
   rental_income_method, schedule_e_monthly_income, created_at,
   liens:property_liens ( id, property_id, position, lender, balance, note_rate, monthly_payment, is_heloc, originated_on, is_texas_cash_out, to_be_paid_off, credit_limit, mortgage_type )
 `
@@ -89,6 +90,7 @@ function toProperty(r: PropertyRow): Property {
     monthlyHoa: num(r.monthly_hoa),
     monthlyRent: num(r.monthly_rent),
     isHomestead: r.is_homestead,
+    isCollateral: r.is_collateral,
     listingUrl: r.listing_url,
     unitCount: r.unit_count,
     reoDisposition: r.reo_disposition,
@@ -114,8 +116,8 @@ export function useProperties(loanId: string) {
   })
 }
 
-// Rental method and Schedule E income are set from the Income tab, not the property form.
-export type PropertyInput = Omit<Property, 'id' | 'loanId' | 'createdAt' | 'liens' | 'rentalIncomeMethod' | 'scheduleEMonthlyIncome'>
+// Rental method and Schedule E income are set from the Income tab, and "Use as collateral" from its own switch, not the property form.
+export type PropertyInput = Omit<Property, 'id' | 'loanId' | 'createdAt' | 'liens' | 'rentalIncomeMethod' | 'scheduleEMonthlyIncome' | 'isCollateral'>
 
 function propertyRow(p: PropertyInput) {
   return {
@@ -175,6 +177,18 @@ export function useSaveProperty(loanId: string, organizationId: string) {
   const invalidate = useInvalidateLoanProperties(loanId)
   return useMutation({
     mutationFn: (input: PropertyInput & { id?: string }) => saveProperty(loanId, organizationId, input),
+    onSuccess: invalidate,
+  })
+}
+
+/** The Properties tab's "Use as collateral" switch on a cross-collateralized loan. */
+export function useSetCollateral(loanId: string) {
+  const invalidate = useInvalidateLoanProperties(loanId)
+  return useMutation({
+    mutationFn: async ({ id, isCollateral }: { id: string; isCollateral: boolean }) => {
+      const rows = unwrap<{ id: string }[]>(await db().from('properties').update({ is_collateral: isCollateral }).eq('id', id).select('id'))
+      if (rows.length === 0) throw new Error('You do not have permission to edit this property.')
+    },
     onSuccess: invalidate,
   })
 }

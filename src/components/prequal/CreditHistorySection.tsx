@@ -11,6 +11,7 @@ import type { Application } from '@/lib/api/urla'
 import { formatIsoDate } from '@/lib/dates'
 import { formatCurrency } from '@/lib/format'
 import { DOC_TYPE_LABEL, EVENT_LABEL, type CreditEventType } from '@/lib/prequal/readiness'
+import { showsCrossCollateral } from '@/components/profile/CrossCollateral'
 
 const DOC_OPTIONS = (Object.keys(DOC_TYPE_LABEL) as IncomeDocType[]).map((v) => ({ value: v, label: DOC_TYPE_LABEL[v] }))
 const EVENT_OPTIONS = (Object.keys(EVENT_LABEL) as CreditEventType[]).map((v) => ({ value: v, label: EVENT_LABEL[v] }))
@@ -65,7 +66,7 @@ export function CreditHistorySection({ loan, app }: { loan: LoanProfile; app: Ap
   const primary = app.borrowers.find((b) => b.role === 'primary') ?? app.borrowers[0]
   const nameOf = (contactId: string) => app.borrowers.find((b) => b.contactId === contactId)?.person.firstName ?? ''
 
-  const saveDetail = (changes: { incomeDocType?: IncomeDocType | null; timeline?: string | null }, label: string) =>
+  const saveDetail = (changes: { incomeDocType?: IncomeDocType | null; timeline?: string | null; crossCollateral?: boolean }, label: string) =>
     update.mutate(changes, { onSuccess: () => toast.success(`${label} saved`), onError: (e) => toast.error(e.message) })
 
   return (
@@ -88,6 +89,16 @@ export function CreditHistorySection({ loan, app }: { loan: LoanProfile; app: Ap
           placeholder="e.g. 3-6 months, after the lease ends"
           span={3}
         />
+        {showsCrossCollateral(loan) && (
+          <div className="col-span-full">
+            <ToggleChip
+              label="Cross-collateralized"
+              pressed={loan.details.crossCollateral}
+              onChange={(on) => saveDetail({ crossCollateral: on }, on ? 'Cross-collateral on' : 'Cross-collateral off')}
+            />
+            <p className="mt-1.5 text-xs text-muted-foreground">{loan.details.crossCollateral ? 'Several properties secure this loan. Pick the other homes on the Properties tab with "Use as collateral".' : 'Several properties secure one loan, so their full value counts.'}</p>
+          </div>
+        )}
       </FormGrid>
 
       <div className="mt-4 flex items-center justify-between">

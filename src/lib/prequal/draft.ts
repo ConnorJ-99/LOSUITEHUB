@@ -285,7 +285,7 @@ export function prequalSummary(loan: LoanProfile, draft: PrequalDraft, propertie
   const subject = properties?.find((p) => p.id === loan.details.subjectPropertyId) ?? null
   const l = draft.loan
   const loanAmount = draftLoanAmount(isPurchase, l)
-  const input = loanScenarioInput(loan.purpose, { ...loan.details, ...draftLoanDetails(isPurchase, l), loanAmount }, subject)
+  const input = loanScenarioInput(loan.purpose, { ...loan.details, ...draftLoanDetails(isPurchase, l), loanAmount }, subject, properties)
   const scenario = computeScenario(input)
   const housing = proposedHousingPayment(input, scenario)
 

@@ -16,7 +16,7 @@ export const details: LoanDetails = {
   contractDate: null, optionEndDate: null, closingDate: '2026-12-01', vestingEntity: null, financedPropertiesCount: null,
   subjectPropertyId: 'prop-home', mortgageType: 'conventional', amortizationType: 'fixed', titleNames: null, titleManner: null,
   estateType: 'fee_simple', hasBalloon: false, hasInterestOnly: false, hasNegativeAmortization: false, hasPrepaymentPenalty: false,
-  improvementsAmount: null, estimatedClosingCosts: 6000, prepaidItemsAmount: 2500, discountPointsAmount: null, sellerCredits: null, lenderCredits: null, estimatedTaxRatePct: null, estimatedAnnualInsurance: null, estimatedMonthlyHoa: null, miRatePct: null, upfrontFeePct: null, ariveLoanNumber: null, optionFee: null, contractFinancingAmount: null, financingDeadline: null, surveyDeadline: null, titlePolicyPaidBy: null, possession: null, hasHoaAddendum: null, incomeDocType: null, timeline: null, estimatedFundingDate: null, firstPaymentDate: null, impoundWaiver: 'none', qualifyingRate: null, buydown: null, supplementalInsuranceMonthly: null, otherPaymentMonthly: null, otherPaymentLabel: null, pricingScenarioId: null, programId: null, chosenQuoteId: null, preapprovalMaxPrice: null, preapprovalMaxLoanAmount: null, preapprovalExpiresOn: null, lenderName: null, programName: null, monthlyPayment: null, revenueType: null, revenueValue: null,
+  improvementsAmount: null, estimatedClosingCosts: 6000, prepaidItemsAmount: 2500, discountPointsAmount: null, sellerCredits: null, lenderCredits: null, estimatedTaxRatePct: null, estimatedAnnualInsurance: null, estimatedMonthlyHoa: null, miRatePct: null, upfrontFeePct: null, ariveLoanNumber: null, optionFee: null, contractFinancingAmount: null, financingDeadline: null, surveyDeadline: null, titlePolicyPaidBy: null, possession: null, hasHoaAddendum: null, incomeDocType: null, timeline: null, crossCollateral: false, estimatedFundingDate: null, firstPaymentDate: null, impoundWaiver: 'none', qualifyingRate: null, buydown: null, supplementalInsuranceMonthly: null, otherPaymentMonthly: null, otherPaymentLabel: null, pricingScenarioId: null, programId: null, chosenQuoteId: null, preapprovalMaxPrice: null, preapprovalMaxLoanAmount: null, preapprovalExpiresOn: null, lenderName: null, programName: null, monthlyPayment: null, revenueType: null, revenueValue: null,
 }
 
 export const loan: LoanProfile = {
@@ -85,7 +85,7 @@ export const application: Application = {
 export const property = (over: Partial<Property>): Property => ({
   id: 'p', loanId: 'loan-1', addressLine: '', city: 'Dallas', state: 'TX', zip: '75201', county: null, propertyType: 'single_family',
   status: 'current_home', listPrice: null, estimatedValue: null, annualTaxes: null, annualInsurance: null, monthlyHoa: null, monthlyRent: null,
-  isHomestead: false, listingUrl: null, unitCount: 1, reoDisposition: 'retain', reoOccupancy: null, rentalIncomeMethod: 'lease', scheduleEMonthlyIncome: null, createdAt: '2026-10-24T00:00:00Z', liens: [], ...over,
+  isHomestead: false, isCollateral: false, listingUrl: null, unitCount: 1, reoDisposition: 'retain', reoOccupancy: null, rentalIncomeMethod: 'lease', scheduleEMonthlyIncome: null, createdAt: '2026-10-24T00:00:00Z', liens: [], ...over,
 })
 
 export const properties: Property[] = [

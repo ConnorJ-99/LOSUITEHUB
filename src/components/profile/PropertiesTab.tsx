@@ -14,6 +14,7 @@ import type { Lien, LoanProfile, Property, PropertyStatus } from '@/lib/api/type
 import { formatIsoDate, relativeTime } from '@/lib/dates'
 import { scenarioFrom, scenarioName } from '@/lib/pricing/scenario'
 import { formatCurrency, formatPercent } from '@/lib/format'
+import { CollateralSummaryCard, CollateralSwitch } from './CrossCollateral'
 import { LienDialog } from './LienDialog'
 import { PropertyDialog } from './PropertyDialog'
 import { propertyStatusLabel } from './options'
@@ -71,6 +72,7 @@ function PropertyCard({
   onPrice,
   pricing,
   onLetter,
+  collateral,
 }: {
   property: Property
   isSubject: boolean
@@ -90,6 +92,8 @@ function PropertyCard({
   pricing: boolean
   /** Purchase files: a pre-approval letter for an offer on this home. */
   onLetter?: () => void
+  /** Cross-collateralized loans: the "Use as collateral" switch (not on the subject property). */
+  collateral?: React.ReactNode
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const place = [property.city, [property.state, property.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')
@@ -110,6 +114,7 @@ function PropertyCard({
               {property.isHomestead && <Badge variant="outline">Homestead</Badge>}
             </div>
             {place && <p className="text-sm text-muted-foreground">{place}</p>}
+            {collateral && <div className="mt-2">{collateral}</div>}
           </div>
           <div className="flex flex-wrap gap-1">
             {!isSubject && (
@@ -276,6 +281,8 @@ export function PropertiesTab({ loan }: { loan: LoanProfile }) {
         </Card>
       )}
 
+      {loan.details.crossCollateral && list.length > 0 && <CollateralSummaryCard loan={loan} properties={list} />}
+
       {sorted.map((property) => (
         <PropertyCard
           key={property.id}
@@ -293,6 +300,7 @@ export function PropertiesTab({ loan }: { loan: LoanProfile }) {
           onPrice={() => price(property)}
           pricing={createScenario.isPending || scenarios.isLoading}
           onLetter={loan.purpose === 'purchase' ? () => navigate(`/loans/${loan.id}?tab=letters&property=${property.id}`) : undefined}
+          collateral={loan.details.crossCollateral && property.id !== subjectId ? <CollateralSwitch loan={loan} property={property} /> : undefined}
         />
       ))}
 

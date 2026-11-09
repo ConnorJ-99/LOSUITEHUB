@@ -13,7 +13,7 @@ const t = (key: string, section: FeeTemplate['section'], amount: number, paidBy:
 const templates = [t('admin', 'A', 1505.75), t('appraisal', 'B', 650), t('credit', 'B', 65), t('flood', 'B', 150), t('title', 'C', 2086.25), t('settlement', 'C', 750), t('recording', 'E', 223), t('misc', 'H', 150)]
 const home = (over: Partial<Property> = {}): Property => ({
   id: 'p1', loanId: 'l1', addressLine: '1 Test St', city: 'Frisco', state: 'TX', zip: '75034', county: null, propertyType: 'single_family', status: 'current_home',
-  listPrice: null, estimatedValue: 620000, annualTaxes: 6300, annualInsurance: 1109.64, monthlyHoa: null, monthlyRent: null, isHomestead: true, listingUrl: null,
+  listPrice: null, estimatedValue: 620000, annualTaxes: 6300, annualInsurance: 1109.64, monthlyHoa: null, monthlyRent: null, isHomestead: true, isCollateral: false, listingUrl: null,
   unitCount: null, reoDisposition: null, reoOccupancy: null, rentalIncomeMethod: 'lease', scheduleEMonthlyIncome: null, createdAt: '', liens: [], ...over,
 })
 const at = '2026-10-27T20:05:00Z' // 3:05 PM in Dallas
