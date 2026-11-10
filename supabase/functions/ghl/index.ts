@@ -849,8 +849,8 @@ async function samePeople(admin: SupabaseClient, organizationId: string, table: 
 /**
  * Add to GoHighLevel for a partner (build plan Phase 3): the stored link, else
  * GHL's duplicate search by email and phone (never by name), else a new GHL
- * contact assigned to the person clicking (the partner's own loan officer once
- * partners have one). Only this sets partners.ghl_contact_id. Same rules as
+ * contact assigned to the partner's loan officer (Phase 4), else the person
+ * clicking. Only this sets partners.ghl_contact_id. Same rules as
  * borrowers: test mode only touches TEST names, no tags, no workflows, and a
  * shared email or phone, two GHL people, or a GHL contact already linked to
  * someone else waits for an admin.
@@ -859,9 +859,10 @@ async function linkPartner(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   const partnerId = typeof body.partnerId === 'string' ? body.partnerId : null
   if (!partnerId) throw new UserError('Which partner?')
   // What the user can see (Row Level Security): everyone in the company sees partners.
-  const found = await db.from('partners').select('id, name, email, phone, ghl_contact_id').eq('id', partnerId).eq('organization_id', organizationId).maybeSingle()
+  // * so this works before and after the partner stages script (assigned_lo_id).
+  const found = await db.from('partners').select('*').eq('id', partnerId).eq('organization_id', organizationId).maybeSingle()
   if (found.error) throw new Error(found.error.message)
-  const partner = found.data as { id: string; name: string; email: string | null; phone: string | null; ghl_contact_id: string | null } | null
+  const partner = found.data as { id: string; name: string; email: string | null; phone: string | null; ghl_contact_id: string | null; assigned_lo_id?: string | null } | null
   if (!partner) throw new UserError('That partner was not found.')
   if (partner.ghl_contact_id) return { linked: true, created: false }
 
@@ -878,7 +879,7 @@ async function linkPartner(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   const picked = pickGhlMatch(match.byPhone, match.byEmail)
   if ('problem' in picked) return { skipped: picked.problem }
 
-  const link = await admin.from('ghl_user_links').select('ghl_user_id').eq('organization_id', organizationId).eq('profile_id', userId).maybeSingle()
+  const link = await admin.from('ghl_user_links').select('ghl_user_id').eq('organization_id', organizationId).eq('profile_id', partner.assigned_lo_id ?? userId).maybeSingle()
   if (link.error) throw new Error(link.error.message)
   const assignTo = (link.data as { ghl_user_id: string } | null)?.ghl_user_id ?? null
 

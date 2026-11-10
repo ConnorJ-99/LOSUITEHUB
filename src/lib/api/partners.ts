@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { db, keys, unwrap } from './client'
 import { useAuth } from '@/lib/auth/context'
 import type { PartnerFile, PartnerKind } from '@/lib/partners/match'
+import type { PartnerStage } from '@/lib/partners/stages'
 import type { PipelineStage } from '@/lib/pipeline/stages'
 
 export interface Partner {
@@ -18,6 +19,12 @@ export interface Partner {
   /** Set only by GHL matching (Add to GoHighLevel). */
   ghlContactId: string | null
   notes: string | null
+  /** Relationship stage, owner and dates (Phase 4). Undefined until the partner stages script has run. */
+  stage?: PartnerStage
+  assignedLoId: string | null
+  nextFollowUpOn: string | null
+  lastMetOn: string | null
+  source: string | null
   addedFrom: 'file_team' | 'website' | 'manual'
   createdAt: string
   /** Files you can see that they're on. */
@@ -39,6 +46,11 @@ interface PartnerRow {
   email_opted_out_at: string | null
   ghl_contact_id: string | null
   notes: string | null
+  stage?: PartnerStage
+  assigned_lo_id?: string | null
+  next_follow_up_on?: string | null
+  last_met_on?: string | null
+  source?: string | null
   added_from: Partner['addedFrom']
   created_at: string
   team: {
@@ -53,7 +65,8 @@ interface PartnerRow {
   inquiries: { received_at: string }[]
 }
 
-const SELECT = `id, kind, name, company, email, phone, sms_consent, email_consent, sms_opted_out_at, email_opted_out_at, ghl_contact_id, notes, added_from, created_at,
+// * so the page keeps working before a script adds columns (the Phase 4 stage fields).
+const SELECT = `*,
   team:loan_team_members!loan_team_members_partner_id_fkey ( role, loan:loans!loan_team_members_loan_id_fkey ( id, stage, closing_date, borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( first_name, last_name ) ) ) ),
   inquiries:lead_submissions!lead_submissions_partner_id_fkey ( received_at )`
 
@@ -71,6 +84,11 @@ function toPartner(r: PartnerRow): Partner {
     emailOptedOutAt: r.email_opted_out_at,
     ghlContactId: r.ghl_contact_id,
     notes: r.notes,
+    stage: r.stage,
+    assignedLoId: r.assigned_lo_id ?? null,
+    nextFollowUpOn: r.next_follow_up_on ?? null,
+    lastMetOn: r.last_met_on ?? null,
+    source: r.source ?? null,
     addedFrom: r.added_from,
     createdAt: r.created_at,
     // A file you can't see comes back without its loan.
@@ -102,6 +120,8 @@ export interface PartnerDraft {
   smsConsent?: boolean | null
   emailConsent?: boolean | null
   notes: string
+  /** Phase 4 fields: sent only when the partner stages script has run (the dialog shows them then). */
+  stages?: { stage: PartnerStage; assignedLoId: string | null; nextFollowUpOn: string | null; lastMetOn: string | null; source: string }
 }
 
 /** Turns database refusals into something a person can act on. */
@@ -137,6 +157,7 @@ export function useSavePartner() {
         ...(p.smsConsent !== undefined && { sms_consent: p.smsConsent }),
         ...(p.emailConsent !== undefined && { email_consent: p.emailConsent }),
         notes: p.notes.trim() || null,
+        ...(p.stages && { stage: p.stages.stage, assigned_lo_id: p.stages.assignedLoId, next_follow_up_on: p.stages.nextFollowUpOn, last_met_on: p.stages.lastMetOn, source: p.stages.source.trim() || null }),
       }
       const result = p.id
         ? await db().from('partners').update(row).eq('id', p.id).select('id')

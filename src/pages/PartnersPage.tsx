@@ -6,11 +6,13 @@ import { Button } from '@/components/ui/button'
 import { Card, confirmAction, EmptyState, PageHeader, SearchInput, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { TONE_CLASS } from '@/components/messages/tone'
 import { PartnerDialog } from '@/components/partners/PartnerDialog'
+import { useOrgMembers } from '@/lib/api/loans'
 import { useDeletePartner, usePartners, type Partner } from '@/lib/api/partners'
 import { useAuth } from '@/lib/auth/context'
-import { formatIsoDate } from '@/lib/dates'
+import { formatIsoDate, todayIso } from '@/lib/dates'
 import { consentChip } from '@/lib/messaging/thread'
 import { PARTNER_KINDS, partnerKindLabel, searchPartners, splitFiles, type PartnerKind } from '@/lib/partners/match'
+import { byFollowUp, fileCounts, filterByStage, followUpState, partnerStageLabel, stageCounts, type PartnerStage } from '@/lib/partners/stages'
 import { formatPhone } from '@/lib/pipeline/helpers'
 import { stageLabel } from '@/lib/pipeline/stages'
 
@@ -56,7 +58,30 @@ function FileLine({ file }: { file: Partner['files'][number] }) {
   )
 }
 
-function PartnerCard({ partner, canEdit, onEdit }: { partner: Partner; canEdit: boolean; onEdit: () => void }) {
+const FOLLOW_UP_TONE = { overdue: 'text-destructive font-medium', today: 'text-primary font-medium', soon: 'text-foreground', later: 'text-muted-foreground' } as const
+
+/** Stage, loan officer, follow-up and file counts (Phase 4), once the partner stages script has run. */
+function RelationshipLine({ partner, loName, today }: { partner: Partner; loName: string | null; today: string }) {
+  if (!partner.stage) return null
+  const counts = fileCounts(partner.files)
+  const follow = followUpState(partner.nextFollowUpOn, today)
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      <span className="rounded-md bg-primary/10 px-1.5 py-0.5 font-semibold text-primary">{partnerStageLabel(partner.stage)}</span>
+      <span className="text-muted-foreground">{loName ?? 'No loan officer'}</span>
+      <span className={follow ? FOLLOW_UP_TONE[follow.tone] : 'text-muted-foreground'}>
+        {follow ? `Follow up ${follow.tone === 'today' ? 'today' : formatIsoDate(partner.nextFollowUpOn!)}${follow.tone === 'overdue' ? ' (overdue)' : ''}` : 'No follow-up set'}
+      </span>
+      {partner.lastMetOn && <span className="text-muted-foreground">Met {formatIsoDate(partner.lastMetOn)}</span>}
+      <span className="text-muted-foreground tabular-nums">
+        {counts.referred} {counts.referred === 1 ? 'file' : 'files'} · {counts.closed} closed
+      </span>
+      {partner.source && <span className="text-muted-foreground">From {partner.source}</span>}
+    </div>
+  )
+}
+
+function PartnerCard({ partner, canEdit, onEdit, loName, today }: { partner: Partner; canEdit: boolean; onEdit: () => void; loName: string | null; today: string }) {
   const remove = useDeletePartner()
   const [showClosed, setShowClosed] = useState(false)
   const { open, closed } = splitFiles(partner.files)
@@ -114,6 +139,7 @@ function PartnerCard({ partner, canEdit, onEdit }: { partner: Partner; canEdit: 
             <span className="text-muted-foreground">No phone</span>
           )}
         </div>
+        <RelationshipLine partner={partner} loName={loName} today={today} />
         <ConsentChips partner={partner} />
 
         <div className="border-t pt-2">
@@ -163,10 +189,23 @@ export function PartnersPage() {
   const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
   const [kind, setKind] = useState<PartnerKind | null>(null)
   const [editing, setEditing] = useState<Partner | 'new' | null>(null)
+  const members = useOrgMembers()
+  const myId = state.status === 'signedIn' ? state.user.id : null
+  // Partners are shared company contacts: everyone sees all of them, and a loan officer starts on their own.
+  const [mine, setMine] = useState(state.status === 'signedIn' && state.user.role === 'loan_officer')
+  const [stage, setStage] = useState<PartnerStage | null>(null)
+  const [followUpFirst, setFollowUpFirst] = useState(false)
+  const today = todayIso()
 
   const all = useMemo(() => partners.data ?? [], [partners.data])
-  const rows = useMemo(() => searchPartners(all, search).filter((p) => !kind || p.kind === kind), [all, search, kind])
+  const stagesReady = all.some((p) => p.stage !== undefined)
+  const scoped = useMemo(() => (stagesReady ? filterByStage(all.map((p) => ({ ...p, stage: p.stage! })), { stage: null, mineOf: mine ? myId : null }) : all), [all, stagesReady, mine, myId])
+  const rows = useMemo(() => {
+    const found = searchPartners(scoped, search).filter((p) => (!kind || p.kind === kind) && (!stage || p.stage === stage))
+    return followUpFirst ? byFollowUp(found) : found
+  }, [scoped, search, kind, stage, followUpFirst])
   const counts = (k: PartnerKind) => all.filter((p) => p.kind === k).length
+  const loName = (id: string | null) => (id ? (members.data?.find((m) => m.id === id)?.name ?? null) : null)
 
   return (
     <>
@@ -193,6 +232,18 @@ export function PartnersPage() {
 
       {partners.isSuccess && (
         <>
+          {stagesReady && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <ToggleChipGroup>
+                {stageCounts(scoped.map((p) => ({ stage: p.stage! }))).map((c) => (
+                  <ToggleChip key={c.stage} label={`${c.label} · ${c.count}`} pressed={stage === c.stage} onChange={(p) => setStage(p ? c.stage : null)} />
+                ))}
+              </ToggleChipGroup>
+              <span className="mx-1 hidden h-5 w-px bg-border sm:block" />
+              <ToggleChip label="My partners" pressed={mine} onChange={setMine} />
+              <ToggleChip label="Follow-up first" pressed={followUpFirst} onChange={setFollowUpFirst} />
+            </div>
+          )}
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <SearchInput value={search} onChange={setSearch} placeholder="Name, company, email or phone" className="w-full sm:w-80" />
             <ToggleChipGroup>
@@ -214,7 +265,7 @@ export function PartnersPage() {
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {rows.map((p) => (
-                <PartnerCard key={p.id} partner={p} canEdit={canEdit} onEdit={() => setEditing(p)} />
+                <PartnerCard key={p.id} partner={p} canEdit={canEdit} onEdit={() => setEditing(p)} loName={loName(p.assignedLoId)} today={today} />
               ))}
             </div>
           )}
