@@ -363,6 +363,58 @@ export function useUpdateStage() {
   })
 }
 
+export interface CloseLoan {
+  loanId: string
+  closingDate: string
+  fundingDate: string
+  reason: string | null
+}
+
+/** Mark as Closed: the closed and funded dates and the stage are saved together (close_loan), and the dates are logged with the reason. */
+export async function closeLoan({ loanId, closingDate, fundingDate, reason }: CloseLoan): Promise<void> {
+  unwrap(await db().rpc('close_loan', { p_loan_id: loanId, p_closing_date: closingDate, p_funding_date: fundingDate, p_reason: reason }))
+}
+
+/** Corrects a closed file's dates later. Only logged: it never moves GHL or anything else. */
+export async function setLoanDates({ loanId, closingDate, fundingDate, reason }: { loanId: string; closingDate: string | null; fundingDate: string | null; reason: string | null }): Promise<void> {
+  unwrap(await db().rpc('set_loan_dates', { p_loan_id: loanId, p_closing_date: closingDate, p_funding_date: fundingDate, p_reason: reason }))
+}
+
+const refreshLoan = (queryClient: ReturnType<typeof useQueryClient>, loanId: string) => {
+  for (const key of [keys.pipeline, keys.loan(loanId), keys.stageHistory(loanId), ['contactLoans'], keys.contacts, keys.closedLoans, ['closedLoan'], ['loanChanges', loanId], ['lenderLoans']]) queryClient.invalidateQueries({ queryKey: key })
+}
+
+export function useCloseLoan() {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: closeLoan, onSettled: (_d, _e, { loanId }) => refreshLoan(queryClient, loanId) })
+}
+
+export function useSetLoanDates(loanId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: (d: { closingDate: string | null; fundingDate: string | null; reason: string | null }) => setLoanDates({ loanId, ...d }), onSettled: () => refreshLoan(queryClient, loanId) })
+}
+
+export interface LoanChange {
+  id: string
+  field: string
+  oldValue: string | null
+  newValue: string | null
+  changedBy: string | null
+  changedAt: string
+  reason: string | null
+}
+
+/** The loan's change log (dates, revenue, loan officer), newest first. Written only by the database. */
+export function useLoanChanges(loanId: string) {
+  return useQuery({
+    queryKey: ['loanChanges', loanId],
+    queryFn: async () =>
+      unwrap<{ id: string; field: string; old_value: string | null; new_value: string | null; changed_at: string; reason: string | null; by: { full_name: string | null; email: string } | null }[]>(
+        await db().from('loan_change_log').select('id, field, old_value, new_value, changed_at, reason, by:profiles!loan_change_log_changed_by_fkey(full_name, email)').eq('loan_id', loanId).order('changed_at', { ascending: false }).limit(50),
+      ).map((r): LoanChange => ({ id: r.id, field: r.field, oldValue: r.old_value, newValue: r.new_value, changedBy: r.by ? r.by.full_name || r.by.email : null, changedAt: r.changed_at, reason: r.reason })),
+  })
+}
+
 export interface LeadEdits {
   loanId: string
   contactId: string

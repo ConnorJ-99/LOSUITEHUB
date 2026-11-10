@@ -2,8 +2,28 @@
 // officer, loan type and purpose. Computed from the loans every time;
 // nothing here is stored.
 
-export interface ProductionLoan {
+/** The dates that decide when a closed loan counts as production. */
+export interface ProductionDates {
+  fundingDate?: string | null
   closingDate: string | null
+  /** When the file was marked Closed (a timestamp): only for old loans with neither date. */
+  stageChangedAt?: string | null
+}
+
+const centralDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' })
+
+/**
+ * The day a closed loan counts as production: the funding date, else the
+ * closing date, else (old loans with neither) the day it was marked Closed in
+ * Central time. A loan funded Friday and marked closed Monday counts on Friday.
+ */
+export function productionDate(loan: ProductionDates): string | null {
+  if (loan.fundingDate) return loan.fundingDate
+  if (loan.closingDate) return loan.closingDate
+  return loan.stageChangedAt ? centralDate.format(new Date(loan.stageChangedAt)) : null
+}
+
+export interface ProductionLoan extends ProductionDates {
   loanAmount: number | null
   lender: string | null
   loName: string | null
@@ -33,12 +53,15 @@ export interface Production {
 
 export const NOT_RECORDED = 'Not recorded'
 
-/** The closing year, or null when the date is missing. */
-export const closingYear = (loan: Pick<ProductionLoan, 'closingDate'>) => (loan.closingDate ? Number(loan.closingDate.slice(0, 4)) : null)
+/** The production year (see productionDate), or null when there's no date at all. */
+export const productionYear = (loan: ProductionDates) => {
+  const d = productionDate(loan)
+  return d ? Number(d.slice(0, 4)) : null
+}
 
 /** Years with closed loans, newest first. */
-export function closingYears(loans: Pick<ProductionLoan, 'closingDate'>[]): number[] {
-  return [...new Set(loans.map(closingYear).filter((y): y is number => y !== null))].sort((a, b) => b - a)
+export function productionYears(loans: ProductionDates[]): number[] {
+  return [...new Set(loans.map(productionYear).filter((y): y is number => y !== null))].sort((a, b) => b - a)
 }
 
 function groupBy(loans: ProductionLoan[], label: (l: ProductionLoan) => string | null): ProductionGroup[] {

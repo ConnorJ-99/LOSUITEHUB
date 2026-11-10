@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { keyDates, upcomingHolidays } from './keyDates'
-import { closingYears, NOT_RECORDED, production, type ProductionLoan } from './production'
+import { NOT_RECORDED, production, productionDate, productionYears, type ProductionLoan } from './production'
 
 const labels = { loanType: (v: string) => v.toUpperCase(), purpose: (v: string) => v }
 const loan = (over: Partial<ProductionLoan>): ProductionLoan => ({ closingDate: '2025-03-01', loanAmount: 300000, lender: 'Lender A', loName: 'Connor', loanType: 'fha', purpose: 'purchase', ...over })
@@ -13,8 +13,8 @@ describe('production', () => {
     loan({ loanAmount: null, lender: null, loanType: null }),
   ]
 
-  it('lists closing years newest first', () => {
-    expect(closingYears([...loans, loan({ closingDate: null })])).toEqual([2025, 2024])
+  it('lists production years newest first', () => {
+    expect(productionYears([...loans, loan({ closingDate: null })])).toEqual([2025, 2024])
   })
 
   it('totals loans and volume, and groups by lender, loan officer and loan type', () => {
@@ -34,6 +34,29 @@ describe('production', () => {
 
   it('handles no loans', () => {
     expect(production([], labels)).toMatchObject({ count: 0, volume: 0, average: null, byLender: [] })
+  })
+})
+
+describe('productionDate', () => {
+  // Funded Friday 2026-11-06, marked Closed on Monday 2026-11-09 at 9 AM Central.
+  const markedMonday = '2026-11-09T15:00:00Z'
+  it('a loan funded Friday and marked closed Monday counts on Friday', () => {
+    expect(productionDate({ fundingDate: '2026-11-06', closingDate: '2026-11-06', stageChangedAt: markedMonday })).toBe('2026-11-06')
+  })
+  it('a refinance that funds after closing counts on the funding date', () => {
+    expect(productionDate({ fundingDate: '2026-11-09', closingDate: '2026-11-04', stageChangedAt: markedMonday })).toBe('2026-11-09')
+  })
+  it('falls back to the closing date when there is no funding date', () => {
+    expect(productionDate({ fundingDate: null, closingDate: '2026-11-06', stageChangedAt: markedMonday })).toBe('2026-11-06')
+  })
+  it('uses the day it was marked Closed (Central time) only when neither date is set', () => {
+    expect(productionDate({ fundingDate: null, closingDate: null, stageChangedAt: markedMonday })).toBe('2026-11-09')
+    // 10:30 PM Central on Dec 31 is already Jan 1 in UTC: it still counts in the old year.
+    expect(productionDate({ closingDate: null, stageChangedAt: '2027-01-01T04:30:00Z' })).toBe('2026-12-31')
+    expect(productionDate({ closingDate: null })).toBeNull()
+  })
+  it('puts a loan in its funding year', () => {
+    expect(productionYears([{ fundingDate: '2027-01-02', closingDate: '2026-12-30' }])).toEqual([2027])
   })
 })
 

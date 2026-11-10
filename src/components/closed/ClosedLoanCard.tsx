@@ -7,6 +7,7 @@ import { MORTGAGE_TYPE_OPTIONS, OCCUPANCY_OPTIONS } from '@/components/profile/o
 import { useAddFollowUp, useClosedLoan, useSaveClosedFacts, type ClosedLoan } from '@/lib/api/closed'
 import { useSetAutomateReminders } from '@/lib/api/drafts'
 import { useGhlOpportunity } from '@/components/messaging/useGhlOpportunity'
+import { ClosedDates } from './ClosedDates'
 import { CopyToLeadDialog } from './CopyToLeadDialog'
 import { MortgageCard } from './MortgageCard'
 import { useLoanTasks } from '@/lib/api/tasks'
@@ -89,7 +90,7 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
   return (
     <Card
       title="Closed loan"
-      description={c.closingDate ? `Closed ${formatIsoDate(c.closingDate)}` : 'No closing date yet'}
+      description={c.closingDate ? `Closed ${formatIsoDate(c.closingDate)}${c.fundingDate ? ` · funded ${formatIsoDate(c.fundingDate)}` : ''}` : 'No closing date yet'}
       action={
         <div className="flex flex-wrap gap-2">
           {ghl.ready && loan.stage === 'closed' && (
@@ -121,6 +122,8 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
           {fact('Co-borrower', c.coBorrowers.map((p) => fullName(p)).join(', ') || null)}
         </dl>
         {c.program && c.program !== c.programName && <p className="text-xs text-muted-foreground">Program from Product Search: {c.lender} · {c.program}</p>}
+
+        <ClosedDates loanId={loan.id} closingDate={c.closingDate} fundingDate={c.fundingDate} />
 
         <FormGrid>
           <Input label="Lender" value={form.lenderName ?? ''} onChange={(v) => set('lenderName')(v || null)} span={2} />

@@ -133,8 +133,8 @@ export const CHANGE_TOOLS: ToolDef[] = [
   },
   {
     name: 'move_pipeline_stage',
-    description: "Move a file to another pipeline stage, like the Change status menu. Lost needs a reason; Closed needs the borrower's email and phone and also moves their GHL opportunity to Closed (no other stage touches GHL).",
-    input_schema: { type: 'object', properties: { loan_id: uuid, stage: { type: 'string', description: 'A stage id from the stage list.' }, lost_reason: { type: 'string' } }, required: ['loan_id', 'stage'], additionalProperties: false },
+    description: "Move a file to another pipeline stage, like the Change status menu. Lost needs a reason; Closed needs the borrower's email and phone, saves the closed and funded dates (ask for them if you don't know; production counts on the funded date) and also moves their GHL opportunity to Closed (no other stage touches GHL).",
+    input_schema: { type: 'object', properties: { loan_id: uuid, stage: { type: 'string', description: 'A stage id from the stage list.' }, lost_reason: { type: 'string' }, closed_on: { type: 'string', description: 'For Closed: YYYY-MM-DD it closed (defaults to the file closing date, else today).' }, funded_on: { type: 'string', description: 'For Closed: YYYY-MM-DD it funded (defaults to the closed date).' } }, required: ['loan_id', 'stage'], additionalProperties: false },
   },
   {
     name: 'update_borrower_fields',

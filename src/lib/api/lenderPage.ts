@@ -3,6 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
+import { productionDate } from '@/lib/closed/production'
 import { fullName } from '@/lib/pipeline/helpers'
 import type { ProgramVersions } from '@/lib/products/lenderDetail'
 import type { ReadRule } from '../../../supabase/functions/assistant/matrix'
@@ -137,6 +138,8 @@ export interface LenderFile {
   programName: string
   loanAmount: number | null
   closingDate: string | null
+  fundingDate: string | null
+  stageChangedAt: string
   applicationOn: string | null
   closedOn: string | null
 }
@@ -154,6 +157,8 @@ export function useLenderFiles(lenderId: string) {
             stage: string
             loan_amount: unknown
             closing_date: string | null
+            funding_date: string | null
+            stage_changed_at: string
             milestones: { milestone: string; reached_on: string }[]
             borrowers: { role: string; contact: { first_name: string; last_name: string } | null }[]
           } | null
@@ -161,7 +166,7 @@ export function useLenderFiles(lenderId: string) {
       >(
         await db()
           .from('loan_program_options')
-          .select('program:programs!loan_program_options_program_id_fkey!inner(name, lender_id), loan:loans!loan_program_options_loan_id_fkey(id, stage, loan_amount, closing_date, milestones:loan_milestones(milestone, reached_on), borrowers:loan_borrowers(role, contact:contacts!loan_borrowers_contact_id_fkey(first_name, last_name)))')
+          .select('program:programs!loan_program_options_program_id_fkey!inner(name, lender_id), loan:loans!loan_program_options_loan_id_fkey(id, stage, loan_amount, closing_date, funding_date, stage_changed_at, milestones:loan_milestones(milestone, reached_on), borrowers:loan_borrowers(role, contact:contacts!loan_borrowers_contact_id_fkey(first_name, last_name)))')
           .eq('status', 'chosen')
           .eq('program.lender_id', lenderId),
       )
@@ -177,8 +182,10 @@ export function useLenderFiles(lenderId: string) {
             programName: r.program.name,
             loanAmount: r.loan.loan_amount == null ? null : Number(r.loan.loan_amount),
             closingDate: r.loan.closing_date,
+            fundingDate: r.loan.funding_date,
+            stageChangedAt: r.loan.stage_changed_at,
             applicationOn: on('application'),
-            closedOn: on('closed') ?? on('funded') ?? (r.loan.stage === 'closed' ? r.loan.closing_date : null),
+            closedOn: on('closed') ?? on('funded') ?? (r.loan.stage === 'closed' ? productionDate({ fundingDate: r.loan.funding_date, closingDate: r.loan.closing_date, stageChangedAt: r.loan.stage_changed_at }) : null),
           },
         ]
       })

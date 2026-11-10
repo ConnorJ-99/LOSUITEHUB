@@ -1,6 +1,7 @@
 // The Lenders list (mockup 08): what each lender offers, whether it needs
 // attention, your loans with it, the summary tiles and the filters. Pure.
 
+import { productionDate, type ProductionDates } from '@/lib/closed/production'
 import { isStale, oldestVerified } from './stale'
 import type { DocType, Feature, LenderStatus, Lien, ProductFamily } from './taxonomy'
 
@@ -42,15 +43,15 @@ export function offerCounts(programs: SummaryProgram[]): { tag: OfferTag; count:
   return OFFER_TAGS.map((tag) => ({ tag, count: active.filter((p) => offerTags(p).includes(tag)).length })).filter((c) => c.count > 0)
 }
 
-export interface LenderLoan {
+export interface LenderLoan extends ProductionDates {
   stage: string
-  closingDate: string | null
 }
 
 /** Your loans with a lender (files where you chose one of its programs): closed this year, and still in process. */
 export function loanCounts(loans: LenderLoan[], year: number): { closedThisYear: number; active: number } {
   return {
-    closedThisYear: loans.filter((l) => l.stage === 'closed' && (l.closingDate == null || l.closingDate.startsWith(String(year)))).length,
+    // Counted in the year it funded (else closed); a closed loan with no date at all still counts.
+    closedThisYear: loans.filter((l) => l.stage === 'closed' && (productionDate(l)?.startsWith(String(year)) ?? true)).length,
     active: loans.filter((l) => l.stage !== 'closed' && l.stage !== 'lost' && l.stage !== 'nurture').length,
   }
 }

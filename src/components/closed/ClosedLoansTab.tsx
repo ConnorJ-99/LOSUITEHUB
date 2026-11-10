@@ -10,7 +10,7 @@ import { formatIsoDate, todayIso } from '@/lib/dates'
 import { downloadText } from '@/lib/download'
 import { formatCompactCurrency, formatCurrency, formatPercent } from '@/lib/format'
 import { keyDates, type KeyDate } from '@/lib/closed/keyDates'
-import { closingYear, closingYears, NOT_RECORDED, production, type ProductionGroup } from '@/lib/closed/production'
+import { NOT_RECORDED, production, productionYear, productionYears, type ProductionGroup } from '@/lib/closed/production'
 import { toCsv } from '@/lib/import/csv'
 import { formatPhone, fullName } from '@/lib/pipeline/helpers'
 import { purposeLabel } from '@/lib/pipeline/stages'
@@ -33,13 +33,13 @@ export function ClosedLoansTab() {
   const today = todayIso()
 
   const loans = useMemo(() => closed.data ?? [], [closed.data])
-  const years = closingYears(loans)
+  const years = productionYears(loans)
   const options = (values: (string | null)[]) => [{ value: ALL, label: 'All' }, ...[...new Set(values.map((v) => v ?? NOT_RECORDED))].sort().map((v) => ({ value: v, label: v }))]
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase()
     return loans.filter((l) => {
-      if (year !== null && closingYear(l) !== year) return false
+      if (year !== null && productionYear(l) !== year) return false
       if (lo !== ALL && (l.lo?.name ?? NOT_RECORDED) !== lo) return false
       if (loanType !== ALL && (l.loanType ? typeLabel(l.loanType) : NOT_RECORDED) !== loanType) return false
       if (lender !== ALL && (l.lender ?? NOT_RECORDED) !== lender) return false
@@ -50,13 +50,13 @@ export function ClosedLoansTab() {
   }, [loans, year, lo, loanType, lender, search])
 
   const stats = production(
-    shown.map((l) => ({ closingDate: l.closingDate, loanAmount: l.loanAmount, lender: l.lender, loName: l.lo?.name ?? null, loanType: l.loanType, purpose: l.purpose })),
+    shown.map((l) => ({ fundingDate: l.fundingDate, closingDate: l.closingDate, stageChangedAt: l.stageChangedAt, loanAmount: l.loanAmount, lender: l.lender, loName: l.lo?.name ?? null, loanType: l.loanType, purpose: l.purpose })),
     labels,
   )
   const byYear = useMemo(() => {
     const groups = new Map<string, ClosedLoan[]>()
     for (const l of shown) {
-      const key = String(closingYear(l) ?? 'No closing date')
+      const key = String(productionYear(l) ?? 'No closing or funding date')
       groups.set(key, [...(groups.get(key) ?? []), l])
     }
     return [...groups.entries()]
@@ -106,7 +106,7 @@ export function ClosedLoansTab() {
       <ToggleChipGroup>
         <ToggleChip label={`All years ${loans.length}`} pressed={year === null} onChange={() => setYear(null)} />
         {years.map((y) => (
-          <ToggleChip key={y} label={`${y} ${loans.filter((l) => closingYear(l) === y).length}`} pressed={year === y} onChange={(on) => setYear(on ? y : null)} />
+          <ToggleChip key={y} label={`${y} ${loans.filter((l) => productionYear(l) === y).length}`} pressed={year === y} onChange={(on) => setYear(on ? y : null)} />
         ))}
       </ToggleChipGroup>
 
@@ -175,7 +175,10 @@ export function ClosedLoansTab() {
               <tbody className="divide-y">
                 {group.map((l) => (
                   <tr key={l.id} className="cursor-pointer hover:bg-muted/40" onClick={() => navigate(`/loans/${l.id}`)}>
-                    <td className="px-4 py-2 whitespace-nowrap tabular-nums">{l.closingDate ? formatIsoDate(l.closingDate) : '—'}</td>
+                    <td className="px-4 py-2 whitespace-nowrap tabular-nums">
+                      {l.closingDate ? formatIsoDate(l.closingDate) : '—'}
+                      {l.fundingDate && l.fundingDate !== l.closingDate && <p className="text-xs text-muted-foreground">Funded {formatIsoDate(l.fundingDate)}</p>}
+                    </td>
                     <td className="px-4 py-2">
                       <p className="font-medium">{borrowerName(l)}{l.coBorrowers.length > 0 && <span className="font-normal text-muted-foreground"> & {l.coBorrowers.map((c) => c.firstName).join(', ')}</span>}</p>
                       <p className={cn('text-xs', l.borrower?.email ? 'text-muted-foreground' : 'text-amber-700')}>

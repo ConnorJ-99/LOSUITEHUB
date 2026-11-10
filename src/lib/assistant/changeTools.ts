@@ -12,7 +12,8 @@
 import { db, unwrap } from '@/lib/api/client'
 import { fetchProgramList, newProgramOption } from '@/lib/api/estimates'
 import { moveGhlOpportunity } from '@/lib/api/ghl'
-import { fetchLoanProfile, saveLoanDetails, updateStage } from '@/lib/api/loans'
+import { closeLoan, fetchLoanProfile, saveLoanDetails, updateStage } from '@/lib/api/loans'
+import { todayIso } from '@/lib/dates'
 import { saveProperty } from '@/lib/api/properties'
 import type { LoanDetails, LoanProfile, Property } from '@/lib/api/types'
 import { blankPropertyInput } from '@/components/profile/PropertyDialog'
@@ -278,7 +279,13 @@ export async function movePipelineStage(input: Record<string, unknown>): Promise
   const lostReason = str(input.lost_reason)
   if (stage === 'lost' && !lostReason) throw new Error('Why was it lost? A reason is needed to move a file to Lost.')
   if (stage === 'closed' && (!loan.borrower?.email || !loan.borrower?.phone)) throw new Error("A file needs the borrower's email and phone before it moves to Closed.")
-  await updateStage({ loanId: loan.id, stage, lostReason: lostReason ?? undefined })
+  // Closed saves the closed and funded dates with the stage (production counts on the funded date):
+  // the dates given, else the file's closing date, else today.
+  const isoDate = (v: unknown) => (/^\d{4}-\d{2}-\d{2}$/.test(str(v) ?? '') ? str(v)! : null)
+  const closedOn = stage === 'closed' ? (isoDate(input.closed_on) ?? loan.details.closingDate ?? todayIso()) : null
+  const fundedOn = stage === 'closed' ? (isoDate(input.funded_on) ?? closedOn) : null
+  if (stage === 'closed') await closeLoan({ loanId: loan.id, closingDate: closedOn!, fundingDate: fundedOn!, reason: 'Moved to Closed by the assistant' })
+  else await updateStage({ loanId: loan.id, stage, lostReason: lostReason ?? undefined })
   let ghl = 'not touched (only Closed moves it)'
   if (stage === 'closed') {
     try {
@@ -297,9 +304,10 @@ export async function movePipelineStage(input: Record<string, unknown>): Promise
       lines: [
         { label: 'Stage', before: stageLabel(loan.stage), after: stageLabel(stage) },
         ...(stage === 'lost' ? [{ label: 'Lost reason', before: '—', after: lostReason! }] : []),
+        ...(stage === 'closed' ? [{ label: 'Closed on', before: loan.details.closingDate ?? '—', after: closedOn! }, { label: 'Funded on', before: '—', after: fundedOn! }] : []),
         { label: 'GHL opportunity', before: '', after: ghl },
       ],
-      footnote: stage === 'closed' ? "Undo puts the stage back; it doesn't move the GHL opportunity back." : undefined,
+      footnote: stage === 'closed' ? "Undo puts the stage back; it doesn't move the GHL opportunity back or clear the dates (correct them on the Overview)." : undefined,
       suggestions: NEXT_STEPS[stage] ?? [],
     },
     undo: { loanId: loan.id, stage: loan.stage, lostReason: loan.lostReason, statusDetail: loan.statusDetail },

@@ -41,6 +41,10 @@ export interface ClosedLoan {
   loanType: MortgageType | null
   occupancy: Occupancy
   closingDate: string | null
+  /** The day it funded; production counts on it (see productionDate). */
+  fundingDate: string | null
+  /** When the file was marked Closed (the system record). */
+  stageChangedAt: string
   firstPaymentDate: string | null
   loanAmount: number | null
   purchasePrice: number | null
@@ -76,6 +80,8 @@ interface ClosedRow {
   mortgage_type: MortgageType | null
   occupancy: Occupancy
   closing_date: string | null
+  funding_date: string | null
+  stage_changed_at: string
   first_payment_date: string | null
   loan_amount: unknown
   purchase_price: unknown
@@ -101,7 +107,7 @@ interface ClosedRow {
 }
 
 const CLOSED_SELECT = `
-  id, purpose, mortgage_type, occupancy, closing_date, first_payment_date, loan_amount, purchase_price, note_rate, term_months,
+  id, purpose, mortgage_type, occupancy, closing_date, funding_date, stage_changed_at, first_payment_date, loan_amount, purchase_price, note_rate, term_months,
   monthly_payment, lender_name, program_name,
   program:programs!loans_program_id_fkey ( name, lender:lenders ( name ) ),
   lo:profiles!loans_assigned_lo_id_fkey ( id, full_name, email ),
@@ -130,6 +136,8 @@ function toClosed(r: ClosedRow): ClosedLoan {
     loanType: r.mortgage_type,
     occupancy: r.occupancy,
     closingDate: r.closing_date,
+    fundingDate: r.funding_date,
+    stageChangedAt: r.stage_changed_at,
     firstPaymentDate: r.first_payment_date,
     loanAmount: num(r.loan_amount),
     purchasePrice: num(r.purchase_price),

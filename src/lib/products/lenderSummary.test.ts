@@ -43,12 +43,14 @@ describe('your loans with a lender', () => {
     const loans = [
       { stage: 'closed', closingDate: '2026-03-02' },
       { stage: 'closed', closingDate: '2025-12-20' },
+      // Closed Dec 30, funded Jan 2: this year's production.
+      { stage: 'closed', closingDate: '2025-12-30', fundingDate: '2026-01-02' },
       { stage: 'closed', closingDate: null },
       { stage: 'submitted', closingDate: '2026-11-20' },
       { stage: 'lost', closingDate: null },
       { stage: 'nurture', closingDate: null },
     ]
-    expect(loanCounts(loans, 2026)).toEqual({ closedThisYear: 2, active: 1 })
+    expect(loanCounts(loans, 2026)).toEqual({ closedThisYear: 3, active: 1 })
   })
 })
 

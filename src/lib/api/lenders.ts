@@ -95,16 +95,16 @@ export function useLenderLoans() {
   return useQuery({
     queryKey: ['lenderLoans'],
     queryFn: async () => {
-      const rows = unwrap<{ loan_id: string; program: { lender_id: string } | null; loan: { stage: string; closing_date: string | null } | null }[]>(
+      const rows = unwrap<{ loan_id: string; program: { lender_id: string } | null; loan: { stage: string; closing_date: string | null; funding_date: string | null; stage_changed_at: string } | null }[]>(
         await db()
           .from('loan_program_options')
-          .select('loan_id, program:programs!loan_program_options_program_id_fkey(lender_id), loan:loans!loan_program_options_loan_id_fkey(stage, closing_date)')
+          .select('loan_id, program:programs!loan_program_options_program_id_fkey(lender_id), loan:loans!loan_program_options_loan_id_fkey(stage, closing_date, funding_date, stage_changed_at)')
           .eq('status', 'chosen'),
       )
       const byLender = new Map<string, LenderLoan[]>()
       for (const r of rows) {
         if (!r.program || !r.loan) continue
-        byLender.set(r.program.lender_id, [...(byLender.get(r.program.lender_id) ?? []), { stage: r.loan.stage, closingDate: r.loan.closing_date }])
+        byLender.set(r.program.lender_id, [...(byLender.get(r.program.lender_id) ?? []), { stage: r.loan.stage, closingDate: r.loan.closing_date, fundingDate: r.loan.funding_date, stageChangedAt: r.loan.stage_changed_at }])
       }
       return byLender
     },
