@@ -220,10 +220,23 @@ type DialogState =
   | { kind: 'property'; property: Property | null }
   | { kind: 'lien'; property: Property; lien: Lien | null }
 
+/** Whether the property form asks for monthly rent (investment files). */
+export const showsRent = (loan: LoanProfile) => loan.purpose === 'investment_dscr' || loan.details.occupancy === 'investment'
+
+/** Sets the subject property. afterSave makes the first current home or under-contract property the subject automatically (Properties and Letters tabs). */
+export function useSubjectProperty(loan: LoanProfile) {
+  const updateDetails = useUpdateLoanDetails(loan.id)
+  const makeSubject = (id: string) =>
+    updateDetails.mutate({ subjectPropertyId: id }, { onSuccess: () => toast.success('Subject property set'), onError: (error) => toast.error(error.message) })
+  const afterSave = (id: string, input: { status: PropertyStatus }) => {
+    if (!loan.details.subjectPropertyId && (input.status === 'current_home' || input.status === 'under_contract')) makeSubject(id)
+  }
+  return { makeSubject, afterSave }
+}
+
 /** Homes on this loan. Any of them can be made the subject property. */
 export function PropertiesTab({ loan }: { loan: LoanProfile }) {
   const properties = useProperties(loan.id)
-  const updateDetails = useUpdateLoanDetails(loan.id)
   const deleteProperty = useDeleteProperty(loan.id)
   const deleteLien = useDeleteLien(loan.id)
   const scenarios = usePricingScenarios(loan.id)
@@ -235,16 +248,9 @@ export function PropertiesTab({ loan }: { loan: LoanProfile }) {
   const subjectId = loan.details.subjectPropertyId
   const isPurchase = loan.purpose === 'purchase' || (loan.purpose === 'investment_dscr' && loan.details.purchasePrice !== null)
   const defaultStatus: PropertyStatus = isPurchase ? 'interested' : 'current_home'
-  const showRent = loan.purpose === 'investment_dscr' || loan.details.occupancy === 'investment'
+  const showRent = showsRent(loan)
   const onError = (error: Error) => toast.error(error.message)
-
-  const makeSubject = (id: string) =>
-    updateDetails.mutate({ subjectPropertyId: id }, { onSuccess: () => toast.success('Subject property set'), onError })
-
-  // The first current home or under-contract property becomes the subject automatically.
-  const afterSave = (id: string, input: { status: PropertyStatus }) => {
-    if (!subjectId && (input.status === 'current_home' || input.status === 'under_contract')) makeSubject(id)
-  }
+  const { makeSubject, afterSave } = useSubjectProperty(loan)
 
   const list = properties.data ?? []
   const openFees = (id: string) => navigate(`/loans/${loan.id}?tab=estimates&estimate=${id}`)

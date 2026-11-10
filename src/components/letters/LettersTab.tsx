@@ -1,13 +1,15 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronDownIcon, FileTextIcon, MailIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { ChevronDownIcon, FileTextIcon, HomeIcon, MailIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Card, CurrencyInput, DateInput, EmptyState, FormGrid, Select, TextArea, ToggleChip, confirmAction } from '@/components/shared'
 import { MORTGAGE_TYPE_OPTIONS, OCCUPANCY_OPTIONS, TERM_OPTIONS } from '@/components/profile/options'
+import { showsRent, useSubjectProperty } from '@/components/profile/PropertiesTab'
+import { PropertyDialog } from '@/components/profile/PropertyDialog'
 import { useSavePdf } from '@/components/pdf/useSavePdf'
 import { SendSavedPdf } from '@/components/messages/SendDocumentDialog'
 import { keys } from '@/lib/api/client'
@@ -40,7 +42,36 @@ const AMORTIZATION_OPTIONS = [
 ] as const
 
 /** "100 Test Lane, Frisco, TX 75034". */
-const homeAddress = (p: Property) => [p.addressLine, p.city, [p.state, p.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+const homeAddress = (p: Pick<Property, 'addressLine' | 'city' | 'state' | 'zip'>) =>
+  [p.addressLine.trim(), p.city?.trim(), [p.state.trim().toUpperCase(), p.zip?.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+
+/** A home as a letter names it. */
+interface LetterHome {
+  id: string
+  address: string
+  price: number | null
+}
+const letterHome = (p: Property): LetterHome => ({ id: p.id, address: homeAddress(p), price: p.listPrice })
+
+/** The Properties tab's Add property form, opened from Letters. Hands back the new home so the letter can name it. */
+function AddHomeDialog({ loan, onClose, onAdded }: { loan: LoanProfile; onClose: () => void; onAdded: (home: LetterHome) => void }) {
+  const { afterSave } = useSubjectProperty(loan)
+  return (
+    <PropertyDialog
+      loanId={loan.id}
+      organizationId={loan.organizationId}
+      property={null}
+      defaultStatus="interested"
+      showRent={showsRent(loan)}
+      open
+      onOpenChange={(open) => !open && onClose()}
+      onSaved={(id, input) => {
+        afterSave(id, input)
+        onAdded({ id, address: homeAddress(input), price: input.listPrice })
+      }}
+    />
+  )
+}
 
 interface Editing {
   draft: LetterDraft
@@ -58,6 +89,8 @@ export function LettersTab({ loan }: { loan: LoanProfile }) {
   const [editing, setEditing] = useState<Editing | null>(null)
   // A letter just issued, being emailed ("Send…" on the saved toast; the editor has closed by then).
   const [sendingId, setSendingId] = useState<string | null>(null)
+  // "Add a property" from the letters list: the new home gets a letter right away.
+  const [addingHome, setAddingHome] = useState(false)
   const today = todayIso()
   const d = loan.details
   const max: ApprovedMax = { maxPrice: d.preapprovalMaxPrice, maxLoanAmount: d.preapprovalMaxLoanAmount, expiresOn: d.preapprovalExpiresOn }
@@ -77,11 +110,11 @@ export function LettersTab({ loan }: { loan: LoanProfile }) {
   })
   const startNew = () => setEditing({ draft: firstLetter(file(), max, today), referenceNumber: newReference(loan.id, today), version: 1 })
   /** A new version of the latest pre-approval for this home (or a new pre-approval if there's none yet). */
-  const startOffer = (home: Property) => {
+  const startOffer = (home: LetterHome) => {
     const latest = list[0]
     const base = latest ?? firstLetter(file(), max, today)
     const referenceNumber = latest?.referenceNumber ?? newReference(loan.id, today)
-    setEditing({ draft: offerLetter(base, { id: home.id, address: homeAddress(home), price: home.listPrice }, max, today), referenceNumber, version: nextVersion(list, referenceNumber) })
+    setEditing({ draft: offerLetter(base, home, max, today), referenceNumber, version: nextVersion(list, referenceNumber) })
   }
 
   // "Pre-approval letter" on a property card opens here with ?property=<id>.
@@ -91,7 +124,7 @@ export function LettersTab({ loan }: { loan: LoanProfile }) {
   if (ready && wantedHome && wantedHome !== seenHome) {
     setSeenHome(wantedHome)
     const home = homes.find((h) => h.id === wantedHome)
-    if (home) startOffer(home)
+    if (home) startOffer(letterHome(home))
   }
   const closeEditor = () => {
     setEditing(null)
@@ -118,6 +151,7 @@ export function LettersTab({ loan }: { loan: LoanProfile }) {
     <div className="space-y-4">
       <ApprovedMaxCard loan={loan} max={max} />
       <SendSavedPdf loan={loan} docId={sendingId} onClose={() => setSendingId(null)} />
+      {addingHome && <AddHomeDialog loan={loan} onClose={() => setAddingHome(false)} onAdded={startOffer} />}
 
       {editing ? (
         <LetterEditor key={`${editing.referenceNumber}-${editing.version}`} loan={loan} editing={editing} max={max} homes={homes} borrowerNames={borrowerNames} place={place} onDone={closeEditor} onSend={setSendingId} />
@@ -127,7 +161,7 @@ export function LettersTab({ loan }: { loan: LoanProfile }) {
           description="Each letter is kept exactly as issued. Make a new version for an offer on a home; it can't go over the approved maximum."
           action={
             <div className="flex flex-wrap gap-2">
-              {homes.length > 0 && (
+              {homes.length > 0 ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button size="sm" variant="outline">
@@ -137,12 +171,22 @@ export function LettersTab({ loan }: { loan: LoanProfile }) {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     {homes.map((h) => (
-                      <DropdownMenuItem key={h.id} onSelect={() => startOffer(h)}>
+                      <DropdownMenuItem key={h.id} onSelect={() => startOffer(letterHome(h))}>
                         {h.addressLine}
                       </DropdownMenuItem>
                     ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => setAddingHome(true)}>
+                      <PlusIcon />
+                      Add a property…
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => setAddingHome(true)}>
+                  <HomeIcon />
+                  Letter for a new home
+                </Button>
               )}
               <Button size="sm" variant={list.length ? 'outline' : 'default'} onClick={startNew}>
                 <PlusIcon />
@@ -255,14 +299,17 @@ function LetterEditor({ loan, editing, max, homes, borrowerNames, place, onDone,
     return () => clearTimeout(timer)
   }, [viewKey, pdf.ready])
 
-  const pickHome = (id: string | null) => {
-    const home = homes.find((h) => h.id === id)
+  const [addingHome, setAddingHome] = useState(false)
+  const chooseHome = (home: LetterHome | null) =>
     // The down payment percent comes from the approved maximum, so switching homes back and forth never drifts.
     setDraft((x) => {
       if (!home) return { ...x, propertyId: null, propertyAddress: null }
       const base = { ...x, purchasePrice: max.maxPrice ?? x.purchasePrice, loanAmount: max.maxLoanAmount ?? x.loanAmount }
-      return { ...offerLetter(base, { id: home.id, address: homeAddress(home), price: home.listPrice }, max, x.issuedOn), expiresOn: x.expiresOn }
+      return { ...offerLetter(base, home, max, x.issuedOn), expiresOn: x.expiresOn }
     })
+  const pickHome = (id: string | null) => {
+    const home = homes.find((h) => h.id === id)
+    chooseHome(home ? letterHome(home) : null)
   }
 
   const issue = async () => {
@@ -297,6 +344,7 @@ function LetterEditor({ loan, editing, max, homes, borrowerNames, place, onDone,
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+      {addingHome && <AddHomeDialog loan={loan} onClose={() => setAddingHome(false)} onAdded={chooseHome} />}
       <Card
         title={`${draft.propertyAddress ? 'Letter for an offer' : 'Pre-approval letter'} · v${editing.version}`}
         description={`Reference #${editing.referenceNumber}. These changes are for this letter only; the loan isn't changed.`}
@@ -308,7 +356,13 @@ function LetterEditor({ loan, editing, max, homes, borrowerNames, place, onDone,
       >
         <div className="space-y-4">
           <FormGrid className="lg:grid-cols-2">
-            <Select label="Property" value={draft.propertyId} options={homes.map((h) => ({ value: h.id, label: h.addressLine }))} onChange={pickHome} onClear={() => pickHome(null)} placeholder="None yet (up to)" span={2} />
+            <div className="space-y-1 lg:col-span-2">
+              <Select label="Property" value={draft.propertyId} options={homes.map((h) => ({ value: h.id, label: h.addressLine }))} onChange={pickHome} onClear={() => pickHome(null)} placeholder={homes.length ? 'None yet (up to)' : 'No properties yet (up to)'} />
+              <Button type="button" size="xs" variant="link" className="px-0" onClick={() => setAddingHome(true)}>
+                <PlusIcon />
+                Add a property
+              </Button>
+            </div>
             <CurrencyInput label={draft.propertyAddress ? 'Purchase price' : 'Purchase price up to'} value={draft.purchasePrice} onChange={set('purchasePrice')} required hint={max.maxPrice != null ? `Max ${formatCurrency(max.maxPrice)}` : undefined} />
             <CurrencyInput label="Loan amount up to" value={draft.loanAmount} onChange={set('loanAmount')} required hint={max.maxLoanAmount != null ? `Max ${formatCurrency(max.maxLoanAmount)}` : undefined} />
             <Select label="Loan type" value={draft.mortgageType} options={MORTGAGE_TYPE_OPTIONS} onChange={set('mortgageType')} required />
