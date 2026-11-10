@@ -59,6 +59,7 @@ import {
 import { e164, hasTestName, planSend, textToHtml, type SendHoursValue } from './sendRules.ts'
 import { chooseOpportunity, newContactBody, pickOpportunities, pickOpportunity, pickPipelines, planMove, suggestClosed, type OpportunityMove } from './opportunities.ts'
 import { pickContact, secretMatches } from '../ghl-inbound/sync.ts'
+import { pickGhlMatch, sharedDetails, splitName } from './link.ts'
 
 const TIMEOUT_MS = 10_000
 const UPLOAD_TIMEOUT_MS = 30_000
@@ -383,16 +384,24 @@ async function claimApproval(admin: SupabaseClient, organizationId: string, user
 
 /** GHL's match for a phone, then an email (not LOSuite's own match; see ensureGhlContact). */
 async function findGhlContact(g: Ghl, phone: string | null, email: string | null): Promise<string | null> {
+  const m = await findGhlMatches(g, phone, email, true)
+  return m.byPhone ?? m.byEmail
+}
+
+/** GHL's duplicate search by phone and by email, each on its own (firstOnly stops at the first hit). */
+async function findGhlMatches(g: Ghl, phone: string | null, email: string | null, firstOnly = false): Promise<{ byPhone: string | null; byEmail: string | null }> {
   const loc = encodeURIComponent(g.locationId)
-  const number = e164(phone)
-  const tries = [number && `number=${encodeURIComponent(number)}`, email && `email=${encodeURIComponent(email.trim().toLowerCase())}`].filter(Boolean)
-  for (const q of tries) {
+  const one = async (q: string) => {
     // GET /contacts/search/duplicate (contacts.readonly, Version 2021-07-28).
     const a = await g.call(plan('contacts_read'), `/contacts/search/duplicate?locationId=${loc}&${q}`)
     const id = (a.body as { contact?: { id?: unknown } | null } | null)?.contact?.id
-    if (a.outcome.result === 'works' && typeof id === 'string' && id) return id
+    return a.outcome.result === 'works' && typeof id === 'string' && id ? id : null
   }
-  return null
+  const number = e164(phone)
+  const byPhone = number ? await one(`number=${encodeURIComponent(number)}`) : null
+  if (byPhone && firstOnly) return { byPhone, byEmail: null }
+  const byEmail = email?.trim() ? await one(`email=${encodeURIComponent(email.trim().toLowerCase())}`) : null
+  return { byPhone, byEmail }
 }
 
 interface GhlPerson {
@@ -411,12 +420,13 @@ interface GhlPerson {
  * officer; one assigned to someone else keeps them. A GHL contact already
  * linked to another LOSuite person stops here for an admin to check.
  */
-async function ensureGhlContact(admin: SupabaseClient, g: Ghl, organizationId: string, contactId: string, p: GhlPerson, assignTo: string | null): Promise<{ id: string; created: boolean }> {
+async function ensureGhlContact(admin: SupabaseClient, g: Ghl, organizationId: string, contactId: string, p: GhlPerson, assignTo: string | null, found?: { id: string | null }): Promise<{ id: string; created: boolean }> {
   if (p.ghl_contact_id) return { id: p.ghl_contact_id, created: false }
   const first = p.first_name || 'This person'
   if (!p.email?.trim() && !e164(p.phone)) throw new UserError(`${first} needs an email or a 10-digit phone before LOSuite can add them to GHL.`)
 
-  let id = await findGhlContact(g, p.phone, p.email)
+  // found: GHL's match, already looked up and checked by the caller (Add to GoHighLevel).
+  let id = found ? found.id : await findGhlContact(g, p.phone, p.email)
   let created = false
   if (id) {
     const taken = await admin.from('contacts').select('id').eq('organization_id', organizationId).eq('ghl_contact_id', id).neq('id', contactId).maybeSingle()
@@ -805,8 +815,105 @@ async function linkContact(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
     if (link.error) throw new Error(link.error.message)
     assignTo = (link.data as { ghl_user_id: string } | null)?.ghl_user_id ?? null
   }
-  const contact = await ensureGhlContact(admin, g, organizationId, person.id, person, assignTo)
+  if (!person.email?.trim() && !e164(person.phone)) throw new UserError(`${person.first_name || 'This person'} needs an email or a 10-digit phone before LOSuite can add them to GHL.`)
+
+  // A shared email or phone, or a phone and email that GHL knows as two people, waits for an admin.
+  const shared = sharedDetails(person, await samePeople(admin, organizationId, 'contacts', person.id, person.email, person.phone))
+  if (shared) return { skipped: shared }
+  const match = await findGhlMatches(g, person.phone, person.email)
+  const picked = pickGhlMatch(match.byPhone, match.byEmail)
+  if ('problem' in picked) return { skipped: picked.problem }
+  const contact = await ensureGhlContact(admin, g, organizationId, person.id, person, assignTo, picked)
   return { linked: true, created: contact.created }
+}
+
+/** Others in the company (people, or partners) with the same email or 10-digit phone. */
+async function samePeople(admin: SupabaseClient, organizationId: string, table: 'contacts' | 'partners', selfId: string, email: string | null, phone: string | null): Promise<{ email: string | null; phone: string | null }[]> {
+  const out: { email: string | null; phone: string | null }[] = []
+  const e = email?.trim().toLowerCase()
+  if (e) {
+    // ilike with % and _ escaped is a case-insensitive exact match.
+    const r = await admin.from(table).select('email, phone').eq('organization_id', organizationId).neq('id', selfId).ilike('email', e.replace(/[\\%_]/g, (c) => `\\${c}`)).limit(5)
+    if (r.error) throw new Error(r.error.message)
+    out.push(...((r.data ?? []) as { email: string | null; phone: string | null }[]))
+  }
+  const ten = e164(phone)?.slice(2)
+  if (ten) {
+    const r = await admin.from(table).select('email, phone').eq('organization_id', organizationId).neq('id', selfId).in('phone_digits', [ten, `1${ten}`]).limit(5)
+    if (r.error) throw new Error(r.error.message)
+    out.push(...((r.data ?? []) as { email: string | null; phone: string | null }[]))
+  }
+  return out
+}
+
+/**
+ * Add to GoHighLevel for a partner (build plan Phase 3): the stored link, else
+ * GHL's duplicate search by email and phone (never by name), else a new GHL
+ * contact assigned to the person clicking (the partner's own loan officer once
+ * partners have one). Only this sets partners.ghl_contact_id. Same rules as
+ * borrowers: test mode only touches TEST names, no tags, no workflows, and a
+ * shared email or phone, two GHL people, or a GHL contact already linked to
+ * someone else waits for an admin.
+ */
+async function linkPartner(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, userId: string, body: Record<string, unknown>) {
+  const partnerId = typeof body.partnerId === 'string' ? body.partnerId : null
+  if (!partnerId) throw new UserError('Which partner?')
+  // What the user can see (Row Level Security): everyone in the company sees partners.
+  const found = await db.from('partners').select('id, name, email, phone, ghl_contact_id').eq('id', partnerId).eq('organization_id', organizationId).maybeSingle()
+  if (found.error) throw new Error(found.error.message)
+  const partner = found.data as { id: string; name: string; email: string | null; phone: string | null; ghl_contact_id: string | null } | null
+  if (!partner) throw new UserError('That partner was not found.')
+  if (partner.ghl_contact_id) return { linked: true, created: false }
+
+  const settings = await admin.from('messaging_settings').select('inbound_mode').eq('organization_id', organizationId).maybeSingle()
+  if (settings.error) throw new Error(settings.error.message)
+  if (((settings.data as { inbound_mode: string } | null)?.inbound_mode ?? 'test_only') === 'test_only' && !hasTestName(partner.name, null)) {
+    return { skipped: 'Test mode: LOSuite only adds people with TEST in their name to GHL, so GHL wasn\'t changed.' }
+  }
+  if (!partner.email?.trim() && !e164(partner.phone)) throw new UserError(`${partner.name} needs an email or a 10-digit phone before LOSuite can add them to GHL.`)
+
+  const shared = sharedDetails(partner, await samePeople(admin, organizationId, 'partners', partner.id, partner.email, partner.phone))
+  if (shared) return { skipped: shared }
+  const match = await findGhlMatches(g, partner.phone, partner.email)
+  const picked = pickGhlMatch(match.byPhone, match.byEmail)
+  if ('problem' in picked) return { skipped: picked.problem }
+
+  const link = await admin.from('ghl_user_links').select('ghl_user_id').eq('organization_id', organizationId).eq('profile_id', userId).maybeSingle()
+  if (link.error) throw new Error(link.error.message)
+  const assignTo = (link.data as { ghl_user_id: string } | null)?.ghl_user_id ?? null
+
+  let id = picked.id
+  let created = false
+  if (id) {
+    // A GHL contact already linked to a borrower or another partner waits for an admin.
+    const [asPerson, asPartner] = await Promise.all([
+      admin.from('contacts').select('id').eq('organization_id', organizationId).eq('ghl_contact_id', id).limit(1),
+      admin.from('partners').select('id').eq('organization_id', organizationId).eq('ghl_contact_id', id).neq('id', partner.id).limit(1),
+    ])
+    if (asPerson.error || asPartner.error) throw new Error((asPerson.error ?? asPartner.error)!.message)
+    if (asPerson.data?.length || asPartner.data?.length) return { skipped: 'Needs matching by an admin: that GHL contact is already linked to someone else in LOSuite.' }
+    if (assignTo) {
+      const live = await g.call(plan('contacts_read'), `/contacts/${encodeURIComponent(id)}`)
+      const assigned = (live.body as { contact?: { assignedTo?: unknown } } | null)?.contact?.assignedTo
+      if (live.outcome.result === 'works' && !(typeof assigned === 'string' && assigned)) {
+        await g.call({ ...plan('contacts_write'), dryRun: false }, `/contacts/${encodeURIComponent(id)}`, { assignedTo: assignTo })
+      }
+    }
+  } else {
+    const name = splitName(partner.name)
+    const made = await g.call(
+      { ...plan('contacts_write'), method: 'POST', dryRun: false },
+      '/contacts/',
+      newContactBody({ locationId: g.locationId, firstName: name.first, lastName: name.last, email: partner.email, phoneE164: e164(partner.phone), assignedTo: assignTo }),
+    )
+    const newId = (made.body as { contact?: { id?: unknown } } | null)?.contact?.id
+    if (made.outcome.result !== 'works' || typeof newId !== 'string' || !newId) throw new UserError(`GHL didn't add ${partner.name} as a contact: ${made.outcome.detail}`)
+    id = newId
+    created = true
+  }
+  const saved = await admin.from('partners').update({ ghl_contact_id: id }).eq('id', partner.id).eq('organization_id', organizationId).is('ghl_contact_id', null)
+  if (saved.error) throw new Error(saved.error.message)
+  return { linked: true, created }
 }
 
 /**
@@ -938,7 +1045,8 @@ Deno.serve(async (request) => {
       // Anyone who can see the file.
       const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
       try {
-        return reply(200, await linkContact(db, admin, g, organizationId, body))
+        // A partner (Partners → Add to GoHighLevel), or a borrower on a file.
+        return reply(200, body.partnerId ? await linkPartner(db, admin, g, organizationId, userId, body) : await linkContact(db, admin, g, organizationId, body))
       } finally {
         if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'contact', ...c })))
       }

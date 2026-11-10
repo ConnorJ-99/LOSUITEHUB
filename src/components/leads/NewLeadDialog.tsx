@@ -9,7 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { FormGrid, Input, Select, ToggleChip } from '@/components/shared'
 import { StageBadge } from '@/components/pipeline/StageBadge'
 import { useMatchingContacts } from '@/lib/api/contacts'
-import { keys } from '@/lib/api/client'
+import { db, keys, unwrap } from '@/lib/api/client'
+import { linkGhlContact, useGhlStatus } from '@/lib/api/ghl'
 import { reassignLoan, useCreateLead, useOrgMembers, useUpdateStage } from '@/lib/api/loans'
 import type { ContactSummary } from '@/lib/api/types'
 import { useAuth } from '@/lib/auth/context'
@@ -51,6 +52,7 @@ function useDebounced<T>(value: T, ms = 400): T {
 export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boolean; onOpenChange: (open: boolean) => void; preset?: NewLeadPreset | null }) {
   const { state } = useAuth()
   const myId = state.status === 'signedIn' ? state.user.id : null
+  const organizationId = state.status === 'signedIn' ? state.user.organizationId : null
   const navigate = useNavigate()
   const createLead = useCreateLead()
   const updateStage = useUpdateStage()
@@ -70,6 +72,8 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
   const [submitted, setSubmitted] = useState(false)
   // On a call: open the Prequal tab right after saving. Stays on for the next lead.
   const [startPrequal, setStartPrequal] = useState(false)
+  const [addToGhl, setAddToGhl] = useState(false)
+  const ghl = useGhlStatus()
 
   const set = <K extends keyof FormState>(key: K) => (value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -118,6 +122,18 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
         onSuccess: async (loanId) => {
           const name = existing ? fullName(existing) : `${form.firstName} ${form.lastName}`.trim()
           close(false)
+          // "Add to GoHighLevel after saving": the same match-or-create as the file's button, once the file has its loan officer.
+          const borrower = addToGhl ? (unwrap<{ contact_id: string } | null>(await db().from('loan_borrowers').select('contact_id').eq('loan_id', loanId).eq('role', 'primary').maybeSingle())?.contact_id ?? null) : null
+          const ghlAdd = async () => {
+            if (!borrower || !organizationId) return
+            try {
+              const r = await linkGhlContact(organizationId, loanId, borrower)
+              if ('skipped' in r) toast.message(`${name} wasn't added to GoHighLevel: ${r.skipped}`)
+              else toast.success(r.created ? `${name} added to GoHighLevel` : `${name} linked to their GoHighLevel contact`)
+            } catch (e) {
+              toast.error(`${name} wasn't added to GoHighLevel: ${(e as Error).message} Retry from the file's Messages tab.`)
+            }
+          }
           // Added from a pipeline column: move it to that column (logged like any stage change).
           if (startStage) {
             try {
@@ -137,10 +153,12 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
               return
             }
             await queryClient.invalidateQueries({ queryKey: keys.pipeline })
+            await ghlAdd()
             const owner = members.data?.find((m) => m.id === form.assignedLoId)?.name ?? 'no one yet'
             toast.success(`${name} added to ${where} for ${owner}`)
             return
           }
+          await ghlAdd()
           if (startPrequal) {
             navigate(`/loans/${loanId}?tab=prequal`)
             toast.success(`${name} added to ${where}`)
@@ -239,7 +257,10 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
             />
           </FormGrid>
 
-          <ToggleChip label="Start prequal call after saving" pressed={startPrequal} onChange={setStartPrequal} />
+          <div className="flex flex-wrap gap-2">
+            <ToggleChip label="Start prequal call after saving" pressed={startPrequal} onChange={setStartPrequal} />
+            {ghl.data?.ready && <ToggleChip label="Add to GoHighLevel after saving" pressed={addToGhl} onChange={setAddToGhl} />}
+          </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => close(false)}>

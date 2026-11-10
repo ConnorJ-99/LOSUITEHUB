@@ -24,6 +24,7 @@ import { useAuth } from '@/lib/auth/context'
 import { relativeTime } from '@/lib/dates'
 import { consentChip, dayLabel, groupByDay, sharedPhoneIds, timeOfDay } from '@/lib/messaging/thread'
 import { formatPhone } from '@/lib/pipeline/helpers'
+import { AddToGhl } from '@/components/messaging/AddToGhl'
 import { Composer } from './Composer'
 import { FailedSendActions } from './FailedSend'
 import { TONE_CLASS } from './tone'
@@ -234,7 +235,7 @@ function GhlPanel({ loan, people, messages, canCheck }: { loan: LoanProfile; peo
             <div key={p.id} className="contents">
               <dt className="text-muted-foreground">{people.length > 1 ? p.firstName : 'Status'}</dt>
               <dd>
-                {p.ghlContactId ? <span className={TONE_CLASS.ok}>Linked</span> : <span className={TONE_CLASS.warn}>Not linked yet</span>}
+                <AddToGhl target={{ kind: 'borrower', loanId: loan.id, contactId: p.id }} linked={!!p.ghlContactId} name={p.firstName} />
                 {matched?.matchedBy && <span className="ml-2 text-xs text-muted-foreground">matched by {MATCHED_BY_LABEL[matched.matchedBy].toLowerCase()}</span>}
               </dd>
             </div>
@@ -255,7 +256,7 @@ function GhlPanel({ loan, people, messages, canCheck }: { loan: LoanProfile; peo
         <dt className="text-muted-foreground">Last message</dt>
         <dd>{last ? relativeTime(last.sentAt) : '—'}</dd>
       </dl>
-      {!people.some((p) => p.ghlContactId) && <p className="mt-3 text-xs text-muted-foreground">A person is linked to their GHL contact the first time a message matches them by email or phone.</p>}
+      {!people.some((p) => p.ghlContactId) && <p className="mt-3 text-xs text-muted-foreground">A person is linked to their GHL contact the first time a message matches them by email or phone, or when you press Add to GoHighLevel.</p>}
       {canCheck && (
         <div className="mt-3">
           <CheckNewMessagesButton />

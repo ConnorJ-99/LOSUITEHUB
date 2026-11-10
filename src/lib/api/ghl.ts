@@ -362,3 +362,8 @@ export type ContactLinkResult = { skipped: string } | { linked: true; created: b
 export function linkGhlContact(organizationId: string, loanId: string, contactId: string) {
   return invokeGhl<ContactLinkResult>({ task: 'contact', organizationId, loanId, contactId }, 'The GHL contact was not matched or added.')
 }
+
+/** Matches or creates a partner's GHL contact by email and phone (never by name), assigned to the person clicking. */
+export function linkGhlPartner(organizationId: string, partnerId: string) {
+  return invokeGhl<ContactLinkResult>({ task: 'contact', organizationId, partnerId }, 'The GHL contact was not matched or added.')
+}

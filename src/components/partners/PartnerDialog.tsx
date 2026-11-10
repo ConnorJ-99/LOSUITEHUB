@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { FormGrid, Input, Select, TextArea, ToggleChip } from '@/components/shared'
+import { AddToGhl } from '@/components/messaging/AddToGhl'
 import { EditDialog } from '@/components/urla/parts'
 import { useSavePartner, type Partner, type PartnerDraft } from '@/lib/api/partners'
 import { formatIsoDate } from '@/lib/dates'
@@ -95,6 +96,12 @@ export function PartnerDialog({ partner, partners, onClose }: { partner: Partner
         <ConsentField label="Consent to texts" value={form.smsConsent} optedOutAt={partner?.smsOptedOutAt ?? null} onChange={(smsConsent) => set({ smsConsent })} />
         <ConsentField label="Consent to email" value={form.emailConsent} optedOutAt={partner?.emailOptedOutAt ?? null} onChange={(emailConsent) => set({ emailConsent })} />
         <TextArea label="Notes" value={form.notes} onChange={(notes) => set({ notes })} rows={3} span={6} />
+        {partner && (
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:col-span-2 lg:col-span-6">
+            <span className="text-sm">GoHighLevel</span>
+            <AddToGhl target={{ kind: 'partner', partnerId: partner.id }} linked={!!partner.ghlContactId} name={partner.name} />
+          </div>
+        )}
       </FormGrid>
     </EditDialog>
   )

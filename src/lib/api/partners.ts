@@ -15,6 +15,8 @@ export interface Partner {
   emailConsent: boolean | null
   smsOptedOutAt: string | null
   emailOptedOutAt: string | null
+  /** Set only by GHL matching (Add to GoHighLevel). */
+  ghlContactId: string | null
   notes: string | null
   addedFrom: 'file_team' | 'website' | 'manual'
   createdAt: string
@@ -35,6 +37,7 @@ interface PartnerRow {
   email_consent: boolean | null
   sms_opted_out_at: string | null
   email_opted_out_at: string | null
+  ghl_contact_id: string | null
   notes: string | null
   added_from: Partner['addedFrom']
   created_at: string
@@ -50,7 +53,7 @@ interface PartnerRow {
   inquiries: { received_at: string }[]
 }
 
-const SELECT = `id, kind, name, company, email, phone, sms_consent, email_consent, sms_opted_out_at, email_opted_out_at, notes, added_from, created_at,
+const SELECT = `id, kind, name, company, email, phone, sms_consent, email_consent, sms_opted_out_at, email_opted_out_at, ghl_contact_id, notes, added_from, created_at,
   team:loan_team_members!loan_team_members_partner_id_fkey ( role, loan:loans!loan_team_members_loan_id_fkey ( id, stage, closing_date, borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( first_name, last_name ) ) ) ),
   inquiries:lead_submissions!lead_submissions_partner_id_fkey ( received_at )`
 
@@ -66,6 +69,7 @@ function toPartner(r: PartnerRow): Partner {
     emailConsent: r.email_consent,
     smsOptedOutAt: r.sms_opted_out_at,
     emailOptedOutAt: r.email_opted_out_at,
+    ghlContactId: r.ghl_contact_id,
     notes: r.notes,
     addedFrom: r.added_from,
     createdAt: r.created_at,
