@@ -31,6 +31,7 @@ import { ContractTab } from '@/components/contract/ContractTab'
 import { DocumentsTab } from '@/components/documents/DocumentsTab'
 import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
 import { FileHeader, FileNav, MetricStrip, MilestoneStepper, TeamRow, type FileNavItem, type TeamMember } from '@/components/loanfile'
+import { AriveLink } from '@/components/loanfile/AriveLink'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
 import { UrlaChecklistPanel } from '@/components/loanfile/UrlaChecklistPanel'
 import { WorkflowPanel } from '@/components/loanfile/WorkflowPanel'
@@ -226,7 +227,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
         borrowerName={name}
         backTo={closedFile ? '/contacts?tab=closed' : home ? `/pipeline/${home}` : '/pipeline'}
         backLabel={closedFile ? 'Closed loans' : home ? pipelineInfo(home).label : 'Pipeline'}
-        fileNumber={loan.details.ariveLoanNumber}
+        fileNumberSlot={<AriveLink number={loan.details.ariveLoanNumber} onAdd={() => setEditing(true)} />}
         statusLabel={`${purposeLabel(loan.purpose)} · ${stageLabel(loan.stage)}`}
         nextStep={next && !closedFile ? `${next.name} · ${OWNER_LABEL[next.owner]} · ${days}d` : null}
         updatedLabel={`In ${stageLabel(loan.stage)} since ${formatIsoDate(stageSince)} (${relativeTime(loan.stageChangedAt)})`}

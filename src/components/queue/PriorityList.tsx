@@ -14,7 +14,7 @@ import { useAuth } from '@/lib/auth/context'
 import { dueLabel, formatIsoDate, todayIso } from '@/lib/dates'
 import { fullName } from '@/lib/pipeline/helpers'
 import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
-import { PRIORITY_ACTIONS, actionLabel, itemHeading, itemLink, itemNote, itemTitle, moveItem, priorityList, snoozeDate, type PriorityAction, type PriorityItem } from '@/lib/queue/priorityList'
+import { PRIORITY_ACTIONS, actionLabel, itemHeading, itemLink, itemNote, itemTitle, moveItem, priorityList, snoozeDate, topItems, PRIORITY_CAP, type PriorityAction, type PriorityItem } from '@/lib/queue/priorityList'
 
 type Item = MyTask & PriorityItem
 
@@ -219,8 +219,11 @@ function ItemRow({ item, today, showing, snoozed }: { item: Item; today: string;
 export function PriorityListCard({ tasks }: { tasks: MyTask[] }) {
   const today = todayIso()
   const [showSnoozed, setShowSnoozed] = useState(false)
+  const [showAll, setShowAll] = useState(false)
   const items = tasks.filter((t): t is Item => t.action !== null)
   const { showing, snoozed } = priorityList(items, today)
+  // The top 5 in list order; the rest wait behind View all (moving still works across the whole list).
+  const { shown, hidden } = topItems(showing, showAll)
 
   return (
     <Card title="Priority list" className="border-t-2 border-t-primary">
@@ -229,10 +232,15 @@ export function PriorityListCard({ tasks }: { tasks: MyTask[] }) {
         <p className="pt-3 text-sm text-muted-foreground">Nothing on the list. Pick a file and what it needs above.</p>
       ) : (
         <ol className="mt-3 space-y-2">
-          {showing.map((item) => (
+          {shown.map((item) => (
             <ItemRow key={item.id} item={item} today={today} showing={showing} />
           ))}
         </ol>
+      )}
+      {(hidden > 0 || showAll) && showing.length > PRIORITY_CAP && (
+        <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-2 text-sm font-medium text-primary hover:underline">
+          {showAll ? `Show the top ${PRIORITY_CAP}` : `View all (${showing.length})`}
+        </button>
       )}
       {snoozed.length > 0 && (
         <div className="mt-3 border-t pt-2">

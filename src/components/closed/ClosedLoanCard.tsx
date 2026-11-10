@@ -7,6 +7,7 @@ import { MORTGAGE_TYPE_OPTIONS, OCCUPANCY_OPTIONS } from '@/components/profile/o
 import { useAddFollowUp, useClosedLoan, useSaveClosedFacts, type ClosedLoan } from '@/lib/api/closed'
 import { useSetAutomateReminders } from '@/lib/api/drafts'
 import { useGhlOpportunity } from '@/components/messaging/useGhlOpportunity'
+import { AriveLink } from '@/components/loanfile/AriveLink'
 import { ClosedDates } from './ClosedDates'
 import { CopyToLeadDialog } from './CopyToLeadDialog'
 import { MortgageCard } from './MortgageCard'
@@ -120,6 +121,12 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
           {fact('Email', c.borrower?.email ?? null)}
           {fact('Birthday', c.borrower?.birthday ? formatIsoDate(c.borrower.birthday) : null)}
           {fact('Co-borrower', c.coBorrowers.map((p) => fullName(p)).join(', ') || null)}
+          <div className="col-span-2">
+            <dt className="text-xs text-muted-foreground">Arive loan #</dt>
+            <dd>
+              <AriveLink number={loan.details.ariveLoanNumber} />
+            </dd>
+          </div>
         </dl>
         {c.program && c.program !== c.programName && <p className="text-xs text-muted-foreground">Program from Product Search: {c.lender} · {c.program}</p>}
 

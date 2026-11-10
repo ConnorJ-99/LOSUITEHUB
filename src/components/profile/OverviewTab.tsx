@@ -5,6 +5,7 @@ import { HomeIcon, MailIcon, PhoneIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, confirmAction, CurrencyInput, DateInput, FormGrid, Input, PercentInput, Select, SummaryBar, ToggleChip, ToggleChipGroup, type SummaryItem } from '@/components/shared'
+import { AriveLink } from '@/components/loanfile/AriveLink'
 import { StageBadge } from '@/components/pipeline/StageBadge'
 import { lastContact, useNotes } from '@/lib/api/notes'
 import { useLenders } from '@/lib/api/lenders'
@@ -311,7 +312,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
           <ActionQueueCard loan={loan} />
           <TexasFlags flags={texasFlags} />
 
-          <Card title="Loan details" description={purposeLabel(purpose)}>
+          <Card title="Loan details" description={purposeLabel(purpose)} action={<AriveLink number={loan.details.ariveLoanNumber} />}>
             {purpose !== 'purchase' && !subject && properties.isSuccess && <NoSubjectProperty onGoToProperties={() => onGoToTab('properties')} />}
 
             <FormGrid>

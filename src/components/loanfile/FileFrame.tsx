@@ -11,6 +11,8 @@ export interface FileHeaderProps {
   borrowerName: string
   /** Small chip after the name, e.g. the Arive loan number. */
   fileNumber?: string | null
+  /** Shown in place of the fileNumber chip, e.g. the Arive number with Open in Arive. */
+  fileNumberSlot?: React.ReactNode
   statusLabel: string
   /** Accent chip, e.g. "Send disclosures · Loan Officer · 3d". */
   nextStep?: string | null
@@ -32,7 +34,7 @@ export interface FileHeaderProps {
 }
 
 /** Header on every borrower page: name, chips and actions stay pinned at the top; the details (metrics, milestones, team) sit below and scroll with the page. */
-export function FileHeader({ borrowerName, fileNumber, statusLabel, nextStep, updatedLabel, detailsOpen, onToggleDetails, onSave, saveDisabled, onChangeStatus, backTo = '/pipeline', backLabel = 'Pipeline', actions, notice, children }: FileHeaderProps) {
+export function FileHeader({ borrowerName, fileNumber, fileNumberSlot, statusLabel, nextStep, updatedLabel, detailsOpen, onToggleDetails, onSave, saveDisabled, onChangeStatus, backTo = '/pipeline', backLabel = 'Pipeline', actions, notice, children }: FileHeaderProps) {
   return (
     <>
       <header className="sticky top-0 z-20 -mx-4 space-y-2 border-b bg-card/95 px-4 pt-3 pb-2.5 backdrop-blur md:-mx-6 md:px-6">
@@ -42,7 +44,7 @@ export function FileHeader({ borrowerName, fileNumber, statusLabel, nextStep, up
             {backLabel}
           </Link>
           <h1 className="text-2xl leading-tight">{borrowerName}</h1>
-          {fileNumber && <span className="rounded border px-1.5 py-0.5 font-mono text-[0.7rem] text-muted-foreground">{fileNumber}</span>}
+          {fileNumberSlot ?? (fileNumber && <span className="rounded border px-1.5 py-0.5 font-mono text-[0.7rem] text-muted-foreground">{fileNumber}</span>)}
           <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium">{statusLabel}</span>
           {nextStep && <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{nextStep}</span>}
         </div>

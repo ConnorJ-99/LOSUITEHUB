@@ -16,6 +16,7 @@ import { useOrgMembers } from '@/lib/api/loans'
 import { phoneDigits } from '@/lib/pipeline/helpers'
 import { useAddMember, useOrganization, useProfile, useRemoveMember, useSetMemberRole, useUpdateMyProfile, useUpdateOrganization, type Organization, type Profile } from '@/lib/api/settings'
 import type { OrgMember } from '@/lib/api/types'
+import { ariveTemplateProblem } from '@/lib/arive'
 import { roleLabels, useAuth, type CurrentUser, type OrgRole } from '@/lib/auth/context'
 
 function SaveBar({ dirty, saving, onSave, onDiscard }: { dirty: boolean; saving: boolean; onSave: () => void; onDiscard: () => void }) {
@@ -127,6 +128,16 @@ function CompanyCard({ org, canEdit, userId }: { org: Organization; canEdit: boo
           <Input label="State" value={form.state ?? ''} onChange={(v) => set('state')(v.toUpperCase().slice(0, 2) || null)} readOnly={!canEdit} />
           <Input label="ZIP" value={form.zip ?? ''} onChange={text('zip')} readOnly={!canEdit} />
         </div>
+        <Input
+          label="Arive loan link"
+          value={form.ariveLoanUrl ?? ''}
+          onChange={text('ariveLoanUrl')}
+          readOnly={!canEdit}
+          span={4}
+          placeholder="https://…/{number}"
+          error={ariveTemplateProblem(form.ariveLoanUrl) ?? undefined}
+          hint="Open any loan in Arive, copy the address from your browser, paste it here, and replace the loan number with {number}. Files then get an Open in Arive button."
+        />
       </FormGrid>
       <SaveBar
         dirty={dirty && canEdit}
@@ -134,6 +145,8 @@ function CompanyCard({ org, canEdit, userId }: { org: Organization; canEdit: boo
         onDiscard={reset}
         onSave={() => {
           if (!form.name.trim()) return toast.error('Company name is required')
+          const arive = ariveTemplateProblem(form.ariveLoanUrl)
+          if (arive) return toast.error(arive)
           update.mutate(form, { onSuccess: () => toast.success('Company details saved'), onError: (e) => toast.error(e.message) })
         }}
       />

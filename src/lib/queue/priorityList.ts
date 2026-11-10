@@ -69,6 +69,14 @@ export function priorityList<T extends PriorityItem>(items: T[], today: string):
   }
 }
 
+/** How many items the Today page shows before "View all". */
+export const PRIORITY_CAP = 5
+
+/** The first few items in list order (snoozed and done ones are already out), and how many are hidden. */
+export function topItems<T>(showing: T[], all: boolean, cap = PRIORITY_CAP): { shown: T[]; hidden: number } {
+  return all ? { shown: showing, hidden: 0 } : { shown: showing.slice(0, cap), hidden: Math.max(0, showing.length - cap) }
+}
+
 /**
  * Moves one item up or down among the items showing, staying inside its group
  * (starred items stay above the rest). Returns the new sort order for every

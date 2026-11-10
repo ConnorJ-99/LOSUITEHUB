@@ -13,6 +13,8 @@ export interface Organization {
   phone: string | null
   /** The company logo in the brand-files bucket (null = the built-in MPS logo). */
   logoPath: string | null
+  /** "Open in Arive": an Arive loan address with {number} where the loan number goes (null = no link). */
+  ariveLoanUrl?: string | null
 }
 
 export interface Profile {
@@ -38,6 +40,8 @@ interface OrgRow {
   zip: string | null
   phone: string | null
   logo_path: string | null
+  /** Present once the Arive link script has run (selected with *, so nothing breaks before). */
+  arive_loan_url?: string | null
 }
 
 interface ProfileRow {
@@ -71,9 +75,9 @@ export function useOrganization() {
     enabled: !!orgId,
     queryFn: async (): Promise<Organization | null> => {
       const r = unwrap<OrgRow | null>(
-        await db().from('organizations').select('id, name, nmls, address_line, city, state, zip, phone, logo_path').eq('id', orgId!).maybeSingle(),
+        await db().from('organizations').select('*').eq('id', orgId!).maybeSingle(),
       )
-      return r ? { id: r.id, name: r.name, nmls: r.nmls, addressLine: r.address_line, city: r.city, state: r.state, zip: r.zip, phone: r.phone, logoPath: r.logo_path } : null
+      return r ? { id: r.id, name: r.name, nmls: r.nmls, addressLine: r.address_line, city: r.city, state: r.state, zip: r.zip, phone: r.phone, logoPath: r.logo_path, ariveLoanUrl: r.arive_loan_url ?? null } : null
     },
   })
 }
@@ -93,6 +97,8 @@ export function useUpdateOrganization() {
             state: o.state?.trim().toUpperCase() || null,
             zip: o.zip?.trim() || null,
             phone: o.phone?.trim() || null,
+            // Sent only when it changed, so saving company details works before the Arive link script has run.
+            ...((o.ariveLoanUrl?.trim() || null) !== (queryClient.getQueryData<Organization | null>(keys.organization)?.ariveLoanUrl ?? null) ? { arive_loan_url: o.ariveLoanUrl?.trim() || null } : {}),
           })
           .eq('id', id)
           .select('id'),

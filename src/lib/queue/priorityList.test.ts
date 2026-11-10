@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { itemHeading, itemLink, itemNote, itemTitle, moveItem, priorityList, snoozeDate, sortPriority, type PriorityItem } from './priorityList'
+import { itemHeading, itemLink, itemNote, itemTitle, moveItem, priorityList, snoozeDate, sortPriority, type PriorityItem, topItems } from './priorityList'
 
 const today = '2026-11-03'
 
@@ -97,5 +97,16 @@ describe('where a click goes', () => {
     expect(itemLink(null, 'call', null)).toBeNull()
     expect(itemLink(null, 'other', null, 'refi_benchmarks:2026-11-06')).toBe('/refi-watch/benchmarks')
     expect(itemLink(null, 'other', null, 'something-else')).toBeNull()
+  })
+})
+
+describe('the Today cap', () => {
+  const seven = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+  it('shows the first 5 in order and counts the rest', () => {
+    expect(topItems(seven, false)).toEqual({ shown: ['a', 'b', 'c', 'd', 'e'], hidden: 2 })
+  })
+  it('shows everything on View all, or when there are 5 or fewer', () => {
+    expect(topItems(seven, true)).toEqual({ shown: seven, hidden: 0 })
+    expect(topItems(['a', 'b'], false)).toEqual({ shown: ['a', 'b'], hidden: 0 })
   })
 })
