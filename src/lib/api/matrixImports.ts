@@ -130,7 +130,7 @@ export async function saveTypedDraft(importId: string, reading: MatrixReading) {
   if (rows.length === 0) throw new Error('This draft was already approved or discarded, or only owners and admins can edit it.')
 }
 
-const CELL_COLUMNS = 'matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, dscr_min, max_ltv, max_cltv, offered, notes, source_page'
+const CELL_COLUMNS = 'matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, dscr_min, max_ltv, max_cltv, offered, notes, source_page, loan_amount_mode, credit_mode, blank_mode'
 const RULE_COLUMNS = 'matrix_version_id, field, op, value, applies_when, severity, message, source_page, source_quote'
 
 const toImportCell = (c: Record<string, unknown>) => ({
@@ -150,6 +150,9 @@ const toImportCell = (c: Record<string, unknown>) => ({
   offered: c.offered as boolean,
   notes: (c.notes as string | null) ?? null,
   sourcePage: (c.source_page as number | null) ?? null,
+  loanAmountMode: (c.loan_amount_mode as MatrixCell['loanAmountMode']) ?? 'explicit_ranges',
+  creditMode: (c.credit_mode as MatrixCell['creditMode']) ?? 'bands',
+  blankMode: (c.blank_mode as MatrixCell['blankMode']) ?? 'not_offered',
 })
 
 const toReadRule = (r: Record<string, unknown>) => ({ field: r.field, op: r.op, value: r.value, appliesWhen: r.applies_when ?? null, severity: r.severity, message: r.message, page: r.source_page ?? null, quote: r.source_quote ?? '' }) as ReadRule
@@ -170,6 +173,23 @@ export async function programAsReading(programId: string): Promise<{ program: Re
     documentId: v?.source_document_id ?? null,
     program: { name: p.name, family: p.product_family, lien: p.lien, docTypes: p.doc_types, features: p.features, purposes: p.purposes, termOptions: p.term_options ?? [], loanAmountBasis: p.loan_amount_basis, description: p.description, grids: gridsFromCells(cells.map(toImportCell), p.lien), rules: rules.map(toReadRule) },
   }
+}
+
+/** Every approved reading with the programs it was approved into: the lender's own headers, for the loan-amount tier review. */
+export function useApprovedReadings() {
+  return useQuery({
+    queryKey: ['approvedReadings'],
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const out: { approvedProgramIds: string[] | null; reading: MatrixReading }[] = []
+      // A few at a time: a reading holds every grid of a lender PDF.
+      for (let from = 0; ; from += 50) {
+        const rows = unwrap<{ approved_program_ids: string[] | null; reading: MatrixReading }[]>(await db().from('matrix_imports').select('approved_program_ids, reading').eq('status', 'approved').order('created_at').order('id').range(from, from + 49))
+        out.push(...rows.map((r) => ({ approvedProgramIds: r.approved_program_ids, reading: r.reading })))
+        if (rows.length < 50) return out
+      }
+    },
+  })
 }
 
 export function useMatrixImport(id: string) {

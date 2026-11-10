@@ -4,10 +4,58 @@
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { cleanRule, type MatrixReading, type ReadGrid, type ReadProgram, type ReadRule } from '../../../supabase/functions/assistant/matrix'
 import { MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, termMonths, type MatrixPropertyType, type MatrixPurpose } from './taxonomy'
-import type { MatrixCell } from './types'
+import type { BlankMode, CreditMode, LoanAmountMode, MatrixCell } from './types'
 
 /** A cell ready to save (no id yet). */
 export type ImportCell = Omit<MatrixCell, 'id' | 'citizenship' | 'maxDti' | 'reservesMonths'>
+
+// ---------------------------------------------------------------------------
+// How a grid is read: loan amounts, credit scores, blanks
+// ---------------------------------------------------------------------------
+
+export interface GridSettings {
+  /** Maximums ("up to $X"; a larger tier also covers smaller loans) or printed ranges. */
+  loanAmounts: LoanAmountMode
+  /** Minimums (700 = 700 and up) or printed bands (700–719). */
+  creditScores: CreditMode
+  /** A blank is "nothing printed here" (other tiers can cover it) or "not offered" (it blocks). */
+  blankCells: BlankMode
+}
+
+type TierColumn = ReadGrid['columns'][number]
+/** Columns that differ only by loan amount. */
+export const columnSignature = (c: TierColumn) => JSON.stringify([c.occupancy, c.purposes, c.propertyTypes, c.unitsMin, c.unitsMax])
+
+/** Two or more loan columns that all start at the same amount ("≤ $750K | ≤ $1M | ≤ $1.5M") are maximums. */
+const looksLikeMaxTiers = (g: ReadGrid) =>
+  [...new Set(g.columns.map(columnSignature))].some((sig) => {
+    const same = g.columns.filter((c) => columnSignature(c) === sig && c.loanAmountMax != null)
+    return same.length > 1 && new Set(same.map((c) => c.loanAmountMin)).size === 1 && new Set(same.map((c) => c.loanAmountMax)).size === same.length
+  })
+
+/** Two or more open rows stacked ("700+" over "660+") are minimum scores. */
+const looksLikeMinimums = (g: ReadGrid) => {
+  const open = g.rows.filter((r) => r.ficoMax >= 850)
+  return open.length > 1 && new Set(open.map((r) => r.ficoMin)).size === open.length
+}
+
+/**
+ * A grid's three reading settings: what was picked (by the reader or on the review screen), else what its
+ * shape says. Blanks default to "not specified" with maximums or minimum scores, "not offered" in a classic grid.
+ */
+export function gridSettings(g: ReadGrid): GridSettings {
+  const loanAmounts = g.loanAmounts ?? (looksLikeMaxTiers(g) ? 'max_tiers' : 'explicit_ranges')
+  const creditScores = g.creditScores ?? (looksLikeMinimums(g) ? 'minimums' : 'bands')
+  return { loanAmounts, creditScores, blankCells: g.blankCells ?? (loanAmounts === 'max_tiers' || creditScores === 'minimums' ? 'not_specified' : 'not_offered') }
+}
+
+/** The settings in plain words, for the review screens. */
+export const SETTING_WORDS = {
+  loanAmounts: { max_tiers: 'Loan amounts are maximums', explicit_ranges: 'Loan amounts are printed ranges' },
+  creditScores: { minimums: 'Credit scores are minimums', bands: 'Credit scores are bands' },
+  blankCells: { not_specified: 'Blank = not specified', not_offered: 'Blank = not offered' },
+} as const
+export const settingsText = (s: GridSettings) => `${SETTING_WORDS.loanAmounts[s.loanAmounts]} · ${SETTING_WORDS.creditScores[s.creditScores]} · ${SETTING_WORDS.blankCells[s.blankCells]}`
 
 /** Every square of every grid as a cell; a blank square is "not offered", never 0. */
 export function cellsFromProgram(p: ReadProgram): ImportCell[] {
@@ -36,6 +84,7 @@ export function cellsFromProgram(p: ReadProgram): ImportCell[] {
 /** Every square of a grid as a cell, once for each income type the grid covers (so a search by any of them finds it). */
 export function cellsFromGrid(g: ReadGrid): ImportCell[] {
   const out: ImportCell[] = []
+  const settings = gridSettings(g)
   for (const docType of g.docTypes)
   g.rows.forEach((row, ri) =>
     g.columns.forEach((col, ci) => {
@@ -57,6 +106,9 @@ export function cellsFromGrid(g: ReadGrid): ImportCell[] {
         maxCltv: v != null && g.ratio === 'cltv' ? v : null,
         sourcePage: g.page > 0 ? g.page : null,
         notes: g.notes,
+        loanAmountMode: settings.loanAmounts,
+        creditMode: settings.creditScores,
+        blankMode: settings.blankCells,
       })
     }),
   )
@@ -100,41 +152,27 @@ export function repairProgram(p: ReadProgram): { program: ReadProgram; fixes: st
       fixes.push(`${where}: left out the "no credit score" row (Product Search needs a score); check the PDF for those limits.`)
       next = { ...next, rows: next.rows.filter((_, i) => keep[i]), values: next.values.filter((_, i) => keep[i]), printedRows: next.rows.filter((_, i) => keep[i]).length }
     }
-    // Columns "≤ $750,000", "≤ $1,000,000", "≤ $1,500,000" (each read from $0) are tiers: each starts a dollar after the one before.
-    const signature = (c: ReadGrid['columns'][number]) => JSON.stringify([c.occupancy, c.purposes, c.propertyTypes, c.unitsMin, c.unitsMax])
-    const sigs = [...new Set(next.columns.map(signature))]
-    let tiered = false
-    const columns = next.columns.map((c) => ({ ...c }))
-    for (const sig of sigs) {
-      const same = columns.filter((c) => signature(c) === sig && c.loanAmountMax != null)
-      const fromZero = same.filter((c) => c.loanAmountMin === 0)
-      if (fromZero.length < 2 || new Set(fromZero.map((c) => c.loanAmountMax)).size !== fromZero.length) continue
-      const maxes = fromZero.map((c) => c.loanAmountMax!).sort((a, b) => a - b)
-      for (const c of fromZero) {
-        const below = maxes.filter((m) => m < c.loanAmountMax!)
-        if (below.length) {
-          c.loanAmountMin = Math.max(...below) + 1
-          tiered = true
-        }
+    // Columns labeled as maximums ("≤ $750K", "≤ $1M", "$1,500,000") but read as ranges, each starting a dollar after the
+    // one before (how matrices were read before maximums were understood): they go back to maximums from the lowest start.
+    if (!next.loanAmounts) {
+      let reset = false
+      const columns = next.columns.map((c) => ({ ...c }))
+      for (const sig of new Set(columns.map(columnSignature))) {
+        const same = columns.filter((c) => columnSignature(c) === sig && c.loanAmountMax != null).sort((a, b) => a.loanAmountMax! - b.loanAmountMax!)
+        if (same.length < 2 || !same.every((c) => labeledAsMaximum(c.label)) || !same.every((c, i) => i === 0 || c.loanAmountMin === same[i - 1].loanAmountMax! + 1)) continue
+        for (const c of same) c.loanAmountMin = same[0].loanAmountMin
+        reset = true
+      }
+      if (reset) next = { ...next, columns }
+      if (looksLikeMaxTiers(next)) {
+        next = { ...next, loanAmounts: 'max_tiers' }
+        fixes.push(`${where}: loan amounts ${next.columns.map((c) => c.label).join(', ')} read as maximums (a larger tier also covers a smaller loan). Change it under Grid settings if the lender means ranges.`)
       }
     }
-    if (tiered) {
-      next = { ...next, columns }
-      fixes.push(`${where}: loan amount columns ${columns.map((c) => c.label).join(', ')} read as tiers, each starting where the one before ends.`)
-    }
-    // "580+", "620+", "640+" stacked as rows mean 580–619, 620–639 and 640+: each row's limits apply from its score up to the next row's.
-    const open = next.rows.filter((r) => r.ficoMax >= 850)
-    if (open.length > 1 && new Set(open.map((r) => r.ficoMin)).size === open.length) {
-      const mins = next.rows.map((r) => r.ficoMin)
-      next = {
-        ...next,
-        rows: next.rows.map((r) => {
-          if (r.ficoMax < 850) return r
-          const above = mins.filter((m) => m > r.ficoMin)
-          return above.length ? { ...r, ficoMax: Math.min(...above) - 1, label: `${r.ficoMin}–${Math.min(...above) - 1}` } : r
-        }),
-      }
-      fixes.push(`${where}: credit rows ${open.map((r) => r.label).join(', ')} read as ${next.rows.map((r) => r.label).join(', ')} (each row up to the next).`)
+    // "580+", "620+", "640+" stacked as rows are minimum scores: a 660 borrower meets all three.
+    if (!next.creditScores && looksLikeMinimums(next)) {
+      next = { ...next, creditScores: 'minimums' }
+      fixes.push(`${where}: credit rows ${next.rows.filter((r) => r.ficoMax >= 850).map((r) => r.label).join(', ')} read as minimum scores. Change it under Grid settings if the lender means bands.`)
     }
     if (!next.propertyTypes.length && next.columns.some((c) => !c.propertyTypes?.length)) {
       const t = /condotel/i.test(where) ? 'condotel' : /rural/i.test(where) ? 'rural' : null
@@ -182,6 +220,13 @@ export function repairProgram(p: ReadProgram): { program: ReadProgram; fixes: st
   return { program: { ...p, grids, docTypes, rules }, fixes }
 }
 
+/** A column label that names a maximum ("≤ $1MM", "Up to $750K", "$1,500,000"), not a range ("$500,001 - $1MM", "$1MM+"). */
+export function labeledAsMaximum(label: string): boolean {
+  const amounts = label.match(/\$?\s*\d[\d,.]*\s*(?:k|mm|m)?\b/gi) ?? []
+  if (amounts.length !== 1) return false
+  return !/[>+]|over|above|more than|and up/i.test(label)
+}
+
 /** The DSCR level in a grid title: "DSCR > 1" or "DSCR 1.00+" is 1, ".75 - .99" is 0.75, "DSCR < .75" or "No ratio" is 0. */
 export function dscrFromTitle(title: string): number | null {
   const n = (x: string) => Number(x.startsWith('.') ? `0${x}` : x)
@@ -209,6 +254,8 @@ export function checkProgram(p: ReadProgram): ImportWarning[] {
     if (!g.docTypes.length) out.push({ level: 'error', message: `${where}: no income type.`, page: pg })
     if (!g.propertyTypes.length && g.columns.some((c) => !c.propertyTypes?.length)) out.push({ level: 'error', message: `${where}: no property type.`, page: pg })
     if (!g.purposes.length && g.columns.some((c) => !c.purposes?.length)) out.push({ level: 'error', message: `${where}: no purpose.`, page: pg })
+    if (g.ambiguous && !g.settingsConfirmed) out.push({ level: 'error', message: `${where}: confirm how to read this matrix${g.ambiguousReason ? ` (${g.ambiguousReason})` : ''}.`, page: pg })
+    const blanksOpen = gridSettings(g).blankCells === 'not_specified'
 
     g.rows.forEach((r) => {
       if (r.ficoMin < 300 || r.ficoMax > 850 || r.ficoMin > r.ficoMax) out.push({ level: 'error', message: `${where}: credit band "${r.label || band(r.ficoMin, r.ficoMax)}" isn't possible (${r.ficoMin}–${r.ficoMax}).`, page: pg })
@@ -228,7 +275,8 @@ export function checkProgram(p: ReadProgram): ImportWarning[] {
       for (let k = 1; k < order.length; k++) {
         const higher = g.values[order[k - 1].i]?.[ci] ?? null
         const lower = g.values[order[k].i]?.[ci] ?? null
-        if (lower != null && (higher == null || lower > higher))
+        // Where a blank only means "nothing printed", a lower score with a limit under a blank is normal (a row list).
+        if (lower != null && (higher == null ? !blanksOpen : lower > higher))
           out.push({ level: 'warning', message: `${where}, ${col.label}: ${band(order[k].r.ficoMin, order[k].r.ficoMax)} allows ${higher == null ? 'a loan where a higher score is not offered' : `${formatPercent(lower, 3)}, more than ${formatPercent(higher, 3)} at ${band(order[k - 1].r.ficoMin, order[k - 1].r.ficoMax)}`}. Check the PDF.`, page: pg })
       }
     })
@@ -476,6 +524,9 @@ export function approvalPayload(programs: ReviewProgram[], existing: ProgramNow[
         max_cltv: c.maxCltv,
         notes: c.notes,
         source_page: c.sourcePage,
+        loan_amount_mode: c.loanAmountMode ?? 'explicit_ranges',
+        credit_mode: c.creditMode ?? 'bands',
+        blank_mode: c.blankMode ?? 'not_offered',
       })),
       rules: m.rules.map((r) => ({ field: r.field, op: r.op, value: r.value, applies_when: r.appliesWhen, severity: r.severity, message: r.message, source_page: r.page, source_quote: r.quote })),
       }

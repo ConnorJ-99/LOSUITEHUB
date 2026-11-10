@@ -62,6 +62,13 @@ export interface CatalogLender {
   states: string[] | null
 }
 
+/** How a grid's loan amounts read: "up to $X" tiers that also cover smaller loans, or printed ranges ("$500,001–$1,000,000"). */
+export type LoanAmountMode = 'max_tiers' | 'explicit_ranges'
+/** How a grid's credit scores read: minimums ("700" = 700 and up) or printed bands ("700–719"). */
+export type CreditMode = 'minimums' | 'bands'
+/** What a blank square means: nothing printed there (other tiers can cover it) or not offered (it blocks). */
+export type BlankMode = 'not_specified' | 'not_offered'
+
 export interface MatrixCell {
   id: string
   occupancy: Occupancy
@@ -85,6 +92,10 @@ export interface MatrixCell {
   reservesMonths: number | null
   sourcePage: number | null
   notes: string | null
+  /** The grid's three reading settings. Left out = printed ranges, credit bands, blank = not offered (matrices approved before the settings existed). */
+  loanAmountMode?: LoanAmountMode
+  creditMode?: CreditMode
+  blankMode?: BlankMode
 }
 
 export interface AppliesWhen {
@@ -92,6 +103,12 @@ export interface AppliesWhen {
   occupancies?: Occupancy[]
   /** Only when the scenario's LTV (1st lien) or CLTV (2nd) is above this. */
   ltv_above?: number
+  /** Only when the loan amount is below this ("loan amounts < $150,000 max 70% LTV"). */
+  loan_amount_below?: number
+  /** Only in these states (two-letter codes). */
+  states?: string[]
+  /** Only for these property types ("Florida condos max 75%"). */
+  property_types?: MatrixPropertyType[]
 }
 
 export interface ProgramRule {
@@ -180,9 +197,11 @@ export interface Limit {
   ratio: 'ltv' | 'cltv'
   /** The scenario's ratio (unrounded). */
   actual: number
-  /** The effective maximum (lowest of matrix cell and Texas cap). */
+  /** The effective maximum: the lowest of the matrix, the Texas cap and every program cap that applies. */
   max: number
-  limitedBy: 'matrix' | 'texas'
+  limitedBy: 'matrix' | 'texas' | 'rule'
+  /** Where the maximum comes from, e.g. "80% via the $1,500,000 tier at 700+ FICO". */
+  why: string
   /** Percentage points and dollars of room left (negative = over). */
   roomPts: number
   roomDollars: number

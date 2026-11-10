@@ -18,6 +18,12 @@ export const OCCUPANCIES = ['primary', 'second_home', 'investment'] as const
 export const TERMS = ['fixed_40', 'fixed_30', 'fixed_25', 'fixed_20', 'fixed_15', 'fixed_10', 'arm_5_6', 'arm_7_6', 'arm_10_6', 'heloc_10_20', 'heloc_10_15', 'heloc_5_25', 'heloc_3_27'] as const
 export const RULE_FIELDS = ['dti', 'reserves_months', 'mortgage_lates_12', 'mortgage_lates_24', 'bk_seasoning_months', 'fc_seasoning_months', 'state', 'citizenship', 'self_employed_years', 'loan_amount', 'fico', 'ltv', 'cltv', 'dscr', 'units', 'first_time_buyer', 'income_vs_ami'] as const
 export const RULE_OPS = ['<=', '>=', 'in', 'not_in', 'required', 'between'] as const
+/** How a grid's loan amounts read: "up to $X" tiers (a larger tier also covers smaller loans) or printed ranges. */
+export const LOAN_AMOUNT_MODES = ['max_tiers', 'explicit_ranges'] as const
+/** How a grid's credit scores read: minimums (700 = 700 and up) or printed bands (700-719). */
+export const CREDIT_MODES = ['minimums', 'bands'] as const
+/** What a blank square means: nothing printed there, or not offered. */
+export const BLANK_MODES = ['not_specified', 'not_offered'] as const
 
 type Of<T extends readonly string[]> = T[number]
 
@@ -38,6 +44,23 @@ export interface GridRow {
   label: string
   ficoMin: number
   ficoMax: number
+}
+
+/** One row of a row-list matrix, exactly as the lender prints it: a maximum loan amount, a minimum credit score, and a limit per purpose. */
+export interface PrintedRow {
+  /** Null = no maximum printed. */
+  loanAmountMax: number | null
+  ficoMin: number
+  /** One limit per value column (null = blank). */
+  values: (number | null)[]
+  notes: string | null
+}
+
+/** A row-list matrix as printed. The grid (rows, columns, values) is generated from this, never the other way around. */
+export interface PrintedRows {
+  /** The limit columns, left to right ("Purchase / R&T", "Cash-out"). */
+  columns: { label: string; purposes: Of<typeof PURPOSES>[] | null }[]
+  rows: PrintedRow[]
 }
 
 /** One grid as printed: defaults for every cell, then rows (credit bands) × columns. */
@@ -63,13 +86,24 @@ export interface ReadGrid {
   printedRows: number
   printedColumns: number
   notes: string | null
+  /** The three reading settings. Left out on older readings: worked out from the grid's shape (gridSettings). */
+  loanAmounts?: Of<typeof LOAN_AMOUNT_MODES>
+  creditScores?: Of<typeof CREDIT_MODES>
+  blankCells?: Of<typeof BLANK_MODES>
+  /** The structure is unclear (tiers that look like ranges but aren't labeled, "use the lower of"...): Connor confirms the settings before approving. */
+  ambiguous?: boolean
+  ambiguousReason?: string | null
+  /** Connor confirmed how to read an ambiguous grid. */
+  settingsConfirmed?: boolean
+  /** A row-list matrix's rows exactly as read, kept beside the generated grid. */
+  asPrinted?: PrintedRows | null
 }
 
 export interface ReadRule {
   field: Of<typeof RULE_FIELDS>
   op: Of<typeof RULE_OPS>
   value: number | string[] | { min: number; max: number } | null
-  appliesWhen: { purposes?: Of<typeof PURPOSES>[]; occupancies?: Of<typeof OCCUPANCIES>[]; ltv_above?: number } | null
+  appliesWhen: { purposes?: Of<typeof PURPOSES>[]; occupancies?: Of<typeof OCCUPANCIES>[]; ltv_above?: number; loan_amount_below?: number; states?: string[]; property_types?: Of<typeof PROPERTY_TYPES>[] } | null
   severity: 'hard' | 'verify'
   message: string
   page: number | null
@@ -170,8 +204,41 @@ export const MATRIX_SCHEMA = {
                 printed_rows: { type: 'integer', description: 'How many credit-score rows the printed grid has.' },
                 printed_columns: { type: 'integer', description: 'How many value columns the printed grid has.' },
                 notes: { type: 'string', description: 'Footnotes under the grid, as printed. Empty if none.' },
+                loan_amounts: { type: 'string', enum: [...LOAN_AMOUNT_MODES], description: 'max_tiers when loan amounts are printed as plain amounts or "≤ $X" (each is "up to $X", and a larger tier also covers smaller loans). explicit_ranges only when the lender prints ranges ("$500,001 - $1,000,000").' },
+                credit_scores: { type: 'string', enum: [...CREDIT_MODES], description: 'minimums when each row gives a minimum score (a row list, or rows like "700", "700+"); bands when ranges are printed ("700 - 719").' },
+                blank_cells: { type: 'string', enum: [...BLANK_MODES], description: 'not_specified when a blank or "N/A" only means nothing is printed there (the usual case with max tiers); not_offered when the document says the combination is not offered, and in classic grids of ranges and bands.' },
+                ambiguous: { type: 'boolean', description: 'true when you cannot tell how to read the loan amounts or credit scores: tiers that look like ranges but are not labeled as ranges, a note like "use the lower of", rows that contradict each other.' },
+                ambiguous_reason: { type: 'string', description: 'One sentence on what is unclear. Empty when ambiguous is false.' },
+                row_list: {
+                    type: 'object',
+                    description: 'Only for a row-list matrix (each row: a loan amount, a credit score and a max LTV per purpose): the rows exactly as printed. Then leave rows, columns and values as empty lists and printed_rows and printed_columns 0; the grid is built from this. For a classic grid, both lists here are empty.',
+                    properties: {
+                      value_columns: {
+                        type: 'array',
+                        description: 'The limit columns, left to right (e.g. "Purchase / R&T", "Cash-out").',
+                        items: { type: 'object', properties: { label: { type: 'string' }, purposes: { type: 'array', items: { type: 'string', enum: [...PURPOSES] }, description: 'The purposes this column is for; empty if it is for all of the grid\'s purposes.' } }, required: ['label', 'purposes'], additionalProperties: false },
+                      },
+                      rows: {
+                        type: 'array',
+                        description: 'One entry per printed loan amount and credit score, top to bottom. A printed row "$1,500,000 | 700 / 660 | 80 / 75 | 75 / 70" is two entries: 1500000 at 700 (80, 75) and 1500000 at 660 (75, 70).',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            loan_amount_max: { type: 'number', description: 'The maximum loan amount printed on the row, in dollars; 0 if the row prints none.' },
+                            fico_min: { type: 'integer', description: 'The minimum credit score printed on the row.' },
+                            values: { type: 'array', items: nullable({ type: 'number' }), description: 'One limit per value column, as a percent; null for a blank.' },
+                            notes: { type: 'string', description: 'Anything else printed on the row. Empty if none.' },
+                          },
+                          required: ['loan_amount_max', 'fico_min', 'values', 'notes'],
+                          additionalProperties: false,
+                        },
+                      },
+                    },
+                    required: ['value_columns', 'rows'],
+                    additionalProperties: false,
+                },
               },
-              required: ['page', 'title', 'ratio', 'occupancy', 'property_types', 'purposes', 'doc_types', 'units_min', 'units_max', 'dscr_min', 'rows', 'columns', 'values', 'printed_rows', 'printed_columns', 'notes'],
+              required: ['page', 'title', 'ratio', 'occupancy', 'property_types', 'purposes', 'doc_types', 'units_min', 'units_max', 'dscr_min', 'rows', 'columns', 'values', 'printed_rows', 'printed_columns', 'notes', 'loan_amounts', 'credit_scores', 'blank_cells', 'ambiguous', 'ambiguous_reason', 'row_list'],
               additionalProperties: false,
             },
           },
@@ -190,12 +257,15 @@ export const MATRIX_SCHEMA = {
                 applies_purposes: nullable({ type: 'array', items: { type: 'string', enum: [...PURPOSES] } }, 'Only for these purposes, or null for all.'),
                 applies_occupancies: nullable({ type: 'array', items: { type: 'string', enum: [...OCCUPANCIES] } }),
                 applies_ltv_above: nullable({ type: 'number' }, 'Only above this LTV/CLTV, or null.'),
+                applies_loan_amount_below: { type: 'number', description: 'Only when the loan amount is below this many dollars; 0 when the rule does not depend on the loan amount. "Loan amounts < $150,000 max 70% LTV" is field ltv, op <=, number 70, applies_loan_amount_below 150000.' },
+                applies_states: { type: 'array', items: { type: 'string' }, description: 'Only in these states (two-letter codes); empty for all states.' },
+                applies_property_types: { type: 'array', items: { type: 'string', enum: [...PROPERTY_TYPES] }, description: 'Only for these property types; empty for all. "Florida condos max 75%" is field ltv, op <=, number 75, applies_states ["FL"], applies_property_types ["condo"].' },
                 severity: { type: 'string', enum: ['hard', 'verify'], description: 'hard = rules the program out; verify = something to check (e.g. "per AUS").' },
                 message: { type: 'string', description: 'Plain English, e.g. "Max DTI 50%".' },
                 page: { type: 'integer' },
                 quote: { type: 'string', description: 'The words on the page, copied exactly.' },
               },
-              required: ['field', 'op', 'number', 'list', 'min', 'max', 'applies_purposes', 'applies_occupancies', 'applies_ltv_above', 'severity', 'message', 'page', 'quote'],
+              required: ['field', 'op', 'number', 'list', 'min', 'max', 'applies_purposes', 'applies_occupancies', 'applies_ltv_above', 'applies_loan_amount_below', 'applies_states', 'applies_property_types', 'severity', 'message', 'page', 'quote'],
               additionalProperties: false,
             },
           },
@@ -221,12 +291,18 @@ export const MATRIX_SYSTEM_PROMPT = `You read mortgage lender eligibility matric
 - Credit bands: "720-739" is 720 to 739; "740+" or "≥740" is 740 to 850; "<620" is 300 to 619.
 - Loan amounts in dollars: "$1,000,001 - $1.5MM" is 1000001 to 1500000; "≤ $1MM" is 0 to 1000000.
 - DSCR matrices often print one grid per DSCR level ("DSCR >= 1.00", "0.75 - 0.99", "No ratio / < 0.75"): give each grid its dscr_min (1, 0.75, 0). If DSCR levels are columns, split them into one grid per level.
-- Loan-amount columns printed as "≤ $750K | ≤ $1MM | ≤ $1.5MM" are tiers: each column starts one dollar above the column before (750001 to 1000000), never all from 0.
+- Loan amounts printed as plain amounts or "≤ $X" ("$500,000 | $1,000,000 | $1,500,000", "≤ $750K | ≤ $1MM | ≤ $1.5MM", a "Max Loan Amount" column) are maximums: loan_amounts is max_tiers and every tier runs from 0 to its amount (0 to 750000, 0 to 1000000, 0 to 1500000). A larger tier also covers smaller loans. Never start a tier one dollar above the tier before. The program's minimum loan amount is a rule (field loan_amount, op >=), not a tier.
+- Only ranges the lender prints as ranges ("$500,001 - $1MM", "$1MM+ to $1.5MM", "> $1,500,000") are explicit_ranges, read as printed.
+- A row list (each row gives a loan amount, a credit score and a max LTV for each purpose, often DSCR and other Non-QM matrices) goes in row_list exactly as printed, one entry per loan amount and credit score, with loan_amounts max_tiers and credit_scores minimums. The credit score on a row is a minimum: 700 means 700 to 850. Never turn a row list into credit bands (never 700-719), never fill in a score or loan amount the row does not print, and leave rows, columns and values empty.
+- In a classic grid, rows printed as ranges ("700 - 719") are credit_scores bands; rows printed as single scores or "700+" stacked one under the other are minimums.
+- A blank or "N/A" where loan amounts are maximums means nothing is printed there (blank_cells not_specified) unless the document says the combination is not offered. In a grid of printed ranges and bands, a blank is not_offered.
+- Set ambiguous to true, with ambiguous_reason, when the structure is unclear: loan amounts that look like ranges but are not labeled as ranges, a note like "use the lower of", or rows that contradict each other. Still give your best reading.
+- A limit that depends on the loan amount, the state or the property type and is printed as a note ("loan amounts < $150,000 max 70% LTV", "Florida condos max 75% LTV") is a rule with field ltv (or cltv), op <=, and applies_loan_amount_below, applies_states or applies_property_types.
 - Use only the words in the schema's lists. If the lender uses another name, pick the matching one; if none fits, leave it out and say so in notes.
 - A program is a loan product ("Conventional", "FHA", "Equity Advantage HELOC"), not a term: list its terms in term_options. Split a product into two programs only when the lender prints separate grids or rules for them.
 - If the document is a guideline with no grids, still return each program it covers with its terms, doc types, purposes, rules and description, and an empty grids list.
 - Some matrices list "special circumstances" (cash-out, manufactured home, second home, investment, manual underwrite, streamline) each with a credit score and max LTV instead of a grid. Turn each into cells on the matching column dimension: a purpose (cash-out, rate/term), a property type (manufactured, condo), an occupancy (second home, investment) or units. The row with no circumstance covers everything else.
-- Never return two cells that cover the same occupancy, property type, purpose, income type, units, credit band and loan amount with different limits. Where circumstances overlap ("when multiple circumstances apply the lowest LTV is used"), put the lowest limit in the overlapping cell.
+- Apart from maximum loan tiers and minimum scores (which overlap on purpose), never return two cells that cover the same occupancy, property type, purpose, income type, units, credit band and loan amount with different limits. Where circumstances overlap ("when multiple circumstances apply the lowest LTV is used"), put the lowest limit in the overlapping cell.
 - A circumstance that is really another product (FHA Streamline, Simple Refinance, VA IRRRL, 203(k)) is a separate program with its own grid. A circumstance with no matching dimension (manual underwrite, non-occupant co-borrower, high balance) goes in rules (e.g. field ltv, op <=) with its quote, not in cells.
 - A limit that is higher only for first-time buyers (e.g. 97% first-time buyer, 95% otherwise): put the higher limit in the cell and add a rule field first_time_buyer, op required, applies_ltv_above = the limit for everyone else (95), message "Above 95% LTV, first-time buyers only". Do the same for any "higher LTV only if" condition the rule fields can express.
 - Rule values: states as two-letter codes (TX); "all states" means no state rule. Citizenship as us_citizen, permanent_resident, non_permanent_resident, itin, foreign_national.
@@ -317,6 +393,61 @@ function normalizeGrid(g: Record<string, unknown>, program: string, dropped: str
     printedRows: int(g.printed_rows) ?? rows.length,
     printedColumns: int(g.printed_columns) ?? columns.length,
     notes: str(g.notes) || null,
+    ...(pick(LOAN_AMOUNT_MODES, g.loan_amounts) && { loanAmounts: pick(LOAN_AMOUNT_MODES, g.loan_amounts)! }),
+    ...(pick(CREDIT_MODES, g.credit_scores) && { creditScores: pick(CREDIT_MODES, g.credit_scores)! }),
+    ...(pick(BLANK_MODES, g.blank_cells) && { blankCells: pick(BLANK_MODES, g.blank_cells)! }),
+    ...(g.ambiguous === true && { ambiguous: true, ambiguousReason: str(g.ambiguous_reason) || null }),
+    ...rowList(g, where, dropped),
+  }
+}
+
+/** A row-list matrix: the rows as printed, and the grid generated from them (maximum loan tiers, minimum scores). */
+function rowList(g: Record<string, unknown>, where: string, dropped: string[]): Partial<ReadGrid> {
+  const list = g.row_list
+  if (!isObject(list) || !Array.isArray(list.rows) || !Array.isArray(list.value_columns)) return {}
+  const columns = list.value_columns.filter(isObject).map((c) => ({ label: str(c.label), purposes: Array.isArray(c.purposes) && c.purposes.length ? pickAll(PURPOSES, c.purposes, dropped, `${where} column purpose`) : null }))
+  const rows = list.rows.filter(isObject).flatMap((r): PrintedRow[] => {
+    const ficoMin = int(r.fico_min)
+    if (ficoMin == null) {
+      dropped.push(`${where}: a row with no credit score`)
+      return []
+    }
+    const values = Array.isArray(r.values) ? r.values.map((v) => numOrNull(v)) : []
+    // 0 (or nothing) on the row means the lender printed no maximum.
+    const max = numOrNull(r.loan_amount_max)
+    return [{ loanAmountMax: max != null && max > 0 ? max : null, ficoMin, values: columns.map((_, i) => values[i] ?? null), notes: str(r.notes) || null }]
+  })
+  if (rows.length === 0 || columns.length === 0) return {}
+  const asPrinted: PrintedRows = { columns, rows }
+  const built = gridFromPrintedRows(asPrinted)
+  // Two printed rows for the same loan amount and score can't both be right: Connor confirms.
+  const twice = rows.length !== new Set(rows.map((r) => `${r.loanAmountMax}|${r.ficoMin}`)).size
+  return {
+    asPrinted,
+    ...built,
+    printedRows: built.rows.length,
+    printedColumns: built.columns.length,
+    loanAmounts: 'max_tiers',
+    creditScores: 'minimums',
+    blankCells: pick(BLANK_MODES, g.blank_cells) ?? 'not_specified',
+    ...(twice && { ambiguous: true, ambiguousReason: 'Two rows are printed for the same loan amount and credit score.' }),
+  }
+}
+
+const dollars = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`
+
+/**
+ * The grid a row-list matrix generates: one row per minimum score (highest first), one column per value column
+ * and maximum loan amount (each from $0 up to its amount), and a blank wherever the lender printed no row.
+ */
+export function gridFromPrintedRows(p: PrintedRows): Pick<ReadGrid, 'rows' | 'columns' | 'values'> {
+  const scores = [...new Set(p.rows.map((r) => r.ficoMin))].sort((a, b) => b - a)
+  const maxes = [...new Set(p.rows.map((r) => r.loanAmountMax))].sort((a, b) => (a ?? Infinity) - (b ?? Infinity))
+  const tier = (max: number | null) => (max == null ? 'Any amount' : `≤ ${dollars(max)}`)
+  return {
+    rows: scores.map((s) => ({ label: `${s}+`, ficoMin: s, ficoMax: 850 })),
+    columns: p.columns.flatMap((vc) => maxes.map((max): GridColumn => ({ label: p.columns.length > 1 && vc.label ? `${vc.label} ${tier(max)}` : tier(max), loanAmountMin: 0, loanAmountMax: max, occupancy: null, unitsMin: null, unitsMax: null, purposes: vc.purposes, propertyTypes: null }))),
+    values: scores.map((s) => p.columns.flatMap((_, vi) => maxes.map((max) => p.rows.find((r) => r.ficoMin === s && r.loanAmountMax === max)?.values[vi] ?? null))),
   }
 }
 
@@ -338,7 +469,11 @@ function normalizeRule(r: Record<string, unknown>, program: string, dropped: str
   const purposes = Array.isArray(r.applies_purposes) ? pickAll(PURPOSES, r.applies_purposes, dropped, `${program} rule purpose`) : []
   const occupancies = Array.isArray(r.applies_occupancies) ? pickAll(OCCUPANCIES, r.applies_occupancies, dropped, `${program} rule occupancy`) : []
   const ltvAbove = numOrNull(r.applies_ltv_above)
-  const appliesWhen = purposes.length || occupancies.length || ltvAbove != null ? { ...(purposes.length && { purposes }), ...(occupancies.length && { occupancies }), ...(ltvAbove != null && { ltv_above: ltvAbove }) } : null
+  const loanBelow = numOrNull(r.applies_loan_amount_below)
+  const states = Array.isArray(r.applies_states) ? [...new Set(r.applies_states.map((x) => str(x).toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x)))] : []
+  const propertyTypes = Array.isArray(r.applies_property_types) ? pickAll(PROPERTY_TYPES, r.applies_property_types, dropped, `${program} rule property type`) : []
+  const when = { ...(purposes.length && { purposes }), ...(occupancies.length && { occupancies }), ...(ltvAbove != null && { ltv_above: ltvAbove }), ...(loanBelow != null && loanBelow > 0 && { loan_amount_below: loanBelow }), ...(states.length && { states }), ...(propertyTypes.length && { property_types: propertyTypes }) }
+  const appliesWhen = Object.keys(when).length ? when : null
   const rule: ReadRule = { field, op, value, appliesWhen, severity: r.severity === 'verify' ? 'verify' : 'hard', message: str(r.message) || `${field} ${op}`, page: int(r.page) && int(r.page)! > 0 ? int(r.page) : null, quote: str(r.quote) }
   const clean = cleanRule(rule)
   if (!clean) dropped.push(`${program} rule with no usable value (e.g. "all states"): "${rule.message}"`)

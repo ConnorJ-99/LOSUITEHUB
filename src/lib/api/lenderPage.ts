@@ -211,7 +211,7 @@ export function useLenderMatrixVersions(lenderId: string) {
         ? await readAll<CellRow>((a, b) =>
             db()
               .from('program_matrix_cells')
-              .select('id, matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, dscr_min, citizenship, offered, max_ltv, max_cltv, max_dti, reserves_months, source_page, notes')
+              .select('id, matrix_version_id, occupancy, property_types, purposes, doc_type, units_min, units_max, fico_min, fico_max, loan_amount_min, loan_amount_max, dscr_min, citizenship, offered, max_ltv, max_cltv, max_dti, reserves_months, source_page, notes, loan_amount_mode, credit_mode, blank_mode')
               .in('matrix_version_id', ids)
               .order('id')
               .range(a, b),

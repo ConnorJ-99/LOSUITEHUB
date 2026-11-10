@@ -96,7 +96,9 @@ export function ProgramCard({ result: r, selected, onSelect, verifiedOn, onView 
           {ratio} {r.limit ? formatPercent(r.limit.actual, 2) : '—'} of {r.limit ? formatPercent(r.limit.max, 3) : '—'} max
           {atLimit ? ' · at limit' : ` · ${formatPercent(room, 2)} (${formatCurrency(r.limit?.roomDollars ?? 0)}) room`}
           {r.limit?.limitedBy === 'texas' && ' · Texas 80% cap'}
+          {r.limit?.limitedBy === 'rule' && ' · program cap'}
         </p>
+        {r.limit && (r.limit.limitedBy === 'rule' || r.cell?.loanAmountMode === 'max_tiers' || r.cell?.creditMode === 'minimums') && <p className="mt-0.5 text-xs text-muted-foreground">{r.limit.why}</p>}
       </div>
 
       {notSignedUp && <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">You're not signed up with this lender. Check with them before quoting.</p>}

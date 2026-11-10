@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { evaluateProgram, missingForSearch, search } from './engine'
 import { cell, conventionalCatalog, conventionalPurchase, dscrCatalog, dscrSecond, lender, marcus, marcusCatalog, program, rule, scenario } from './testCatalog'
-import type { Catalog, SearchResult } from './types'
+import type { Catalog, MatrixCell, SearchResult } from './types'
 
 const names = (rs: SearchResult['eligible']) => rs.map((r) => `${r.lender.name} · ${r.program.name}`)
 const find = (r: SearchResult, name: string) => [...r.eligible, ...r.ineligible].find((x) => x.program.name === name)!
@@ -226,5 +226,121 @@ describe('a purchase price left over from editing', () => {
   it('never counts on a refinance or a 2nd lien', () => {
     expect(search({ ...dscrSecond, purchasePrice: 400000 }, dscrCatalog).ratios.cltv).toBeCloseTo(67.1875, 6)
     expect(search({ ...conventionalPurchase, purpose: 'rate_term', value: 500000 }, conventionalCatalog).ratios.ltv).toBe(76)
+  })
+})
+
+// A DSCR ≥ 1.00 matrix printed as a row list: a maximum loan amount, a minimum credit score and a max LTV per row.
+describe('loan-amount tiers printed as maximums (row-list matrix)', () => {
+  const rows: [loanMax: number, ficoMin: number, purchaseRateTerm: number, cashOut: number][] = [
+    [500000, 640, 75, 70],
+    [1000000, 720, 80, 80],
+    [1500000, 700, 80, 75],
+    [1500000, 660, 75, 70],
+    [2000000, 700, 75, 70],
+    [2000000, 660, 70, 65],
+    [2500000, 700, 70, 65],
+    [2500000, 660, 65, 60],
+    [3000000, 720, 70, 65],
+    [3000000, 700, 65, 60],
+    [3000000, 660, 60, 60],
+  ]
+  const base = { occupancy: 'investment' as const, docType: 'dscr' as const, dscrMin: 1, ficoMax: 850, loanAmountMode: 'max_tiers' as const, creditMode: 'minimums' as const, blankMode: 'not_specified' as const, sourcePage: 2 }
+  const asTiers = () =>
+    rows.flatMap(([loanAmountMax, ficoMin, prt, co]) => [cell({ ...base, purposes: ['purchase', 'rate_term'], loanAmountMax, ficoMin, maxLtv: prt }), cell({ ...base, purposes: ['cash_out'], loanAmountMax, ficoMin, maxLtv: co })])
+  const rules = [
+    rule({ field: 'loan_amount', op: '>=', value: 125000, message: 'Minimum loan amount $125,000' }),
+    rule({ field: 'ltv', op: '<=', value: 70, appliesWhen: { loan_amount_below: 150000 }, message: 'Loan amounts under $150,000 max 70% LTV' }),
+  ]
+  const bank = lender('Tier Bank')
+  const dscr = program('Tier Bank', 'DSCR 1.00+', { family: 'non_qm', docTypes: ['dscr'], cells: asTiers(), rules })
+  // Unless a value is given, the loan is at 50% LTV: the answer under test is the maximum, not this scenario's ratio.
+  const at = (fico: number, loanAmount: number, purpose: 'rate_term' | 'cash_out' = 'rate_term', value = loanAmount * 2) => evaluateProgram(dscr, bank, scenario({ family: 'non_qm', docType: 'dscr', occupancy: 'investment', dscr: 1.1, purpose, fico, loanAmount, value }))
+  const maxes = (fico: number, loanAmount: number) => [at(fico, loanAmount).limit?.max, at(fico, loanAmount, 'cash_out').limit?.max]
+
+  it('720 FICO, $400,000: 80% from the $1,000,000 row (not the $500,000 row), cash-out 80%', () => {
+    expect(maxes(720, 400000)).toEqual([80, 80])
+    expect(at(720, 400000).limit?.why).toBe('80% via the $1,000,000 tier at 720+ FICO')
+    expect(at(720, 400000).eligible).toBe(true)
+  })
+  it('700 FICO, $750,000: 80% from the $1,500,000 row (not "not offered"), cash-out 75%', () => {
+    expect(maxes(700, 750000)).toEqual([80, 75])
+    expect(at(700, 750000).limit?.why).toBe('80% via the $1,500,000 tier at 700+ FICO')
+  })
+  it('700 FICO, $400,000: 80%', () => {
+    expect(at(700, 400000).limit?.max).toBe(80)
+  })
+  it('660 FICO, $1,200,000: 75% / 70%', () => {
+    expect(maxes(660, 1200000)).toEqual([75, 70])
+  })
+  it('640 FICO, $600,000: not eligible; lower the loan to $500,000 or score 660+', () => {
+    const r = at(640, 600000, 'rate_term', 800000)
+    expect(r.eligible).toBe(false)
+    expect(r.reasons).toEqual([expect.objectContaining({ kind: 'loan_amount', message: '640–659 FICO maxes at $500,000', fix: { text: 'Lower loan amount to $500,000 (−$100,000) or score 660+', loanAmount: 500000, fico: 660 }, unfixable: false })])
+  })
+  it('$2,800,000: 720 FICO 70% / 65%; 660 FICO 60% / 60%', () => {
+    expect(maxes(720, 2800000)).toEqual([70, 65])
+    expect(maxes(660, 2800000)).toEqual([60, 60])
+  })
+  it('700 FICO, $140,000: 70%, the small-loan cap on top of the 80% tier', () => {
+    const r = at(700, 140000)
+    expect(r.limit).toMatchObject({ max: 70, limitedBy: 'rule', why: '70%: Loan amounts under $150,000 max 70% LTV (the matrix allows 80% via the $1,500,000 tier at 700+ FICO)' })
+    expect(r.eligible).toBe(true)
+    // Over the cap: one reason (the cap), and the fix is a loan that fits under it.
+    const over = at(700, 140000, 'rate_term', 190000)
+    expect(over.reasons).toEqual([expect.objectContaining({ kind: 'ratio', message: 'Loan amounts under $150,000 max 70% LTV; scenario is 73.68%', fix: { text: 'Lower loan amount to $133,000 (−$7,000)', loanAmount: 133000 } })])
+  })
+  it('$120,000: not eligible, below the $125,000 minimum', () => {
+    const r = at(700, 120000)
+    expect(r.eligible).toBe(false)
+    expect(r.reasons.map((x) => x.message)).toEqual(['Minimum loan amount $125,000; scenario is $120,000'])
+  })
+  it('fixes use the same tiers: over the limit at 700 / $750,000 suggests the loan that fits at 80%, never a gap', () => {
+    const r = at(700, 750000, 'rate_term', 900000)
+    expect(r.reasons).toEqual([expect.objectContaining({ kind: 'ratio', message: 'Max LTV 80% via the $1,500,000 tier at 700+ FICO; scenario is 83.33%', fix: { text: 'Lower loan amount to $720,000 (−$30,000)', loanAmount: 720000 } })])
+    expect(at(700, 400000).maxLoan).toBe(640000)
+  })
+  it('a state or property cap sits on top of the tier ("Florida condos max 75%")', () => {
+    const capped = { ...dscr, rules: [...rules, rule({ field: 'ltv', op: '<=', value: 75, appliesWhen: { states: ['FL'], property_types: ['condo'] }, message: 'Florida condos max 75% LTV' })], cells: asTiers().map((c) => ({ ...c, propertyTypes: ['sfr_pud', 'condo'] as MatrixCell['propertyTypes'] })) }
+    const s = scenario({ family: 'non_qm', docType: 'dscr', occupancy: 'investment', dscr: 1.1, purpose: 'rate_term', fico: 720, loanAmount: 400000, value: 800000 })
+    expect(evaluateProgram(capped, lender('Tier Bank', 'approved', null), { ...s, state: 'FL', propertyType: 'condo' }).limit).toMatchObject({ max: 75, limitedBy: 'rule' })
+    expect(evaluateProgram(capped, bank, { ...s, propertyType: 'condo' }).limit).toMatchObject({ max: 80, limitedBy: 'matrix' })
+  })
+  it("the same table saved as printed ranges and credit bands keeps today's results (the gap stays until it is re-approved)", () => {
+    const ranges: [number, number | null][] = [[0, 500000], [500001, 1000000], [1000001, 1500000]]
+    const bands: [number, number, (number | null)[]][] = [[720, 850, [75, 80, 80]], [700, 719, [75, null, 80]], [660, 699, [75, null, 75]], [640, 659, [75, null, null]]]
+    const old = program('Tier Bank', 'DSCR (ranges)', { family: 'non_qm', docTypes: ['dscr'], cells: bands.flatMap(([ficoMin, ficoMax, limits]) => ranges.map(([loanAmountMin, loanAmountMax], i) => cell({ occupancy: 'investment', docType: 'dscr', dscrMin: 1, ficoMin, ficoMax, loanAmountMin, loanAmountMax, offered: limits[i] != null, maxLtv: limits[i] }))) })
+    const s = scenario({ family: 'non_qm', docType: 'dscr', occupancy: 'investment', dscr: 1.1, purpose: 'rate_term', fico: 700, loanAmount: 750000, value: 1500000 })
+    expect(evaluateProgram(old, bank, s).reasons[0]).toMatchObject({ kind: 'not_offered', message: 'Not offered at 700–719 up to $1,000,000' })
+    expect(evaluateProgram(old, bank, { ...s, fico: 720, loanAmount: 400000, value: 800000 }).limit?.max).toBe(75)
+  })
+  it('overlapping circumstances still use the lower limit (a condo cell and a cash-out cell both apply)', () => {
+    const tiers = { loanAmountMode: 'max_tiers' as const, creditMode: 'minimums' as const, blankMode: 'not_specified' as const }
+    const overlap = program('Tier Bank', 'Overlap', {
+      cells: [
+        cell({ ...tiers, propertyTypes: ['sfr_pud', 'condo'], purposes: ['cash_out'], ficoMin: 700, loanAmountMax: 1000000, maxLtv: 75 }),
+        cell({ ...tiers, propertyTypes: ['sfr_pud', 'condo'], purposes: ['cash_out'], ficoMin: 700, loanAmountMax: 2000000, maxLtv: 70 }),
+        cell({ ...tiers, propertyTypes: ['condo'], ficoMin: 680, loanAmountMax: 1500000, maxLtv: 65 }),
+      ],
+    })
+    const s = scenario({ purpose: 'cash_out', fico: 720, loanAmount: 400000, value: 800000 })
+    // Cash-out alone: the best tier (75%). On a condo, the condo cell also applies and is lower.
+    expect(evaluateProgram(overlap, bank, s).limit?.max).toBe(75)
+    expect(evaluateProgram(overlap, bank, { ...s, propertyType: 'condo' }).limit?.max).toBe(65)
+  })
+  it('a blank set to "not offered" still blocks; set to "not specified" another tier covers it', () => {
+    const blank = (blankMode: 'not_offered' | 'not_specified') =>
+      program('Tier Bank', 'Blank', {
+        cells: [
+          cell({ loanAmountMode: 'max_tiers', creditMode: 'minimums', blankMode, ficoMin: 700, loanAmountMax: 1000000, offered: false }),
+          cell({ loanAmountMode: 'max_tiers', creditMode: 'minimums', blankMode, ficoMin: 700, loanAmountMax: 1500000, maxLtv: 80 }),
+        ],
+      })
+    const s = scenario({ purpose: 'rate_term', fico: 700, loanAmount: 750000, value: 1500000 })
+    const blocked = evaluateProgram(blank('not_offered'), bank, s)
+    expect(blocked.eligible).toBe(false)
+    expect(blocked.reasons[0]).toMatchObject({ kind: 'not_offered' })
+    expect(evaluateProgram(blank('not_specified'), bank, s).limit?.max).toBe(80)
+    // Above the blank's tier, the $1,500,000 tier applies either way.
+    expect(evaluateProgram(blank('not_offered'), bank, { ...s, loanAmount: 1200000, value: 2400000 }).limit?.max).toBe(80)
   })
 })

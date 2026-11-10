@@ -265,6 +265,7 @@ function ProgramReview({ program: p, existing, documentId, pdfUrl, editable, onC
           <GridEditor
             key={gi}
             grid={g}
+            program={p}
             docTypes={p.docTypes}
             pdfUrl={pdfUrl}
             editable={editable}
@@ -273,6 +274,7 @@ function ProgramReview({ program: p, existing, documentId, pdfUrl, editable, onC
             onRemove={p.grids.length > 1 ? () => set('grids')(p.grids.filter((_, j) => j !== gi)) : undefined}
           />
         ))}
+        {p.grids.length > 0 && <p className="text-xs text-muted-foreground">"As printed" is what was read from the lender. "Grid (generated)" is what Product Search will use once you approve: check a few squares against the PDF.</p>}
         {editable && (
           <Button size="sm" variant="outline" onClick={() => set('grids')([...p.grids, blankGrid(p, `Grid ${p.grids.length + 1}`)])}>
             <PlusIcon />

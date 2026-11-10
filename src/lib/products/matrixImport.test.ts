@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import * as M from '../../../supabase/functions/assistant/matrix'
 import * as M2 from './matrixImport'
 import { approvalPayload, cellsFromGrid, cellsFromProgram, defaultMode, mergedProgram, repairProgram, type ProgramNow, changeText, checkProgram, diffCells, matchProgram, parseSquare } from './matrixImport'
+import { evaluateProgram } from './engine'
+import { lender, program as catalogProgram, scenario } from './testCatalog'
 import { DOC_TYPES, FEATURES, LIENS, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, PRODUCT_FAMILIES, RULE_FIELDS, RULE_OPS } from './taxonomy'
 
 /** A reading shaped like mockup 04's grid (fictional numbers): columns are occupancy, rows are credit bands. */
@@ -196,8 +198,8 @@ describe('fixing what real matrices trip on', () => {
     // Rows with a score range stay, whatever the label; a bare "No FICO" row beside them goes.
     const labeled = (label: string, ficoMin: number) => ({ label, ficoMin, ficoMax: 850 })
     const mixed = { ...g, rows: [labeled('680+ / No FICO', 680), labeled('No FICO score required. Evaluated by AUS', 300), labeled('No FICO', 300)], values: [g.values[0], g.values[0], g.values[0]] }
-    // (The stacked "680+" and "300+" rows become 680+ and 300–679.)
-    expect(repairProgram({ ...p, grids: [mixed] }).program.grids[0].rows.map((r: M.GridRow) => [r.ficoMin, r.ficoMax])).toEqual([[680, 850], [300, 679]])
+    // (The stacked "680+" and "300+" rows stay as printed: they're minimum scores.)
+    expect(repairProgram({ ...p, grids: [mixed] }).program.grids[0].rows.map((r: M.GridRow) => [r.ficoMin, r.ficoMax])).toEqual([[680, 850], [300, 850]])
     // Even a grid of only "No FICO" rows keeps them rather than vanishing (the checks flag it instead).
     const onlyNoFico = { ...g, rows: [{ label: 'No FICO', ficoMin: 0, ficoMax: 0 }], values: [g.values[0]] }
     expect(repairProgram({ ...p, grids: [onlyNoFico] }).program.grids[0].rows).toHaveLength(1)
@@ -445,23 +447,42 @@ describe('rule values the search can compare', () => {
 })
 
 describe('stacked "580+ / 620+ / 640+" rows', () => {
-  it('each row runs up to the next, so a 650 score takes the 640+ row', () => {
+  it('are minimum scores, kept as printed (never turned into 580–619 bands)', () => {
     const p = (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0]
     const g = { ...p.grids[0], rows: [{ label: '580+', ficoMin: 580, ficoMax: 850 }, { label: '620+', ficoMin: 620, ficoMax: 850 }, { label: '640+', ficoMin: 640, ficoMax: 850 }] }
     const { program, fixes } = repairProgram({ ...p, grids: [g] })
-    expect(program.grids[0].rows.map((r) => [r.ficoMin, r.ficoMax])).toEqual([[580, 619], [620, 639], [640, 850]])
-    expect(fixes[0]).toContain('580+, 620+, 640+ read as 580–619, 620–639, 640+')
+    expect(program.grids[0].rows.map((r) => [r.ficoMin, r.ficoMax])).toEqual([[580, 850], [620, 850], [640, 850]])
+    expect(program.grids[0].creditScores).toBe('minimums')
+    expect(fixes[0]).toContain('580+, 620+, 640+ read as minimum scores')
+    expect(cellsFromGrid(program.grids[0]).every((c) => c.creditMode === 'minimums' && c.blankMode === 'not_specified')).toBe(true)
   })
 })
 
 describe('loan amount columns read from $0', () => {
-  it('"≤ $750K, ≤ $1M, ≤ $1.5M" become tiers', () => {
+  it('"≤ $750K, ≤ $1M, ≤ $1.5M" are maximums, all from $0 (never "one dollar above")', () => {
     const p = (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0]
     const col = (label: string, max: number) => ({ label, loanAmountMin: 0, loanAmountMax: max, occupancy: null, unitsMin: null, unitsMax: null, purposes: null, propertyTypes: null })
     const g = { ...p.grids[0], columns: [col('≤ $750,000', 750000), col('≤ $1,000,000', 1000000), col('≤ $1,500,000', 1500000)], values: p.grids[0].rows.map(() => [80, 75, 70]) }
     const { program, fixes } = repairProgram({ ...p, grids: [g] })
-    expect(program.grids[0].columns.map((c) => [c.loanAmountMin, c.loanAmountMax])).toEqual([[0, 750000], [750001, 1000000], [1000001, 1500000]])
-    expect(fixes.some((f) => f.includes('read as tiers'))).toBe(true)
+    expect(program.grids[0].columns.map((c) => [c.loanAmountMin, c.loanAmountMax])).toEqual([[0, 750000], [0, 1000000], [0, 1500000]])
+    expect(program.grids[0].loanAmounts).toBe('max_tiers')
+    expect(fixes.some((f) => f.includes('read as maximums'))).toBe(true)
+    expect(M2.gridSettings(program.grids[0])).toEqual({ loanAmounts: 'max_tiers', creditScores: 'bands', blankCells: 'not_specified' })
+  })
+  it('a reading made under the old rule (labels say "≤", amounts start a dollar above the tier before) goes back to maximums', () => {
+    const p = (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0]
+    const col = (label: string, min: number, max: number) => ({ label, loanAmountMin: min, loanAmountMax: max, occupancy: null, unitsMin: null, unitsMax: null, purposes: null, propertyTypes: null })
+    const g = { ...p.grids[0], columns: [col('≤ $750K', 0, 750000), col('≤ $1MM', 750001, 1000000), col('≤ $1.5MM', 1000001, 1500000)], values: p.grids[0].rows.map(() => [80, 75, 70]) }
+    expect(repairProgram({ ...p, grids: [g] }).program.grids[0].columns.map((c) => [c.loanAmountMin, c.loanAmountMax])).toEqual([[0, 750000], [0, 1000000], [0, 1500000]])
+    // Printed ranges stay ranges.
+    const ranges = { ...g, columns: [col('≤ $750K', 0, 750000), col('$750,001 - $1MM', 750001, 1000000), col('$1MM+ to $1.5MM', 1000001, 1500000)] }
+    const kept = repairProgram({ ...p, grids: [ranges] })
+    expect(kept.program.grids[0].columns.map((c) => c.loanAmountMin)).toEqual([0, 750001, 1000001])
+    expect(M2.gridSettings(kept.program.grids[0])).toEqual({ loanAmounts: 'explicit_ranges', creditScores: 'bands', blankCells: 'not_offered' })
+  })
+  it('tells a maximum label from a range label', () => {
+    for (const label of ['≤ $1MM', 'Up to $750K', '$1,500,000', 'Max $2.5M', '<= 1,000,000']) expect(M2.labeledAsMaximum(label), label).toBe(true)
+    for (const label of ['$500,001 - $1MM', '$1MM+ to $1.5MM', '> $1,500,000', '$3MM+', 'Primary', 'Over $1M']) expect(M2.labeledAsMaximum(label), label).toBe(false)
   })
   it('columns that differ by occupancy are left alone', () => {
     const p = (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0]
@@ -469,5 +490,157 @@ describe('loan amount columns read from $0', () => {
   })
   it('"Refi Now" and "RefiNow" are the same program', () => {
     expect(matchProgram('Refi Now', [{ id: 'r', name: 'RefiNow', family: 'conventional', lien: 'first' }], 'A&D', { family: 'conventional', lien: 'first' })).toBe('r')
+  })
+})
+
+// The DSCR ≥ 1.00 matrix from the tier fix, as the reader returns it: the lender's rows, nothing filled in.
+function rowListReading(over: Record<string, unknown> = {}): unknown {
+  const rows: [number, number, number, number][] = [
+    [500000, 640, 75, 70],
+    [1000000, 720, 80, 80],
+    [1500000, 700, 80, 75],
+    [1500000, 660, 75, 70],
+    [2000000, 700, 75, 70],
+    [2000000, 660, 70, 65],
+    [2500000, 700, 70, 65],
+    [2500000, 660, 65, 60],
+    [3000000, 720, 70, 65],
+    [3000000, 700, 65, 60],
+    [3000000, 660, 60, 60],
+  ]
+  return {
+    effective_date: '2026-11-01',
+    notes: '',
+    programs: [
+      {
+        name: 'DSCR',
+        family: 'non_qm',
+        lien: 'first',
+        doc_types: ['dscr'],
+        features: [],
+        purposes: ['purchase', 'rate_term', 'cash_out'],
+        term_options: ['fixed_30'],
+        loan_amount_basis: 'this_lien',
+        description: '',
+        grids: [
+          {
+            page: 2,
+            title: 'DSCR >= 1.00',
+            ratio: 'ltv',
+            occupancy: 'investment',
+            property_types: ['sfr_pud'],
+            purposes: ['purchase', 'rate_term', 'cash_out'],
+            doc_types: ['dscr'],
+            units_min: 1,
+            units_max: 4,
+            dscr_min: 1,
+            rows: [],
+            columns: [],
+            values: [],
+            printed_rows: 0,
+            printed_columns: 0,
+            notes: '',
+            loan_amounts: 'max_tiers',
+            credit_scores: 'minimums',
+            blank_cells: 'not_specified',
+            ambiguous: false,
+            ambiguous_reason: '',
+            row_list: {
+              value_columns: [
+                { label: 'Purchase / R&T', purposes: ['purchase', 'rate_term'] },
+                { label: 'Cash-out', purposes: ['cash_out'] },
+              ],
+              rows: rows.map(([loan_amount_max, fico_min, prt, co]) => ({ loan_amount_max, fico_min, values: [prt, co], notes: '' })),
+            },
+            ...over,
+          },
+        ],
+        rules: [
+          { field: 'loan_amount', op: '>=', number: 125000, list: null, min: null, max: null, applies_purposes: null, applies_occupancies: null, applies_ltv_above: null, applies_loan_amount_below: null, applies_states: null, applies_property_types: null, severity: 'hard', message: 'Minimum loan amount $125,000', page: 2, quote: 'Min loan $125,000' },
+          { field: 'ltv', op: '<=', number: 70, list: null, min: null, max: null, applies_purposes: null, applies_occupancies: null, applies_ltv_above: null, applies_loan_amount_below: 150000, applies_states: null, applies_property_types: null, severity: 'hard', message: 'Loan amounts under $150,000 max 70% LTV', page: 2, quote: 'Loan amounts < $150,000 max 70% LTV' },
+          { field: 'ltv', op: '<=', number: 75, list: null, min: null, max: null, applies_purposes: null, applies_occupancies: null, applies_ltv_above: null, applies_loan_amount_below: null, applies_states: ['fl', 'Florida'], applies_property_types: ['condo', 'castle'], severity: 'hard', message: 'Florida condos max 75% LTV', page: 2, quote: 'Florida condos max 75%' },
+        ],
+      },
+    ],
+  }
+}
+
+describe('a row-list matrix: the lender’s rows are the source, the grid is generated from them', () => {
+  const read = M.normalizeMatrixReading(rowListReading()) as M.MatrixReading
+  const p = read.programs[0]
+  const g = p.grids[0]
+
+  it('keeps the rows exactly as printed', () => {
+    expect(g.asPrinted?.columns.map((c) => c.label)).toEqual(['Purchase / R&T', 'Cash-out'])
+    expect(g.asPrinted?.rows).toHaveLength(11)
+    expect(g.asPrinted?.rows[2]).toEqual({ loanAmountMax: 1500000, ficoMin: 700, values: [80, 75], notes: null })
+  })
+  it('generates the grid: one row per minimum score, one column per purpose and maximum, blanks where nothing is printed', () => {
+    expect(g.rows.map((r) => [r.label, r.ficoMin, r.ficoMax])).toEqual([['720+', 720, 850], ['700+', 700, 850], ['660+', 660, 850], ['640+', 640, 850]])
+    expect(g.columns).toHaveLength(12)
+    expect(g.columns.slice(0, 3).map((c) => [c.label, c.loanAmountMin, c.loanAmountMax, c.purposes])).toEqual([
+      ['Purchase / R&T ≤ $500,000', 0, 500000, ['purchase', 'rate_term']],
+      ['Purchase / R&T ≤ $1,000,000', 0, 1000000, ['purchase', 'rate_term']],
+      ['Purchase / R&T ≤ $1,500,000', 0, 1500000, ['purchase', 'rate_term']],
+    ])
+    // Purchase / R&T half of the grid, as the lender's rows give it.
+    expect(g.values.map((row) => row.slice(0, 6))).toEqual([
+      [null, 80, null, null, null, 70],
+      [null, null, 80, 75, 70, 65],
+      [null, null, 75, 70, 65, 60],
+      [75, null, null, null, null, null],
+    ])
+    expect(M2.gridSettings(g)).toEqual({ loanAmounts: 'max_tiers', creditScores: 'minimums', blankCells: 'not_specified' })
+  })
+  it('passes the checks with nothing to fix (blanks under a higher score are not a warning in a row list)', () => {
+    expect(repairProgram(p)).toEqual({ program: p, fixes: [] })
+    expect(checkProgram(p)).toEqual([])
+  })
+  it('reads the caps: below a loan amount, and by state and property type', () => {
+    expect(p.rules.map((r) => r.appliesWhen)).toEqual([null, { loan_amount_below: 150000 }, { states: ['FL'], property_types: ['condo'] }])
+    expect(read.dropped).toEqual(['DSCR rule property type: "castle"'])
+  })
+  it('saves every cell with the three settings', () => {
+    const cells = approvalPayload([{ ...p, include: true, programId: null, mode: 'replace' }])[0].cells
+    expect(cells).toHaveLength(48)
+    expect(cells.every((c) => c.loan_amount_mode === 'max_tiers' && c.credit_mode === 'minimums' && c.blank_mode === 'not_specified' && c.loan_amount_min === 0 && c.fico_max === 850)).toBe(true)
+    expect(cells.filter((c) => c.offered)).toHaveLength(22)
+  })
+  it('searches the way the lender means it, from the reading to the result', () => {
+    const cells = cellsFromProgram(p).map((c, i) => ({ ...c, id: `c${i}`, citizenship: null, maxDti: null, reservesMonths: null }))
+    const rules = p.rules.map((r, i) => ({ id: `r${i}`, field: r.field, op: r.op, value: r.value, appliesWhen: r.appliesWhen, severity: r.severity, message: r.message, sourcePage: r.page, sourceQuote: r.quote }))
+    const dscr = catalogProgram('Tier Bank', 'DSCR', { family: 'non_qm', docTypes: ['dscr'], cells, rules })
+    const max = (fico: number, loanAmount: number, purpose: 'rate_term' | 'cash_out') => evaluateProgram(dscr, lender('Tier Bank'), scenario({ family: 'non_qm', docType: 'dscr', occupancy: 'investment', dscr: 1.1, purpose, fico, loanAmount, value: loanAmount * 2 })).limit?.max
+    const both = (fico: number, loan: number) => [max(fico, loan, 'rate_term'), max(fico, loan, 'cash_out')]
+    expect(both(720, 400000)).toEqual([80, 80])
+    expect(both(700, 750000)).toEqual([80, 75])
+    expect(both(660, 1200000)).toEqual([75, 70])
+    expect(both(720, 2800000)).toEqual([70, 65])
+    expect(both(660, 2800000)).toEqual([60, 60])
+    expect(both(700, 140000)).toEqual([70, 70])
+    expect(both(640, 600000)).toEqual([undefined, undefined])
+  })
+  it('an unclear structure has to be confirmed before it can be approved', () => {
+    const unclear = (M.normalizeMatrixReading(rowListReading({ ambiguous: true, ambiguous_reason: 'A note says "use the lower of"' })) as M.MatrixReading).programs[0]
+    const review = { ...unclear, include: true, programId: null, mode: 'replace' as const }
+    expect(M2.approvalBlockers([review])).toEqual(['DSCR: DSCR >= 1.00: confirm how to read this matrix (A note says "use the lower of").'])
+    expect(M2.approvalBlockers([{ ...review, grids: review.grids.map((x) => ({ ...x, settingsConfirmed: true })) }])).toEqual([])
+  })
+  it('two printed rows for the same loan amount and score are flagged as unclear', () => {
+    const raw = rowListReading() as { programs: { grids: { row_list: { rows: unknown[] } }[] }[] }
+    raw.programs[0].grids[0].row_list.rows.push({ loan_amount_max: 500000, fico_min: 640, values: [70, 65], notes: '' })
+    const twice = (M.normalizeMatrixReading(raw) as M.MatrixReading).programs[0].grids[0]
+    expect(twice.ambiguous).toBe(true)
+    expect(twice.ambiguousReason).toBe('Two rows are printed for the same loan amount and credit score.')
+  })
+  it('the prompt no longer tells the reader to start a tier one dollar above the one before', () => {
+    expect(M.MATRIX_SYSTEM_PROMPT).not.toContain('each column starts one dollar above')
+    expect(M.MATRIX_SYSTEM_PROMPT).toContain('Never start a tier one dollar above the tier before')
+    expect(M.MATRIX_SYSTEM_PROMPT).toContain('Never turn a row list into credit bands')
+  })
+  it('a classic grid read with no settings keeps reading as ranges, bands and not offered', () => {
+    const classic = (M.normalizeMatrixReading(reading()) as M.MatrixReading).programs[0].grids[0]
+    expect(M2.gridSettings(classic)).toEqual({ loanAmounts: 'explicit_ranges', creditScores: 'bands', blankCells: 'not_offered' })
+    expect(cellsFromGrid(classic).every((c) => c.loanAmountMode === 'explicit_ranges' && c.creditMode === 'bands' && c.blankMode === 'not_offered')).toBe(true)
   })
 })

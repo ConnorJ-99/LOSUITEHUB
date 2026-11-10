@@ -4,7 +4,7 @@
 // "not offered" ("—"), never 0.
 
 import { formatCurrency, formatPercent } from '@/lib/format'
-import { tierAmount } from './engine'
+import { limitAt, tierAmount } from './engine'
 import { DOC_TYPES, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, type DocType, type MatrixPropertyType, type MatrixPurpose } from './taxonomy'
 import type { CatalogProgram, MatrixCell, ProgramResult, Scenario } from './types'
 
@@ -91,9 +91,9 @@ const unitsLabel = (min: number, max: number) => (min === max ? `${min} unit${mi
 
 export function matrixGrid(p: CatalogProgram, f: GridFilters, s: Scenario | null): MatrixGrid {
   const tier = gridOptions(p).tiers[f.tier]
-  const cells = p.cells.filter(
-    (c) => c.purposes.includes(f.purpose) && c.propertyTypes.includes(f.propertyType) && c.docType === f.docType && (!tier || (c.loanAmountMin === tier.min && c.loanAmountMax === tier.max)),
-  )
+  // A grid of maximums shows every tier that reaches the chosen one (a larger tier also covers a smaller loan).
+  const reaches = (c: MatrixCell) => !tier || (c.loanAmountMode === 'max_tiers' ? c.loanAmountMin <= (tier.max ?? tier.min) && (c.loanAmountMax == null || (tier.max != null && c.loanAmountMax >= tier.max)) : c.loanAmountMin === tier.min && c.loanAmountMax === tier.max)
+  const cells = p.cells.filter((c) => c.purposes.includes(f.purpose) && c.propertyTypes.includes(f.propertyType) && c.docType === f.docType && reaches(c))
   const ratio = p.lien === 'first' ? 'LTV' : 'CLTV'
   const limitOf = (c: MatrixCell) => (ratio === 'LTV' ? (c.maxLtv ?? c.maxCltv) : (c.maxCltv ?? c.maxLtv))
 
@@ -112,12 +112,21 @@ export function matrixGrid(p: CatalogProgram, f: GridFilters, s: Scenario | null
   const rows: GridRow[] = cuts
     .slice(0, -1)
     .map((a, i) => ({ ficoMin: a, ficoMax: cuts[i + 1] - 1 }))
-    .filter((r) => cells.some((c) => c.ficoMin <= r.ficoMin && c.ficoMax >= r.ficoMax))
+    .filter((r) => cells.some((c) => c.ficoMin <= r.ficoMin && (c.creditMode === 'minimums' || c.ficoMax >= r.ficoMax)))
     .map((r) => ({ ...r, label: r.ficoMax >= 850 ? `${r.ficoMin}+` : `${r.ficoMin} – ${r.ficoMax}` }))
     .sort((a, b) => b.ficoMin - a.ficoMin)
 
+  // Maximum loan tiers and minimum scores overlap on purpose: the engine picks the limit (the best tier the borrower reaches),
+  // looked up at the top of the chosen loan tier.
+  const inclusive = cells.some((c) => c.loanAmountMode === 'max_tiers' || c.creditMode === 'minimums')
+  const fromEngine = (r: GridRow, col: GridColumn): GridSquare => {
+    const loanAmount = tier ? (tier.max ?? Math.max(tier.min, 1)) : 1
+    const found = limitAt({ ...p, cells, rules: [] }, { lien: p.lien, family: p.family, docType: f.docType, features: [], purpose: f.purpose, occupancy: col.occupancy, propertyType: f.propertyType, units: col.unitsMin, state: '', county: null, purchasePrice: null, value: loanAmount * 100, loanAmount, firstLienBalance: 0, fico: r.ficoMin, dti: null, reservesMonths: null, dscr: s?.dscr ?? null, citizenship: 'us_citizen', mortgageLates12: null, mortgageLates24: null, bkSeasoningMonths: null, fcSeasoningMonths: null, selfEmployedYears: null, firstTimeBuyer: false, incomeVsAmiPct: null, homestead: false })
+    return found.status === 'not_covered' ? { cell: null, limit: null } : { cell: found.cell, limit: found.status === 'covered' ? limitOf(found.cell) ?? null : null }
+  }
   const squares = rows.map((r) =>
     columns.map((col): GridSquare => {
+      if (inclusive) return fromEngine(r, col)
       const hits = cells.filter((c) => c.ficoMin <= r.ficoMin && c.ficoMax >= r.ficoMax && c.occupancy === col.occupancy && c.unitsMin === col.unitsMin && c.unitsMax === col.unitsMax)
       if (hits.length === 0) return { cell: null, limit: null }
       const blank = hits.find((c) => !c.offered)
@@ -152,7 +161,9 @@ export function fitLine(r: ProgramResult, s: Scenario): string {
     const cap = r.limit.limitedBy === 'texas' ? ' (Texas §50(a)(6) cap)' : ''
     const tier = r.cell?.loanAmountMax != null ? ` · ${formatCurrency(tierAmount(r.program, s))} within the ${formatCurrency(r.cell.loanAmountMax)} limit` : ''
     const more = r.maxLoan != null && r.program.lien !== 'first' ? ` · up to ${formatCurrency(r.maxLoan)}` : ''
-    return `Fits: ${s.fico} FICO · ${where} · ${ratio} ${formatPercent(r.limit.actual, 2)} against ${formatPercent(r.limit.max, 3)} max${cap}${tier}${more}`
+    // Name the tier or the cap the maximum comes from ("80% via the $1,500,000 tier at 700+ FICO").
+    const why = r.limit.limitedBy === 'rule' || r.cell?.loanAmountMode === 'max_tiers' || r.cell?.creditMode === 'minimums' ? ` · ${r.limit.why}` : ''
+    return `Fits: ${s.fico} FICO · ${where} · ${ratio} ${formatPercent(r.limit.actual, 2)} against ${formatPercent(r.limit.max, 3)} max${cap}${tier}${more}${why}`
   }
   return `Doesn't fit: ${r.reasons.map((x) => x.message).join('; ')}`
 }

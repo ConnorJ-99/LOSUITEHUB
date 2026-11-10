@@ -3,18 +3,153 @@ import { ClipboardPasteIcon, CopyIcon, PlusIcon, Trash2Icon, XIcon } from 'lucid
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { FormGrid, Input, NumberInput, Select, TextArea, ToggleChip, ToggleChipGroup } from '@/components/shared'
-import { formatPercent } from '@/lib/format'
-import { parseSquare } from '@/lib/products/matrixImport'
+import { FormGrid, Input, NumberInput, Select, Tabs, TabsContent, TabsList, TabsTrigger, TextArea, ToggleChip, ToggleChipGroup } from '@/components/shared'
+import { cn } from 'cn'
+import { formatCurrency, formatPercent } from '@/lib/format'
+import { gridSettings, parseSquare, type GridSettings } from '@/lib/products/matrixImport'
+import { draftProgram, generatedGrid, picksFor, squareText } from '@/lib/products/tierReview'
 import { CITIZENSHIPS, DOC_TYPES, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, OCCUPANCIES, type DocType, type MatrixPurpose } from '@/lib/products/taxonomy'
-import { addColumn, addRow, applyPaste, parsePaste, removeColumn, removeRow, RULE_PRESETS, ruleFromInput, setColumnHeader, setRowBand, unitsFor, withCounts, type RulePresetId } from '@/lib/products/typedMatrix'
-import type { ReadGrid, ReadRule } from '../../../supabase/functions/assistant/matrix'
+import { addColumn, addRow, applyGridSettings, applyPaste, parsePaste, removeColumn, removeRow, RULE_PRESETS, ruleFromInput, setColumnHeader, setRowBand, unitsFor, withCounts, type RulePresetId } from '@/lib/products/typedMatrix'
+import type { ReadGrid, ReadProgram, ReadRule } from '../../../supabase/functions/assistant/matrix'
 
 const options = <T extends string>(l: { values: readonly T[]; label: Record<T, string> }) => l.values.map((v) => ({ value: v, label: l.label[v] }))
 const RATIO_OPTIONS = [
   { value: 'ltv' as const, label: 'Max LTV (1st liens)' },
   { value: 'cltv' as const, label: 'Max CLTV (2nd liens, HELOCs)' },
 ]
+
+const LOAN_OPTIONS: { value: GridSettings['loanAmounts']; label: string }[] = [
+  { value: 'max_tiers', label: 'Maximums: a $1.5M tier also covers a $400K loan' },
+  { value: 'explicit_ranges', label: 'Printed ranges: $500,001–$1,000,000 covers only those loans' },
+]
+const CREDIT_OPTIONS: { value: GridSettings['creditScores']; label: string }[] = [
+  { value: 'minimums', label: 'Minimums: 700 means 700 and up' },
+  { value: 'bands', label: 'Bands: 700–719 covers only those scores' },
+]
+const BLANK_OPTIONS: { value: GridSettings['blankCells']; label: string }[] = [
+  { value: 'not_specified', label: 'Not specified: skipped, and another tier can cover it' },
+  { value: 'not_offered', label: 'Not offered: the blank blocks the scenario' },
+]
+
+/** How the grid is read, in a sentence. */
+const readingSentence = (s: GridSettings) =>
+  [
+    s.loanAmounts === 'max_tiers' ? 'Loan amounts are maximums: a larger tier also covers a smaller loan, starting from the program\'s minimum loan.' : 'Loan amounts are ranges: each column covers only the loans inside it.',
+    s.creditScores === 'minimums' ? 'Credit scores are minimums: a 700 row covers 700 and up, and the best row the borrower reaches is used.' : 'Credit scores are bands: each row covers only the scores inside it.',
+    s.blankCells === 'not_specified' ? 'A blank square is skipped, so another row or tier can cover that loan.' : 'A blank square means not offered, and blocks that loan.',
+  ].join(' ')
+
+/** The three reading settings of a grid. Changing one reshapes the headers to match; the limits stay as they are. */
+export function ReadingSettings({ grid: g, editable, onChange }: { grid: ReadGrid; editable: boolean; onChange: (g: ReadGrid) => void }) {
+  const s = gridSettings(g)
+  return (
+    <div className="space-y-1.5">
+      <FormGrid>
+        <Select label="Loan amounts are" value={s.loanAmounts} options={LOAN_OPTIONS} onChange={(v) => onChange(applyGridSettings(g, { loanAmounts: v }))} readOnly={!editable} span={2} />
+        <Select label="Credit scores are" value={s.creditScores} options={CREDIT_OPTIONS} onChange={(v) => onChange(applyGridSettings(g, { creditScores: v }))} readOnly={!editable} span={2} />
+        <Select label="Blank cells mean" value={s.blankCells} options={BLANK_OPTIONS} onChange={(v) => onChange(applyGridSettings(g, { blankCells: v }))} readOnly={!editable} span={2} />
+      </FormGrid>
+      <p className="text-xs text-muted-foreground">{readingSentence(s)}</p>
+    </div>
+  )
+}
+
+type DraftProgram = Pick<ReadProgram, 'name' | 'family' | 'lien' | 'docTypes' | 'purposes' | 'loanAmountBasis' | 'rules'>
+
+/**
+ * The grid Product Search works from, generated from the rows above: credit cut points down the side, loan-amount
+ * ranges across, and in each square the maximum the search would use (the best tier that score and loan reach,
+ * then every cap). A square nothing reaches says "Not covered", never a dash.
+ */
+function GeneratedGrid({ program, grid }: { program: DraftProgram; grid: ReadGrid }) {
+  const p = draftProgram(program, grid)
+  const picks = picksFor(grid)
+  if (grid.values.flat().every((v) => v == null)) return <p className="rounded-lg border p-4 text-sm text-muted-foreground">Nothing to show yet: this grid has no limits.</p>
+  if (picks.length === 0) return <p className="rounded-lg border p-4 text-sm text-muted-foreground">Pick the grid's purposes and property types (Grid settings) to see the grid Product Search would use.</p>
+  return (
+    <div className="space-y-4">
+      {picks.map(({ label, pick }) => {
+        const g = generatedGrid(p, pick)
+        const capped = g.squares.some((row) => row.some((sq) => sq.capped))
+        return (
+          <div key={label}>
+            <p className="mb-1 text-sm font-medium">
+              {label} <span className="font-normal text-muted-foreground">· max {g.ratio} Product Search would use</span>
+            </p>
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium">Credit score</th>
+                    {g.columns.map((c) => (
+                      <th key={c.label} className="px-3 py-2 text-center font-medium whitespace-nowrap">
+                        {c.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {g.rows.map((r, ri) => (
+                    <tr key={r.label}>
+                      <th className="px-3 py-2 text-left font-semibold tabular-nums whitespace-nowrap">{r.label}</th>
+                      {g.squares[ri].map((sq, ci) => (
+                        <td key={ci} title={sq.why ?? undefined} className={cn('px-3 py-2 text-center tabular-nums whitespace-nowrap', sq.status !== 'covered' && 'text-xs text-muted-foreground', sq.status === 'not_covered' && 'italic')}>
+                          {squareText(sq)}
+                          {sq.capped && ' *'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {capped && <p className="mt-1 text-xs text-muted-foreground">* A program cap sets this limit, not the matrix. Hover over a square to see where its limit comes from.</p>}
+          </div>
+        )
+      })}
+      <p className="text-xs text-muted-foreground">Generated from the lender's rows and the program rules below, with the same code Product Search runs. "Not covered" means no row the lender printed reaches that score and loan amount. Hover over a square for the tier it comes from.</p>
+    </div>
+  )
+}
+
+/** A row-list matrix exactly as it was read: one line per loan amount and credit score the lender printed. */
+function PrintedRows({ grid: g }: { grid: ReadGrid }) {
+  const printed = g.asPrinted
+  if (!printed) return null
+  return (
+    <div className="mb-3 overflow-x-auto rounded-lg border">
+      <table className="w-full text-sm">
+        <thead className="bg-muted/50 text-xs text-muted-foreground">
+          <tr>
+            <th className="px-3 py-2 text-left font-medium">Max loan</th>
+            <th className="px-3 py-2 text-left font-medium">Min FICO</th>
+            {printed.columns.map((c) => (
+              <th key={c.label} className="px-3 py-2 text-center font-medium">
+                {c.label}
+              </th>
+            ))}
+            <th className="px-3 py-2 text-left font-medium">Notes</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {printed.rows.map((r, i) => (
+            <tr key={i}>
+              <td className="px-3 py-1.5 tabular-nums">{r.loanAmountMax != null ? formatCurrency(r.loanAmountMax) : 'No maximum'}</td>
+              <td className="px-3 py-1.5 tabular-nums">{r.ficoMin}</td>
+              {printed.columns.map((_, ci) => (
+                <td key={ci} className="px-3 py-1.5 text-center tabular-nums">
+                  {r.values[ci] != null ? formatPercent(r.values[ci]!, 3) : 'blank'}
+                </td>
+              ))}
+              <td className="px-3 py-1.5 text-xs text-muted-foreground">{r.notes}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="border-t px-3 py-1.5 text-xs text-muted-foreground">The lender's rows as read: {printed.rows.length} rows. Check these against the PDF; the squares below are built from them.</p>
+    </div>
+  )
+}
 
 /** Applies a grid edit, or explains why it couldn't be done. */
 const attempt = (r: ReadGrid | { error: string }, onChange: (g: ReadGrid) => void) => ('error' in r ? toast.error(r.error) : onChange(r))
@@ -25,7 +160,9 @@ const attempt = (r: ReadGrid | { error: string }, onChange: (g: ReadGrid) => voi
  * can be pasted onto any square (or with its headers, to replace the grid).
  * The lender's PDF page shows beside it when there is one.
  */
-export function GridEditor({ grid: g, docTypes, pdfUrl, editable, onChange, onCopy, onRemove }: { grid: ReadGrid; docTypes: DocType[]; pdfUrl: string | null; editable: boolean; onChange: (g: ReadGrid) => void; onCopy?: () => void; onRemove?: () => void }) {
+export function GridEditor({ grid: g, program, docTypes, pdfUrl, editable, onChange, onCopy, onRemove }: { grid: ReadGrid; program?: DraftProgram; docTypes: DocType[]; pdfUrl: string | null; editable: boolean; onChange: (g: ReadGrid) => void; onCopy?: () => void; onRemove?: () => void }) {
+  const reading = gridSettings(g)
+  const unconfirmed = !!g.ambiguous && !g.settingsConfirmed
   const [pasting, setPasting] = useState(false)
   const [settings, setSettings] = useState(g.values.flat().every((v) => v == null))
   const set = <K extends keyof ReadGrid>(key: K, value: ReadGrid[K]) => onChange(withCounts({ ...g, [key]: value }))
@@ -53,7 +190,7 @@ export function GridEditor({ grid: g, docTypes, pdfUrl, editable, onChange, onCo
       <table className="w-full text-sm">
         <thead className="bg-muted/50 text-xs text-muted-foreground">
           <tr>
-            <th className="px-2 py-2 text-left font-medium">Credit score</th>
+            <th className="px-2 py-2 text-left font-medium">{reading.creditScores === 'minimums' ? 'Min credit score' : 'Credit score'}</th>
             {g.columns.map((c, ci) => (
               <th key={ci} className="px-1 py-1 text-center font-medium">
                 {editable ? (
@@ -126,11 +263,22 @@ export function GridEditor({ grid: g, docTypes, pdfUrl, editable, onChange, onCo
       </table>
       <p className="border-t px-2 py-1.5 text-xs text-muted-foreground">
         {g.rows.length} × {g.columns.length}
-        {g.printedRows !== g.rows.length || g.printedColumns !== g.columns.length ? ` · the page shows ${g.printedRows} × ${g.printedColumns}` : ''} · blank = not offered
+        {g.printedRows !== g.rows.length || g.printedColumns !== g.columns.length ? ` · the page shows ${g.printedRows} × ${g.printedColumns}` : ''} · blank = {reading.blankCells === 'not_specified' ? 'not specified (another tier can cover it)' : 'not offered'}
         {limits.length > 0 && ` · top limit ${formatPercent(Math.max(...limits), 3)}`}
       </p>
       {g.notes && !editable && <p className="border-t px-2 py-1.5 text-xs text-muted-foreground">Notes: {g.notes}</p>}
     </div>
+  )
+
+  const withPdf = pdfUrl ? (
+    <div className="grid gap-3 xl:grid-cols-2">
+      <div className="overflow-hidden rounded-lg border bg-muted/30">
+        <iframe title={`PDF page ${g.page}`} src={`${pdfUrl}#page=${Math.max(1, g.page)}&view=FitH`} className="h-[520px] w-full" loading="lazy" />
+      </div>
+      {table}
+    </div>
+  ) : (
+    table
   )
 
   return (
@@ -174,8 +322,22 @@ export function GridEditor({ grid: g, docTypes, pdfUrl, editable, onChange, onCo
         </div>
       )}
 
+      {unconfirmed && (
+        <div className="mb-3 space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950">
+          <p className="font-semibold">Confirm how to read this matrix</p>
+          <p className="text-sm">{g.ambiguousReason ?? 'The structure of this matrix is unclear.'} Check the PDF, pick how it reads, then confirm. It can't be approved until you do.</p>
+          <ReadingSettings grid={g} editable={editable} onChange={onChange} />
+          {editable && (
+            <Button size="sm" onClick={() => onChange({ ...g, ...reading, settingsConfirmed: true })}>
+              Yes, read it this way
+            </Button>
+          )}
+        </div>
+      )}
+
       {editable && settings && (
         <div className="mb-3 space-y-2 rounded-lg border bg-muted/30 p-3">
+          {!unconfirmed && <ReadingSettings grid={g} editable={editable} onChange={onChange} />}
           <FormGrid>
             <Input label="Grid title" value={g.title} onChange={(v) => set('title', v)} placeholder="Primary · Purchase & R/T" span={2} />
             <Select label="Numbers are" value={g.ratio} options={RATIO_OPTIONS} onChange={(v) => set('ratio', v)} span={2} />
@@ -194,15 +356,23 @@ export function GridEditor({ grid: g, docTypes, pdfUrl, editable, onChange, onCo
         </div>
       )}
 
-      {pdfUrl ? (
-        <div className="grid gap-3 xl:grid-cols-2">
-          <div className="overflow-hidden rounded-lg border bg-muted/30">
-            <iframe title={`PDF page ${g.page}`} src={`${pdfUrl}#page=${Math.max(1, g.page)}&view=FitH`} className="h-[520px] w-full" loading="lazy" />
-          </div>
-          {table}
-        </div>
+      {program ? (
+        <Tabs defaultValue="printed">
+          <TabsList>
+            <TabsTrigger value="printed">As printed</TabsTrigger>
+            <TabsTrigger value="generated">Grid (generated)</TabsTrigger>
+          </TabsList>
+          <TabsContent value="printed">
+            {!editable && !settings && <p className="mb-2 text-xs text-muted-foreground">{readingSentence(reading)}</p>}
+            <PrintedRows grid={g} />
+            {withPdf}
+          </TabsContent>
+          <TabsContent value="generated">
+            <GeneratedGrid program={program} grid={g} />
+          </TabsContent>
+        </Tabs>
       ) : (
-        table
+        withPdf
       )}
 
       {pasting && <PasteDialog grid={g} onClose={() => setPasting(false)} onPaste={(next) => (onChange(next), setPasting(false))} />}
@@ -272,10 +442,12 @@ export function RuleForm({ onAdd }: { onAdd: (r: ReadRule) => void }) {
   const [verify, setVerify] = useState(false)
   const [page, setPage] = useState<number | null>(null)
   const [purposes, setPurposes] = useState<MatrixPurpose[]>([])
+  const [loanBelow, setLoanBelow] = useState<number | null>(null)
   const p = RULE_PRESETS.find((r) => r.id === preset)!
+  const isCap = preset === 'ltv_cap' || preset === 'cltv_cap'
 
   const add = () => {
-    const r = ruleFromInput({ preset, number, min, max, list: p.input === 'states' ? [states] : citizenship, severity: verify ? 'verify' : 'hard', page, purposes })
+    const r = ruleFromInput({ preset, number, min, max, list: p.input === 'states' ? [states] : citizenship, severity: verify ? 'verify' : 'hard', page, purposes, loanBelow: isCap ? loanBelow : null })
     if ('error' in r) return toast.error(r.error)
     onAdd(r)
     setNumber(null)
@@ -284,6 +456,7 @@ export function RuleForm({ onAdd }: { onAdd: (r: ReadRule) => void }) {
     setStates('')
     setCitizenship([])
     setPurposes([])
+    setLoanBelow(null)
   }
 
   return (
@@ -291,6 +464,7 @@ export function RuleForm({ onAdd }: { onAdd: (r: ReadRule) => void }) {
       <FormGrid>
         <Select label="Rule" value={preset} options={RULE_PRESETS.map((r) => ({ value: r.id, label: r.label }))} onChange={setPreset} span={3} />
         {p.input === 'number' && <NumberInput label={p.unit ? `Value (${p.unit})` : 'Value'} value={number} onChange={setNumber} maxDecimals={2} />}
+        {isCap && <NumberInput label="Only for loans under ($)" value={loanBelow} onChange={setLoanBelow} maxDecimals={0} placeholder="Every loan" hint="e.g. 150000" span={2} />}
         {p.input === 'range' && (
           <>
             <NumberInput label="Min loan ($)" value={min} onChange={setMin} maxDecimals={0} />

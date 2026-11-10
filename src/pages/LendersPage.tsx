@@ -10,6 +10,7 @@ import { LenderDialog } from '@/components/lenders/LenderDialog'
 import { ContactsTab, LenderHeader, LenderTabs, LoansTab, OverlaysTab, ProductsTab, SidePanel, useSaveLenderNotes } from '@/components/lenders/LenderDetailParts'
 import { LenderList } from '@/components/lenders/LenderList'
 import { ApproveAllReadyButton, NeedsReviewList } from '@/components/lenders/ApproveAllReady'
+import { TierReview } from '@/components/lenders/TierReview'
 import { UploadDocumentDialog } from '@/components/lenders/UploadDocumentDialog'
 import { blankLender, guessStoredDocument, useDeleteLenderDocument, useLenderDocuments, useLenderPrograms, useLenders, useUpdateLenderDocument, type Lender, type LenderDocument, type LenderDraft, type LenderProgram } from '@/lib/api/lenders'
 import { queueMatrixReads, readMatrix, useCollectReads, usePendingImports, useQueuedReads, useStartTypedMatrix, type ApproveAllResult } from '@/lib/api/matrixImports'
@@ -37,16 +38,19 @@ export function LendersPage() {
   const list = lenders.data ?? []
   const selected = list.find((l) => l.id === params.get('lender')) ?? null
   const pick = (id: string) => setParams({ lender: id })
+  // The loan-amount tier review of approved matrices (Lenders → "Loan-amount tiers").
+  const reviewingTiers = !selected && params.get('review') === 'tiers'
 
   return (
     <>
-      {selected && (
+      {(selected || reviewingTiers) && (
         <button type="button" onClick={() => setParams({})} className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeftIcon className="size-4" />
           Lenders
         </button>
       )}
-      {!selected && (
+      {reviewingTiers && <PageHeader eyebrow="Admin" title="Loan-amount tiers" description="How each approved matrix with loan-amount tiers is read, and what would change if its amounts are maximums." />}
+      {!selected && !reviewingTiers && (
         <PageHeader
           eyebrow="Admin"
           title="Lenders"
@@ -54,6 +58,9 @@ export function LendersPage() {
           action={
             canEdit && (
               <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => setParams({ review: 'tiers' })}>
+                  Loan-amount tiers
+                </Button>
                 <ApproveAllReadyButton lenderId={null} onDone={setApprovedAll} />
                 <Button onClick={() => setEditing(blankLender())}>
                   <PlusIcon />
@@ -69,7 +76,9 @@ export function LendersPage() {
           <NeedsReviewList result={approvedAll} showLender onClose={() => setApprovedAll(null)} />
         </div>
       )}
-      {lenders.isLoading ? (
+      {reviewingTiers ? (
+        <TierReview canEdit={canEdit} />
+      ) : lenders.isLoading ? (
         <p className="py-12 text-center text-sm text-muted-foreground">Loading…</p>
       ) : lenders.error ? (
         <p className="py-12 text-center text-sm text-destructive">{lenders.error.message}</p>

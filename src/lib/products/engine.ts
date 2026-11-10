@@ -79,9 +79,17 @@ export const texasCap = (s: Scenario) => (s.state === 'TX' && s.homestead && s.p
 /** " up to $150,000" when the band has several loan tiers, else nothing. */
 const tierLabel = (c: MatrixCell, band: MatrixCell[]) =>
   band.some((o) => o.loanAmountMin !== c.loanAmountMin || o.loanAmountMax !== c.loanAmountMax) ? (c.loanAmountMax != null ? ` up to ${formatCurrency(c.loanAmountMax)}` : ` over ${formatCurrency(c.loanAmountMin)}`) : ''
-const bandLabel = (c: MatrixCell) => (c.ficoMax >= 850 ? `${c.ficoMin}+` : `${c.ficoMin}–${c.ficoMax}`)
-const inBand = (c: MatrixCell, fico: number) => fico >= c.ficoMin && fico <= c.ficoMax
+/** Credit scores printed as minimums: "700" means 700 and up, not 700–719. */
+const isMinimum = (c: MatrixCell) => c.creditMode === 'minimums'
+/** A grid whose rows or tiers overlap on purpose (a $1.5M tier also covers a $400K loan; a 700 row also covers 740). */
+const isInclusive = (c: MatrixCell) => isMinimum(c) || c.loanAmountMode === 'max_tiers'
+/** A blank square that only means "nothing printed here": it never blocks, and another tier can cover the loan. */
+const isIgnoredBlank = (c: MatrixCell) => !c.offered && c.blankMode === 'not_specified'
+const bandLabel = (c: MatrixCell) => (isMinimum(c) || c.ficoMax >= 850 ? `${c.ficoMin}+` : `${c.ficoMin}–${c.ficoMax}`)
+const inBand = (c: MatrixCell, fico: number) => fico >= c.ficoMin && (isMinimum(c) || fico <= c.ficoMax)
 const inTier = (c: MatrixCell, amount: number) => amount >= c.loanAmountMin && (c.loanAmountMax == null || amount <= c.loanAmountMax)
+/** "via the $1,500,000 tier at 700+ FICO" (a max-tier or minimum-score grid), else "at 700–719". */
+const viaLabel = (c: MatrixCell) => (isInclusive(c) ? `${c.loanAmountMax != null ? `via the ${formatCurrency(c.loanAmountMax)} tier ` : ''}at ${c.ficoMin}+ FICO` : `at ${bandLabel(c)}`)
 
 /** The cell dimensions other than credit band and loan tier, each with how to say it's missing. */
 function dimensions(s: Scenario): [(c: MatrixCell) => boolean, string][] {
@@ -102,7 +110,39 @@ const scenarioCells = (p: CatalogProgram, s: Scenario) => {
   return p.cells.filter((c) => dims.every(([match]) => match(c)))
 }
 
-/** The governing cell at a credit score and loan amount: overlapping cells → the lower limit wins; a blank cell wins over any limit. */
+/** Cells that are the same circumstance (one printed grid): they differ only by credit score and loan amount. */
+const familyKey = (c: MatrixCell) => [c.occupancy, [...c.propertyTypes].sort().join('+'), [...c.purposes].sort().join('+'), c.docType, c.unitsMin, c.unitsMax, c.dscrMin ?? '', c.citizenship ?? '', isInclusive(c) ? 'inclusive' : 'exact'].join('|')
+
+/**
+ * Loan-amount tiers and minimum scores: of the rows the borrower meets (score at or above the row's minimum,
+ * loan at or under the tier's maximum), the highest limit is the one the lender allows. On a tie, the smallest
+ * tier is named. A blank square is skipped when blanks mean "not specified"; when blanks mean "not offered",
+ * a blank in the borrower's own square (the smallest tier and highest score row they reach) blocks.
+ */
+function bestTier(hits: MatrixCell[], limit: (c: MatrixCell) => number): MatrixCell | null {
+  const tier = (c: MatrixCell) => c.loanAmountMax ?? Infinity
+  const ownTier = Math.min(...hits.map(tier))
+  const ownRow = Math.max(...hits.map((c) => c.ficoMin))
+  const blocked = hits.find((c) => !c.offered && !isIgnoredBlank(c) && tier(c) === ownTier && c.ficoMin === ownRow)
+  if (blocked) return blocked
+  const offered = hits.filter((c) => c.offered)
+  if (offered.length === 0) return null
+  return offered.reduce((best, c) => (limit(c) > limit(best) || (limit(c) === limit(best) && (tier(c) < tier(best) || (tier(c) === tier(best) && c.ficoMin > best.ficoMin))) ? c : best))
+}
+
+/** Printed ranges and credit bands: one square applies; if two overlap, a blank ("not offered") wins, then the lower limit. */
+function strictest(hits: MatrixCell[], limit: (c: MatrixCell) => number): MatrixCell | null {
+  const live = hits.filter((c) => !isIgnoredBlank(c))
+  if (live.length === 0) return null
+  return live.find((c) => !c.offered) ?? live.reduce((low, c) => (limit(c) < limit(low) ? c : low))
+}
+
+/**
+ * The governing cell at a credit score and loan amount, or null when nothing covers it.
+ * Within one grid, loan-amount tiers and minimum scores take the highest limit the borrower reaches (bestTier);
+ * across overlapping circumstances (a condo cell and a cash-out cell that both apply) the lower limit wins,
+ * and a cell that is not offered wins over any limit.
+ */
 function cellAt(p: CatalogProgram, s: Scenario, cells: MatrixCell[], fico: number, loan: number): MatrixCell | null {
   const amount = tierAmount(p, s, loan)
   let hits = cells.filter((c) => inBand(c, fico) && inTier(c, amount))
@@ -111,17 +151,61 @@ function cellAt(p: CatalogProgram, s: Scenario, cells: MatrixCell[], fico: numbe
   // With the DSCR unknown, every level applies and the lowest limit wins.
   const levels = s.dscr == null ? [] : hits.flatMap((c) => (c.dscrMin != null ? [c.dscrMin] : []))
   if (levels.length) hits = hits.filter((c) => c.dscrMin == null || c.dscrMin === Math.max(...levels))
-  const blank = hits.find((c) => !c.offered)
-  if (blank) return blank
   const kind = ratioKind(p)
-  return hits.reduce((low, c) => ((cellMax(c, kind) ?? 0) < (cellMax(low, kind) ?? 0) ? c : low))
+  const limit = (c: MatrixCell) => cellMax(c, kind) ?? 0
+  const families = new Map<string, MatrixCell[]>()
+  for (const c of hits) {
+    const k = familyKey(c)
+    const family = families.get(k)
+    if (family) family.push(c)
+    else families.set(k, [c])
+  }
+  let governing: MatrixCell | null = null
+  for (const family of families.values()) {
+    const pick = isInclusive(family[0]) ? bestTier(family, limit) : strictest(family, limit)
+    if (!pick) continue
+    if (!pick.offered) return pick
+    if (!governing || limit(pick) < limit(governing)) governing = pick
+  }
+  return governing
 }
 
-/** The effective maximum ratio for a cell: the matrix, or the Texas cap if lower. */
-function effectiveMax(p: CatalogProgram, s: Scenario, c: MatrixCell): { max: number; limitedBy: 'matrix' | 'texas' } {
+/**
+ * Program caps: hard "max LTV / CLTV" rules that sit on top of the matrix ("loan amounts under $150,000 max 70% LTV",
+ * "Florida condos max 75%"). Rules that only apply above an LTV are conditions, not caps.
+ */
+const capRules = (p: CatalogProgram, rules: ProgramRule[]) =>
+  rules.filter((r) => r.op === '<=' && typeof r.value === 'number' && r.severity === 'hard' && r.appliesWhen?.ltv_above == null && (r.field === ratioKind(p) || (p.lien === 'first' && (r.field === 'ltv' || r.field === 'cltv'))))
+
+interface Effective {
+  max: number
+  limitedBy: Limit['limitedBy']
+  why: string
+  /** The cap's own words, when a cap (not the matrix) sets the maximum. */
+  cap: string | null
+}
+
+/** The effective maximum ratio for a cell: the lower of the matrix, the Texas cap and every program cap that applies to this scenario. */
+function effectiveMax(p: CatalogProgram, s: Scenario, c: MatrixCell, rules: ProgramRule[] = p.rules): Effective {
   const matrix = cellMax(c, ratioKind(p)) ?? 0
-  const cap = texasCap(s)
-  return cap != null && cap < matrix ? { max: cap, limitedBy: 'texas' } : { max: matrix, limitedBy: 'matrix' }
+  const from = `${formatPercent(matrix, 3)} ${viaLabel(c)}`
+  let out: Effective = { max: matrix, limitedBy: 'matrix', why: from, cap: null }
+  const texas = texasCap(s)
+  const texasWords = `Texas §50(a)(6) caps homestead cash-out at ${TEXAS_CASH_OUT_CAP}% CLTV`
+  if (texas != null && texas < out.max) out = { max: texas, limitedBy: 'texas', why: `${formatPercent(texas, 3)}: ${texasWords} (the matrix allows ${from})`, cap: texasWords }
+  for (const r of capRules(p, rules)) if ((r.value as number) < out.max && applies(r, s, p)) out = { max: r.value as number, limitedBy: 'rule', why: `${formatPercent(r.value as number, 3)}: ${r.message} (the matrix allows ${from})`, cap: r.message }
+  return out
+}
+
+/**
+ * The limit the engine would use for a scenario's credit score and loan amount, before comparing the scenario's
+ * own ratio: the generated grid on the matrix review screen and the program drawer show exactly this.
+ */
+export function limitAt(p: CatalogProgram, s: Scenario, rules: ProgramRule[] = p.rules): ({ status: 'covered'; cell: MatrixCell } & Effective) | { status: 'not_offered'; cell: MatrixCell } | { status: 'not_covered' } {
+  const c = cellAt(p, s, scenarioCells(p, s), s.fico ?? 0, s.loanAmount)
+  if (!c) return { status: 'not_covered' }
+  if (!c.offered) return { status: 'not_offered', cell: c }
+  return { status: 'covered', cell: c, ...effectiveMax(p, s, c, rules) }
 }
 
 /** Loan amount (this lien) that puts the scenario exactly at a ratio, floored to the dollar. */
@@ -130,21 +214,31 @@ function loanAtRatio(p: CatalogProgram, s: Scenario, ratioPct: number) {
   return Math.floor(p.lien === 'first' ? total + EPS : total - s.firstLienBalance + EPS)
 }
 
-const fitsAt = (p: CatalogProgram, s: Scenario, cells: MatrixCell[], fico: number, loan: number) => {
+const fitsAt = (p: CatalogProgram, s: Scenario, cells: MatrixCell[], fico: number, loan: number, rules: ProgramRule[] = p.rules) => {
   const c = cellAt(p, s, cells, fico, loan)
   if (!c || !c.offered) return false
-  return ratioOf(p, { ...s, loanAmount: loan }) <= effectiveMax(p, s, c).max + EPS
+  const at = { ...s, loanAmount: loan }
+  return ratioOf(p, at) <= effectiveMax(p, at, c, rules).max + EPS
 }
 
-/** The largest loan (this lien) that fits at a credit score, checked across every loan tier (a bigger loan can land in a tier with a lower limit). */
-export function maxLoanAt(p: CatalogProgram, s: Scenario, fico: number, loanCap: number | null = null): number | null {
-  const cells = scenarioCells(p, s).filter((c) => c.offered && inBand(c, fico))
+/**
+ * The largest loan (this lien) that fits at a credit score, checked across every loan tier (a bigger loan can land
+ * in a tier with a lower limit) and every cap (a cap that only applies to small loans changes the answer).
+ */
+export function maxLoanAt(p: CatalogProgram, s: Scenario, fico: number, loanCap: number | null = null, rules: ProgramRule[] = p.rules): number | null {
+  const all = scenarioCells(p, s)
+  const kind = ratioKind(p)
+  const caps = [texasCap(s), ...capRules(p, rules).map((r) => r.value as number)].filter((v): v is number => v != null)
   let best: number | null = null
-  for (const c of cells) {
-    let loan = loanAtRatio(p, s, effectiveMax(p, s, c).max)
-    if (c.loanAmountMax != null) loan = Math.min(loan, p.lien !== 'first' && p.loanAmountBasis === 'combined' ? c.loanAmountMax - s.firstLienBalance : c.loanAmountMax)
-    if (loanCap != null) loan = Math.min(loan, loanCap)
-    if (loan > 0 && fitsAt(p, s, cells, fico, loan) && (best == null || loan > best)) best = loan
+  for (const c of all) {
+    if (!c.offered || !inBand(c, fico)) continue
+    const matrix = cellMax(c, kind) ?? 0
+    for (const ratio of new Set([matrix, ...caps.filter((v) => v < matrix)])) {
+      let loan = loanAtRatio(p, s, ratio)
+      if (c.loanAmountMax != null) loan = Math.min(loan, p.lien !== 'first' && p.loanAmountBasis === 'combined' ? c.loanAmountMax - s.firstLienBalance : c.loanAmountMax)
+      if (loanCap != null) loan = Math.min(loan, loanCap)
+      if (loan > 0 && (best == null || loan > best) && fitsAt(p, s, all, fico, loan, rules)) best = loan
+    }
   }
   return best
 }
@@ -184,6 +278,9 @@ function applies(r: ProgramRule, s: Scenario, p: CatalogProgram) {
   if (w.purposes && !w.purposes.includes(s.purpose)) return false
   if (w.occupancies && !w.occupancies.includes(s.occupancy)) return false
   if (w.ltv_above != null && !(ratioOf(p, s) > w.ltv_above + EPS)) return false
+  if (w.loan_amount_below != null && !(tierAmount(p, s) < w.loan_amount_below)) return false
+  if (w.states && !w.states.includes(s.state)) return false
+  if (w.property_types && !w.property_types.includes(s.propertyType)) return false
   return true
 }
 
@@ -245,9 +342,9 @@ function loanFix(s: Scenario, loan: number, gap: number): Pick<Reason, 'fix' | '
 }
 
 /** The lowest credit score at which the scenario, as it is, would fit. */
-function ficoThatFits(p: CatalogProgram, s: Scenario, cells: MatrixCell[]): number | null {
+function ficoThatFits(p: CatalogProgram, s: Scenario, cells: MatrixCell[], rules: ProgramRule[] = p.rules): number | null {
   const mins = [...new Set(cells.filter((c) => c.offered && s.fico != null && c.ficoMin > s.fico).map((c) => c.ficoMin))].sort((a, b) => a - b)
-  return mins.find((f) => fitsAt(p, s, cells, f, s.loanAmount)) ?? null
+  return mins.find((f) => fitsAt(p, s, cells, f, s.loanAmount, rules)) ?? null
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +355,7 @@ export function evaluateProgram(p: CatalogProgram, lender: CatalogLender, s: Sce
   const reasons: Reason[] = []
   const checklist: CheckItem[] = []
   const fico = s.fico ?? 0
+  const allRules = [...p.rules, ...overlays]
   const cells = scenarioCells(p, s)
   const ficoFloor = cells.filter((c) => c.offered).reduce<number | null>((low, c) => (low == null || c.ficoMin < low ? c.ficoMin : low), null)
   let cell: MatrixCell | null = null
@@ -282,8 +380,9 @@ export function evaluateProgram(p: CatalogProgram, lender: CatalogLender, s: Sce
   } else {
     cell = cellAt(p, s, cells, fico, s.loanAmount)
     const amount = tierAmount(p, s)
-    const atScore = cells.filter((c) => inBand(c, fico))
-    const needed = ficoThatFits(p, s, cells)
+    // Squares at this credit score (a blank that only means "nothing printed" isn't one).
+    const atScore = cells.filter((c) => inBand(c, fico) && !isIgnoredBlank(c))
+    const needed = ficoThatFits(p, s, cells, allRules)
     if (!cell && atScore.length === 0) {
       // No cell at this credit score at any loan amount.
       const floor = ficoFloor ?? cells.reduce((low, c) => Math.min(low, c.ficoMin), 850)
@@ -299,13 +398,22 @@ export function evaluateProgram(p: CatalogProgram, lender: CatalogLender, s: Sce
       const tiers = atScore.map((c) => [c.loanAmountMin, c.loanAmountMax] as const)
       const lowest = Math.min(...tiers.map(([min]) => min))
       const highest = tiers.some(([, max]) => max == null) ? null : Math.max(...tiers.map(([, max]) => max!))
-      const max = maxLoanAt(p, s, fico)
+      const max = maxLoanAt(p, s, fico, s.loanAmount, allRules)
       const tooLow = amount < lowest
+      // Tiers by minimum score: say which scores top out here ("640–659 FICO maxes at $500,000") and offer both ways to fit.
+      const tiered = !tooLow && highest != null && atScore.some(isInclusive)
+      const row = Math.max(...atScore.map((c) => c.ficoMin))
+      const nextRow = cells.filter((c) => c.offered && c.ficoMin > fico).reduce<number | null>((low, c) => (low == null || c.ficoMin < low ? c.ficoMin : low), null)
+      const fix: Pick<Reason, 'fix' | 'gap' | 'unfixable'> = tooLow ? { fix: null, gap: (lowest - amount) / lowest, unfixable: false } : max ? loanFix(s, max, (amount - (highest ?? amount)) / (highest ?? amount)) : { fix: null, gap: 1, unfixable: true }
+      if (tiered && needed) {
+        if (fix.fix) fix.fix = { ...fix.fix, text: `${fix.fix.text} or score ${needed}+`, fico: needed }
+        else Object.assign(fix, { fix: { text: `Needs ${needed} FICO (+${needed - fico})`, fico: needed }, gap: (needed - fico) / needed, unfixable: false })
+      }
       reasons.push({
         kind: 'loan_amount',
-        message: tooLow ? `Minimum loan amount ${formatCurrency(lowest)}` : `Maximum loan amount ${formatCurrency(highest)}`,
+        message: tooLow ? `Minimum loan amount ${formatCurrency(lowest)}` : tiered ? `${nextRow != null ? `${row}–${nextRow - 1}` : `${row}+`} FICO maxes at ${formatCurrency(highest)}` : `Maximum loan amount ${formatCurrency(highest)}`,
         trace: { cellId: atScore[0].id, page: atScore[0].sourcePage },
-        ...(tooLow ? { fix: null, gap: (lowest - amount) / lowest, unfixable: false } : max ? loanFix(s, max, (amount - (highest ?? amount)) / (highest ?? amount)) : { fix: null, gap: 1, unfixable: true }),
+        ...fix,
       })
     } else if (!cell.offered) {
       reasons.push({
@@ -319,12 +427,13 @@ export function evaluateProgram(p: CatalogProgram, lender: CatalogLender, s: Sce
     } else {
       const kind = ratioKind(p)
       const actual = ratioOf(p, s)
-      const { max, limitedBy } = effectiveMax(p, s, cell)
+      const { max, limitedBy, why, cap } = effectiveMax(p, s, cell, allRules)
       const roomPts = max - actual
-      limit = { ratio: kind, actual, max, limitedBy, roomPts, roomDollars: loanAtRatio(p, s, max) - s.loanAmount }
+      limit = { ratio: kind, actual, max, limitedBy, why, roomPts, roomDollars: loanAtRatio(p, s, max) - s.loanAmount }
       if (roomPts < -EPS) {
-        const at = limitedBy === 'texas' ? `Texas §50(a)(6) caps homestead cash-out at ${TEXAS_CASH_OUT_CAP}% CLTV` : `Max ${kind.toUpperCase()} ${formatPercent(max, 3)} at ${bandLabel(cell)}`
-        const maxLoan = maxLoanAt(p, s, fico)
+        const at = cap ?? `Max ${kind.toUpperCase()} ${formatPercent(max, 3)} ${viaLabel(cell)}`
+        // The largest loan at or under this one that fits (a cap on small loans can leave a bigger loan fitting too).
+        const maxLoan = maxLoanAt(p, s, fico, s.loanAmount, allRules)
         const fix = maxLoan ? loanFix(s, maxLoan, -roomPts / max) : { fix: null, gap: 1, unfixable: true }
         reasons.push({ kind: 'ratio', message: `${at}; scenario is ${formatPercent(actual, 2)}`, trace: { cellId: cell.id, page: cell.sourcePage }, ...fix })
       }
@@ -335,7 +444,9 @@ export function evaluateProgram(p: CatalogProgram, lender: CatalogLender, s: Sce
     }
   }
 
-  for (const r of [...p.rules, ...overlays]) {
+  // A cap already folded into the limit above isn't listed as a second reason.
+  const folded = limit ? new Set(capRules(p, allRules)) : new Set<ProgramRule>()
+  for (const r of allRules) {
     if (!applies(r, s, p)) {
       checklist.push({ message: r.message, status: 'na', value: formatValue(r.field, ruleValue(r, s, p) === 'unknown' ? null : ruleValue(r, s, p)), trace: { ruleId: r.id, page: r.sourcePage }, overlay: !!r.overlay })
       continue
@@ -344,11 +455,11 @@ export function evaluateProgram(p: CatalogProgram, lender: CatalogLender, s: Sce
     const shown = formatValue(r.field, value)
     const item: CheckItem = { message: r.message, status, value: shown, trace: { ruleId: r.id, page: r.sourcePage }, overlay: !!r.overlay }
     checklist.push(item)
-    if (status === 'fail') reasons.push({ kind: 'rule', message: shown ? `${r.message}; scenario is ${shown}` : r.message, trace: item.trace, ...ruleFailure(r, s, p, value) })
+    if (status === 'fail' && !folded.has(r)) reasons.push({ kind: 'rule', message: shown ? `${r.message}; scenario is ${shown}` : r.message, trace: item.trace, ...ruleFailure(r, s, p, value) })
   }
 
   const eligible = reasons.length === 0 && cell != null && cell.offered
-  return { program: p, lender, eligible, cell, limit, maxLoan: cell ? maxLoanAt(p, s, fico, ruleLoanCap(p, s, overlays)) : null, ficoFloor, reasons, checklist, badges: [] }
+  return { program: p, lender, eligible, cell, limit, maxLoan: cell ? maxLoanAt(p, s, fico, ruleLoanCap(p, s, overlays), allRules) : null, ficoFloor, reasons, checklist, badges: [] }
 }
 
 function cellCheck(message: string, v: number | null, ok: (v: number) => boolean, cell: MatrixCell, show: (v: number) => string): CheckItem {
