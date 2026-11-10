@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MatrixReading, ReadGrid, ReadProgram, ReadRule } from '../../../supabase/functions/assistant/matrix'
 import type { ProgramNow, ReviewProgram } from '@/lib/products/matrixImport'
 import { approvalBlockers, approvalPayload, reviewReading } from '@/lib/products/matrixImport'
+import { citeEmail } from '@/lib/products/productUpdate'
 import { blankProgram, gridsFromCells } from '@/lib/products/typedMatrix'
 import type { MatrixCell } from '@/lib/products/types'
 import { invokeAssistant } from './assistant'
@@ -21,6 +22,8 @@ export interface MatrixImport {
   source: 'ai' | 'manual'
   reading: MatrixReading
   createdAt: string
+  /** The pasted lender email this draft came from (Phase 0b), if any. */
+  productUpdate: { id: string; subject: string | null; pastedText: string; receivedOn: string; documentId: string | null } | null
 }
 
 interface ImportRow {
@@ -33,16 +36,19 @@ interface ImportRow {
   created_at: string
   lender: { name: string } | null
   document: { title: string; storage_path: string | null } | null
+  /** Present once the product updates script is installed (selected with *, so screens work before it is). */
+  product_update_id?: string | null
+  update?: { id: string; subject: string | null; pasted_text: string; received_on: string; document_id: string | null } | null
 }
 
-const SELECT = 'id, lender_id, document_id, status, source, reading, created_at, lender:lenders(name), document:guideline_documents(title, storage_path)'
+const SELECT = '*, lender:lenders(name), document:guideline_documents(title, storage_path)'
 /** Readings saved before a grid could cover several income types had one docType per grid. */
 const withGridDocTypes = (reading: MatrixReading): MatrixReading => ({
   ...reading,
   programs: reading.programs.map((p) => ({ ...p, grids: p.grids.map((g) => (Array.isArray(g.docTypes) ? g : { ...g, docTypes: [(g as unknown as { docType: ReadGrid['docTypes'][number] }).docType ?? 'full_doc'] })) })),
 })
 
-const toImport = (r: ImportRow): MatrixImport => ({ id: r.id, lenderId: r.lender_id, lenderName: r.lender?.name ?? '', documentId: r.document_id, documentTitle: r.document?.title ?? null, storagePath: r.document?.storage_path ?? null, status: r.status, source: r.source, reading: withGridDocTypes(r.reading), createdAt: r.created_at })
+const toImport = (r: ImportRow): MatrixImport => ({ id: r.id, lenderId: r.lender_id, lenderName: r.lender?.name ?? '', documentId: r.document_id, documentTitle: r.document?.title ?? null, storagePath: r.document?.storage_path ?? null, status: r.status, source: r.source, reading: withGridDocTypes(r.reading), createdAt: r.created_at, productUpdate: r.update ? { id: r.update.id, subject: r.update.subject, pastedText: r.update.pasted_text, receivedOn: r.update.received_on, documentId: r.update.document_id } : null })
 
 /** Asks the assistant to read a matrix PDF. The reading waits for review; nothing is searchable until approved. */
 export async function readMatrix(documentId: string): Promise<string> {
@@ -193,7 +199,15 @@ export function useApprovedReadings() {
 }
 
 export function useMatrixImport(id: string) {
-  return useQuery({ queryKey: keys.matrixImport(id), queryFn: async () => toImport(unwrap<ImportRow>(await db().from('matrix_imports').select(SELECT).eq('id', id).single())) })
+  return useQuery({
+    queryKey: keys.matrixImport(id),
+    queryFn: async () => {
+      const row = unwrap<ImportRow>(await db().from('matrix_imports').select(SELECT).eq('id', id).single())
+      // A draft from a pasted email shows that email.
+      if (row.product_update_id) row.update = unwrap<NonNullable<ImportRow['update']>>(await db().from('product_updates').select('id, subject, pasted_text, received_on, document_id').eq('id', row.product_update_id).single())
+      return toImport(row)
+    },
+  })
 }
 
 /** Readings of this lender's matrices waiting for review. */
@@ -253,15 +267,18 @@ async function existingPrograms(lenderId: string): Promise<ExistingProgram[]> {
   })
 }
 
-export function useApproveImport(importId: string, lenderId: string) {
+/** emailDocumentId: for a draft from a pasted email, the changed cells and rules cite that email. */
+export function useApproveImport(importId: string, lenderId: string, emailDocumentId: string | null = null) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ programs, existing, effectiveDate }: { programs: ReviewProgram[]; existing: ProgramNow[]; effectiveDate: string | null }) =>
-      unwrap<{ programs: number; cells: number; rules: number }>(await db().rpc('approve_matrix_import', { p_import_id: importId, p_programs: approvalPayload(programs, existing), p_effective_date: effectiveDate })),
+    mutationFn: async ({ programs, existing, effectiveDate }: { programs: ReviewProgram[]; existing: ProgramNow[]; effectiveDate: string | null }) => {
+      const payload = approvalPayload(programs, existing)
+      return unwrap<{ programs: number; cells: number; rules: number }>(await db().rpc('approve_matrix_import', { p_import_id: importId, p_programs: emailDocumentId ? citeEmail(payload, existing, emailDocumentId) : payload, p_effective_date: effectiveDate }))
+    },
     onSuccess: async () => {
       // Guideline and overlay PDFs no program covers yet join the programs they're about.
       await linkUnlinkedDocuments(lenderId).catch(() => 0)
-      for (const key of [keys.matrixImport(importId), keys.lenderImports(lenderId), keys.lenderPrograms(lenderId), keys.lenderPrograms(`${lenderId}:cells`), keys.lenderDocuments(lenderId), keys.lenders, keys.catalog, ['programGuidelines']]) queryClient.invalidateQueries({ queryKey: key })
+      for (const key of [keys.matrixImport(importId), keys.lenderImports(lenderId), ['productUpdates'], ['productUpdate'], keys.lenderPrograms(lenderId), keys.lenderPrograms(`${lenderId}:cells`), keys.lenderDocuments(lenderId), keys.lenders, keys.catalog, ['programGuidelines']]) queryClient.invalidateQueries({ queryKey: key })
     },
   })
 }

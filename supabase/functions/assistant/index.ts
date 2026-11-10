@@ -32,6 +32,7 @@ import { CONTRACT_FIELDS, CONTRACT_SCHEMA, CONTRACT_SYSTEM_PROMPT, CONTRACT_USER
 import { MATRIX_FORMAT_PROMPT, MATRIX_SYSTEM_PROMPT, MATRIX_USER_PROMPT, MAX_MATRIX_BYTES, normalizeMatrixReading, parseJsonReply } from './matrix.ts'
 import { SCENARIO_SCHEMA, SCENARIO_SYSTEM_PROMPT, normalizeScenarioRead } from './scenarioRead.ts'
 import { ANSWER_SCHEMA, ANSWER_SYSTEM_PROMPT, MAX_PASSAGES, answerPrompt, normalizeAnswer, type AnswerPassage } from './guidelineAnswer.ts'
+import { MAX_EMAIL_CHARS, UPDATE_SCHEMA, UPDATE_SYSTEM_PROMPT, normalizeProposal, updatePrompt, type UpdateProgram } from './productUpdate.ts'
 
 /** Drafts use Sonnet (approved by Connor): fast and inexpensive for short messages. */
 const MODEL = 'claude-sonnet-5-5'
@@ -217,6 +218,7 @@ Deno.serve(async (request) => {
     if (task === 'matrix_batch_collect') return await handleMatrixBatchCollect(db, apiKey)
     if (task === 'scenario_read') return await handleScenarioRead(db, body, userId, apiKey)
     if (task === 'guideline_answer') return await handleGuidelineAnswer(db, body, userId, apiKey)
+    if (task === 'product_update_read') return await handleProductUpdateRead(db, body, userId, apiKey)
     return await handleFollowUp(db, body, userId, apiKey)
   } catch (e) {
     return reply(500, { error: (e as Error).message })
@@ -857,6 +859,81 @@ async function handleGuidelineAnswer(db: SupabaseClient, body: unknown, userId: 
     if ('error' in answer) throw new UserError(answer.error)
     await db.from('ai_runs').update({ status: 'succeeded', output: answer, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
     return reply(200, { answer, runId })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lender product updates pasted from email (Phase 0b)
+// ---------------------------------------------------------------------------
+
+/** Reading guideline changes exactly matters most: Opus, like guideline answers. */
+const UPDATE_MODEL = 'claude-opus-5-5'
+
+/**
+ * Reads a pasted product-update email against the lender's programs and the
+ * rules each has on file. Saves the checked proposal on the update (every
+ * quote found word for word in the email); changes nothing in the catalog.
+ */
+async function handleProductUpdateRead(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const { updateId } = (body ?? {}) as { updateId?: unknown }
+  if (typeof updateId !== 'string' || !UUID.test(updateId)) return reply(400, { error: 'Missing or invalid update.' })
+  const update = must(await db.from('product_updates').select('id, organization_id, lender_id, subject, pasted_text, status, lender:lenders(name)').eq('id', updateId).maybeSingle(), 'Product update') as {
+    id: string
+    organization_id: string
+    lender_id: string | null
+    subject: string | null
+    pasted_text: string
+    status: string
+    lender: { name: string } | null
+  }
+  if (update.status !== 'pending_review') return reply(400, { error: 'This update was already decided.' })
+  if (!update.lender_id) return reply(400, { error: 'Pick the lender first.' })
+  if (update.pasted_text.length > MAX_EMAIL_CHARS) return reply(400, { error: `Paste less than ${MAX_EMAIL_CHARS.toLocaleString('en-US')} characters (the email body is enough).` })
+
+  const rows = await db.from('programs').select('id, name, product_family, lien, matrix_versions(id, status)').eq('lender_id', update.lender_id).eq('active', true).order('name')
+  if (rows.error) throw new Error(rows.error.message)
+  const progs = (rows.data ?? []) as { id: string; name: string; product_family: string; lien: string; matrix_versions: { id: string; status: string }[] }[]
+  if (progs.length === 0) return reply(400, { error: 'This lender has no programs yet. Add its matrix first.' })
+  const versionIds = progs.flatMap((p) => p.matrix_versions.filter((v) => v.status === 'approved').map((v) => v.id))
+  const ruleRows = versionIds.length ? await db.from('program_rules').select('program_id, matrix_version_id, field, op, value, applies_when, message').in('matrix_version_id', versionIds) : { data: [], error: null }
+  if (ruleRows.error) throw new Error(ruleRows.error.message)
+  const rules = (ruleRows.data ?? []) as { program_id: string; field: string; op: string; value: unknown; applies_when: unknown; message: string }[]
+  const programs: UpdateProgram[] = progs.map((p) => ({
+    id: p.id,
+    name: p.name,
+    family: p.product_family,
+    lien: p.lien,
+    rules: rules.filter((r) => r.program_id === p.id).map((r) => ({ field: r.field, op: r.op, value: r.value, appliesWhen: r.applies_when, message: r.message }) as UpdateProgram['rules'][number]),
+  }))
+
+  const runId = await startRun(db, update.organization_id, null, 'product_update_read', { updateId: update.id, lenderId: update.lender_id, programIds: programs.map((p) => p.id), characters: update.pasted_text.length }, UPDATE_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: UPDATE_MODEL }
+  try {
+    const params = {
+      model: UPDATE_MODEL,
+      max_tokens: 16000,
+      system: UPDATE_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: updatePrompt(update.pasted_text, update.subject, update.lender?.name ?? 'the lender', programs) }],
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: UPDATE_SCHEMA } },
+      // If Opus declines on a safety check, the API retries on a suitable model itself.
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    }
+    const res = await new Anthropic({ apiKey }).beta.messages.create(params as never)
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read this email.')
+    if (res.stop_reason === 'max_tokens') throw new UserError('The reading came back cut off. Paste a shorter part of the email.')
+    const proposal = normalizeProposal(parseJsonReply(replyText(res)), `${update.subject ?? ''}\n${update.pasted_text}`, programs.map((p) => p.id))
+    if ('error' in proposal) throw new UserError(proposal.error)
+    const saved = await db.from('product_updates').update({ proposal, ai_run_id: runId, program_ids: proposal.programIds }).eq('id', update.id).eq('status', 'pending_review').select('id')
+    if (saved.error) throw new Error(saved.error.message)
+    if (!saved.data?.length) throw new UserError('Only owners and admins can read product updates, and only while they wait for review.')
+    await db.from('ai_runs').update({ status: 'succeeded', output: proposal, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+    return reply(200, { proposal, runId })
   } catch (e) {
     return failRun(db, runId, usage, e)
   }

@@ -32,7 +32,9 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
   const { state } = useAuth()
   const canEdit = state.status === 'signedIn' && (state.user.role === 'owner' || state.user.role === 'admin')
   const navigate = useNavigate()
-  const approve = useApproveImport(imp.id, imp.lenderId)
+  // A draft from a pasted email: what changes cites that email when approved.
+  const email = imp.productUpdate
+  const approve = useApproveImport(imp.id, imp.lenderId, email?.documentId ?? null)
   const discard = useDiscardImport(imp.id, imp.lenderId)
   const pdf = useSignedPdf(imp.storagePath)
   // Readings waiting for review get the common fixes first (no-score rows, Condotel/rural grids, missing income type).
@@ -89,7 +91,7 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
   return (
     <div className="pb-24">
       <PageHeader
-        title={typed ? `Type a matrix: ${imp.lenderName}` : `Review matrix: ${imp.documentTitle ?? 'document'}`}
+        title={email ? `Product update: ${imp.reading.programs[0]?.name || imp.lenderName}` : typed ? `Type a matrix: ${imp.lenderName}` : `Review matrix: ${imp.documentTitle ?? 'document'}`}
         description={typed ? `Typed by hand${imp.documentTitle ? ` beside ${imp.documentTitle}` : ''} · started ${new Date(imp.createdAt).toLocaleString('en-US')} · ${saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Not saved' : 'Saved as you go'} · Nothing here is searchable until you approve it.` : `${imp.lenderName} · read ${new Date(imp.createdAt).toLocaleString('en-US')} · Nothing here is searchable until you approve it.`}
         action={
           <Button variant="outline" asChild>
@@ -98,7 +100,21 @@ function Review({ imp, existing }: { imp: MatrixImport; existing: ExistingProgra
         }
       />
       {!pending && <p className="mb-4 rounded-lg bg-muted px-4 py-3 text-sm">This {typed ? 'typed matrix' : 'reading'} was {imp.status === 'approved' ? 'approved' : 'discarded'}. It's kept as the record of what was {typed ? 'entered' : 'read'}.</p>}
-      {typed && editable && (
+      {email && (
+        <Card
+          title={`From the ${imp.lenderName} email${email.subject ? `: ${email.subject}` : ''}`}
+          description={`Received ${new Date(`${email.receivedOn}T12:00:00`).toLocaleDateString('en-US')}. This draft is the matrix in use with the changes you ticked. Check them below (and make any the email has that aren't in yet), then Approve to make a new version. The old version is kept.`}
+          action={
+            <Button size="sm" variant="outline" asChild>
+              <Link to={`/admin/lenders/updates/${email.id}`}>Open the update</Link>
+            </Button>
+          }
+          className="mb-4"
+        >
+          <p className="max-h-60 overflow-y-auto rounded-md bg-muted/50 px-3 py-2 text-sm whitespace-pre-line">{email.pastedText}</p>
+        </Card>
+      )}
+      {typed && editable && !email && (
         <p className="mb-4 rounded-lg bg-accent px-4 py-3 text-sm text-accent-foreground">
           Fill in the program, then each grid: type the limits, or copy the grid in Excel (or the PDF) and paste it onto the first square. Blank means not offered. Use Copy grid to start the next one (e.g. Second Home). Add the program-wide rules at the bottom, then Approve.
         </p>

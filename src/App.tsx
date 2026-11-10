@@ -15,6 +15,7 @@ import { LoanFileGalleryPage } from '@/pages/LoanFileGalleryPage'
 import { LendersPage } from '@/pages/LendersPage'
 import { LoanPage } from '@/pages/LoanPage'
 import { MatrixImportPage } from '@/pages/MatrixImportPage'
+import { ProductUpdatePage } from '@/pages/ProductUpdatePage'
 import { LoginPage } from '@/pages/LoginPage'
 import { PipelinePage } from '@/pages/PipelinePage'
 import { ClosingCalendarPage } from '@/pages/ClosingCalendarPage'
@@ -63,6 +64,7 @@ const router = createBrowserRouter([
       { path: 'product-search', element: <ProductSearchPage /> },
       { path: 'admin/lenders', element: <LendersPage /> },
       { path: 'admin/lenders/imports/:importId', element: <MatrixImportPage /> },
+      { path: 'admin/lenders/updates/:updateId', element: <ProductUpdatePage /> },
       { path: 'refi-watch/benchmarks', element: <RefiBenchmarksPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'dev/components', element: <ComponentLibraryPage /> },

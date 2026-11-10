@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { ArrowLeftIcon, KeyboardIcon, PlusIcon, UploadIcon } from 'lucide-react'
+import { ArrowLeftIcon, ClipboardPasteIcon, KeyboardIcon, PlusIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,8 @@ import { ContactsTab, LenderHeader, LenderTabs, LoansTab, OverlaysTab, ProductsT
 import { LenderList } from '@/components/lenders/LenderList'
 import { ApproveAllReadyButton, NeedsReviewList } from '@/components/lenders/ApproveAllReady'
 import { TierReview } from '@/components/lenders/TierReview'
+import { PasteUpdateDialog } from '@/components/lenders/PasteUpdateDialog'
+import { ProductUpdatesCard } from '@/components/lenders/ProductUpdatesCard'
 import { UploadDocumentDialog } from '@/components/lenders/UploadDocumentDialog'
 import { blankLender, guessStoredDocument, useDeleteLenderDocument, useLenderDocuments, useLenderPrograms, useLenders, useUpdateLenderDocument, type Lender, type LenderDocument, type LenderDraft, type LenderProgram } from '@/lib/api/lenders'
 import { queueMatrixReads, readMatrix, useCollectReads, usePendingImports, useQueuedReads, useStartTypedMatrix, type ApproveAllResult } from '@/lib/api/matrixImports'
@@ -35,6 +37,7 @@ export function LendersPage() {
   const [params, setParams] = useSearchParams()
   const [editing, setEditing] = useState<LenderDraft | null>(null)
   const [approvedAll, setApprovedAll] = useState<ApproveAllResult | null>(null)
+  const [pasting, setPasting] = useState(false)
   const list = lenders.data ?? []
   const selected = list.find((l) => l.id === params.get('lender')) ?? null
   const pick = (id: string) => setParams({ lender: id })
@@ -62,6 +65,10 @@ export function LendersPage() {
                   Loan-amount tiers
                 </Button>
                 <ApproveAllReadyButton lenderId={null} onDone={setApprovedAll} />
+                <Button variant="outline" onClick={() => setPasting(true)}>
+                  <ClipboardPasteIcon />
+                  Paste a product update
+                </Button>
                 <Button onClick={() => setEditing(blankLender())}>
                   <PlusIcon />
                   Add lender
@@ -76,6 +83,12 @@ export function LendersPage() {
           <NeedsReviewList result={approvedAll} showLender onClose={() => setApprovedAll(null)} />
         </div>
       )}
+      {!selected && !reviewingTiers && canEdit && (
+        <div className="mb-4 empty:hidden">
+          <ProductUpdatesCard lenderId={null} />
+        </div>
+      )}
+      {pasting && <PasteUpdateDialog onClose={() => setPasting(false)} />}
       {reviewingTiers ? (
         <TierReview canEdit={canEdit} />
       ) : lenders.isLoading ? (
@@ -108,6 +121,7 @@ function LenderDetail({ lender: l, canEdit, onEdit }: { lender: Lender; canEdit:
   const saveNotes = useSaveLenderNotes(l)
   const [tab, setTab] = useState<DetailTab>('products')
   const [uploading, setUploading] = useState(false)
+  const [pasting, setPasting] = useState(false)
   const today = todayIso()
   const year = Number(today.slice(0, 4))
 
@@ -162,6 +176,17 @@ function LenderDetail({ lender: l, canEdit, onEdit }: { lender: Lender; canEdit:
           {tab === 'documents' && (
             <>
               <PendingImports lenderId={l.id} canEdit={canEdit} />
+              <ProductUpdatesCard
+                lenderId={l.id}
+                action={
+                  canEdit && (
+                    <Button size="sm" variant="outline" onClick={() => setPasting(true)}>
+                      <ClipboardPasteIcon />
+                      Paste a product update
+                    </Button>
+                  )
+                }
+              />
               <Card
                 title="Documents"
                 description="The lender's PDFs, stored privately. Their text is searchable by section, with page numbers."
@@ -188,6 +213,7 @@ function LenderDetail({ lender: l, canEdit, onEdit }: { lender: Lender; canEdit:
         <SidePanel lender={l} documents={docs} update={update} onAllDocuments={() => setTab('documents')} onNotes={() => setTab('overlays')} onContacts={() => setTab('contacts')} />
       </div>
       {uploading && <UploadDocumentDialog lenderId={l.id} programs={programs.data ?? []} documents={docs} onClose={() => setUploading(false)} />}
+      {pasting && <PasteUpdateDialog lenderId={l.id} onClose={() => setPasting(false)} />}
     </>
   )
 }
