@@ -1,19 +1,20 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CalendarHeartIcon, DownloadIcon, LandmarkIcon, TableIcon, TriangleAlertIcon } from 'lucide-react'
+import { CalendarHeartIcon, DownloadIcon, LandmarkIcon, SlidersHorizontalIcon, TableIcon, TriangleAlertIcon } from 'lucide-react'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { Card, EmptyState, SearchInput, Select, ToggleChip, ToggleChipGroup } from '@/components/shared'
-import { MORTGAGE_TYPE_OPTIONS } from '@/components/profile/options'
+import { Card, CurrencyInput, DateInput, EmptyState, NumberInput, PercentInput, SearchInput, Select, ToggleChip, ToggleChipGroup } from '@/components/shared'
+import { MORTGAGE_TYPE_OPTIONS, OCCUPANCY_OPTIONS, TERM_OPTIONS } from '@/components/profile/options'
 import { useClosedLoans, type ClosedLoan } from '@/lib/api/closed'
 import { formatIsoDate, todayIso } from '@/lib/dates'
 import { downloadText } from '@/lib/download'
 import { formatCompactCurrency, formatCurrency, formatPercent } from '@/lib/format'
+import { CREDIT_BANDS, NO_FILTERS, activeCount, matchesFilters, rangeProblem, type ClosedFilters, type Range } from '@/lib/closed/filters'
 import { keyDates, type KeyDate } from '@/lib/closed/keyDates'
 import { NOT_RECORDED, production, productionYear, productionYears, type ProductionGroup } from '@/lib/closed/production'
 import { toCsv } from '@/lib/import/csv'
 import { formatPhone, fullName } from '@/lib/pipeline/helpers'
-import { purposeLabel } from '@/lib/pipeline/stages'
+import { PURPOSES, purposeLabel } from '@/lib/pipeline/stages'
 
 const ALL = 'all'
 const typeLabel = (v: string) => MORTGAGE_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? v
@@ -30,6 +31,9 @@ export function ClosedLoansTab() {
   const [lo, setLo] = useState(ALL)
   const [loanType, setLoanType] = useState(ALL)
   const [lender, setLender] = useState(ALL)
+  const [filters, setFilters] = useState<ClosedFilters>(NO_FILTERS)
+  const [showMore, setShowMore] = useState(false)
+  const moreCount = activeCount(filters)
   const today = todayIso()
 
   const loans = useMemo(() => closed.data ?? [], [closed.data])
@@ -43,11 +47,12 @@ export function ClosedLoansTab() {
       if (lo !== ALL && (l.lo?.name ?? NOT_RECORDED) !== lo) return false
       if (loanType !== ALL && (l.loanType ? typeLabel(l.loanType) : NOT_RECORDED) !== loanType) return false
       if (lender !== ALL && (l.lender ?? NOT_RECORDED) !== lender) return false
+      if (!matchesFilters(l, filters)) return false
       if (!q) return true
       const people = [l.borrower, ...l.coBorrowers].filter(Boolean)
-      return [...people.flatMap((p) => [fullName(p!), p!.email ?? '', (p!.phone ?? '').replace(/\D/g, '')]), homeLine(l) ?? '', l.lender ?? ''].some((v) => v.toLowerCase().includes(q))
+      return [...people.flatMap((p) => [fullName(p!), p!.email ?? '', (p!.phone ?? '').replace(/\D/g, '')]), homeLine(l) ?? '', l.lender ?? '', l.program ?? ''].some((v) => v.toLowerCase().includes(q))
     })
-  }, [loans, year, lo, loanType, lender, search])
+  }, [loans, year, lo, loanType, lender, search, filters])
 
   const stats = production(
     shown.map((l) => ({ fundingDate: l.fundingDate, closingDate: l.closingDate, stageChangedAt: l.stageChangedAt, loanAmount: l.loanAmount, lender: l.lender, loName: l.lo?.name ?? null, loanType: l.loanType, purpose: l.purpose })),
@@ -80,10 +85,10 @@ export function ClosedLoansTab() {
     downloadText(
       `closed-loans${year ? `-${year}` : ''}.csv`,
       toCsv([
-        ['closing_date', 'first_name', 'last_name', 'email', 'phone', 'co_borrowers', 'lo', 'lender', 'program', 'loan_type', 'loan_purpose', 'loan_amount', 'purchase_price', 'rate', 'term_years', 'monthly_payment', 'property_address', 'property_city', 'property_state', 'property_zip', 'insurance_carrier', 'insurance_renewal_date', 'homestead_filed'],
+        ['closing_date', 'funding_date', 'first_name', 'last_name', 'email', 'phone', 'co_borrowers', 'lo', 'lender', 'program', 'loan_type', 'loan_purpose', 'loan_amount', 'purchase_price', 'rate', 'credit_score', 'term_years', 'monthly_payment', 'property_address', 'property_city', 'property_state', 'property_zip', 'insurance_carrier', 'insurance_renewal_date', 'homestead_filed'],
         ...shown.map((l) => [
-          l.closingDate, l.borrower?.firstName, l.borrower?.lastName, l.borrower?.email, l.borrower?.phone, l.coBorrowers.map((c) => fullName(c)).join('; '),
-          l.lo?.name, l.lender, l.program, l.loanType ? typeLabel(l.loanType) : '', purposeLabel(l.purpose), l.loanAmount, l.purchasePrice, l.rate,
+          l.closingDate, l.fundingDate, l.borrower?.firstName, l.borrower?.lastName, l.borrower?.email, l.borrower?.phone, l.coBorrowers.map((c) => fullName(c)).join('; '),
+          l.lo?.name, l.lender, l.program, l.loanType ? typeLabel(l.loanType) : '', purposeLabel(l.purpose), l.loanAmount, l.purchasePrice, l.rate, l.creditScore,
           l.termMonths ? l.termMonths / 12 : '', l.monthlyPayment, l.home?.addressLine, l.home?.city, l.home?.state, l.home?.zip,
           l.home?.insuranceCarrier, l.home?.insuranceRenewalDate, l.home?.homesteadFiled == null ? '' : l.home.homesteadFiled ? 'Yes' : 'No',
         ]),
@@ -140,10 +145,14 @@ export function ClosedLoansTab() {
       )}
 
       <div className="flex flex-wrap items-end gap-3">
-        <SearchInput value={search} onChange={setSearch} placeholder="Name, phone, email, address or lender" className="w-full sm:w-72" />
+        <SearchInput value={search} onChange={setSearch} placeholder="Name, phone, email, address, lender or program" className="w-full sm:w-72" />
         <div className="w-44"><Select label="Loan officer" value={lo} onChange={setLo} options={options(loans.map((l) => l.lo?.name ?? null))} /></div>
         <div className="w-40"><Select label="Loan type" value={loanType} onChange={setLoanType} options={options(loans.map((l) => (l.loanType ? typeLabel(l.loanType) : null)))} /></div>
         <div className="w-48"><Select label="Lender" value={lender} onChange={setLender} options={options(loans.map((l) => l.lender))} /></div>
+        <Button variant={moreCount ? 'default' : 'outline'} onClick={() => setShowMore((v) => !v)} aria-expanded={showMore}>
+          <SlidersHorizontalIcon />
+          More filters{moreCount ? ` (${moreCount})` : ''}
+        </Button>
         <Button variant="outline" className="ml-auto" onClick={() => navigate('/closed-register')} title="Production, revenue and comp by funding date">
           <TableIcon />
           Closed loan register
@@ -153,6 +162,18 @@ export function ClosedLoansTab() {
           Export CSV
         </Button>
       </div>
+
+      {showMore && <MoreFilters value={filters} onChange={setFilters} />}
+      {(moreCount > 0 || search.trim() || lo !== ALL || loanType !== ALL || lender !== ALL) && (
+        <p className="text-sm text-muted-foreground">
+          {shown.length} of {year === null ? loans.length : loans.filter((l) => productionYear(l) === year).length} closed loans match.
+          {moreCount > 0 && (
+            <button type="button" className="ml-2 text-primary hover:underline" onClick={() => setFilters(NO_FILTERS)}>
+              Clear more filters
+            </button>
+          )}
+        </p>
+      )}
 
       {shown.length === 0 && <Card><EmptyState title="No closed loans match" description="Try a different search or filter." /></Card>}
       {byYear.map(([label, group]) => (
@@ -173,6 +194,7 @@ export function ClosedLoansTab() {
                   <th className="hidden px-4 py-2 text-left font-medium md:table-cell">Type</th>
                   <th className="px-4 py-2 text-right font-medium">Amount</th>
                   <th className="hidden px-4 py-2 text-right font-medium md:table-cell">Rate</th>
+                  <th className="hidden px-4 py-2 text-right font-medium md:table-cell">Credit</th>
                   <th className="hidden px-4 py-2 text-left font-medium lg:table-cell">Loan officer</th>
                 </tr>
               </thead>
@@ -194,6 +216,7 @@ export function ClosedLoansTab() {
                     <td className="hidden px-4 py-2 md:table-cell">{[l.loanType ? typeLabel(l.loanType) : null, purposeLabel(l.purpose)].filter(Boolean).join(' · ')}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{formatCurrency(l.loanAmount)}</td>
                     <td className="hidden px-4 py-2 text-right tabular-nums md:table-cell">{l.rate === null ? '—' : formatPercent(l.rate)}</td>
+                    <td className="hidden px-4 py-2 text-right tabular-nums md:table-cell">{l.creditScore ?? '—'}</td>
                     <td className="hidden px-4 py-2 lg:table-cell">{l.lo?.name ?? 'Unassigned'}</td>
                   </tr>
                 ))}
@@ -203,6 +226,64 @@ export function ClosedLoansTab() {
         </Card>
       ))}
     </div>
+  )
+}
+
+/**
+ * Search by the loan's details, any mix at once: credit score (the lowest
+ * borrower's estimated score), rate, closing date, loan amount, purpose,
+ * occupancy and term. Pure rules in src/lib/closed/filters.ts.
+ */
+function MoreFilters({ value: f, onChange }: { value: ClosedFilters; onChange: (f: ClosedFilters) => void }) {
+  const set = (patch: Partial<ClosedFilters>) => onChange({ ...f, ...patch })
+  const band = (r: Range) => CREDIT_BANDS.find((b) => b.range.min === r.min && b.range.max === r.max)?.label ?? null
+  const dateProblem = f.closedFrom && f.closedTo && f.closedFrom > f.closedTo ? 'The "from" is after the "to".' : undefined
+  return (
+    <Card
+      title="More filters"
+      description="Use any of these together. A loan missing a detail you filter on (say, no credit score saved) is left out."
+      action={
+        <Button size="sm" variant="ghost" onClick={() => onChange(NO_FILTERS)}>
+          Clear
+        </Button>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <p className="mb-1.5 text-sm font-medium">
+            Credit score <span className="font-normal text-muted-foreground">(lowest borrower's estimated score)</span>
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <ToggleChipGroup>
+              {CREDIT_BANDS.map((b) => (
+                <ToggleChip key={b.label} label={b.label} pressed={band(f.credit) === b.label} onChange={(on) => set({ credit: on ? b.range : NO_FILTERS.credit })} />
+              ))}
+            </ToggleChipGroup>
+            <div className="flex gap-2">
+              <div className="w-24"><NumberInput label="From" value={f.credit.min} onChange={(min) => set({ credit: { ...f.credit, min } })} maxDecimals={0} /></div>
+              <div className="w-24"><NumberInput label="To" value={f.credit.max} onChange={(max) => set({ credit: { ...f.credit, max } })} maxDecimals={0} error={rangeProblem(f.credit) ?? undefined} /></div>
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="flex gap-2">
+            <PercentInput label="Rate from" value={f.rate.min} onChange={(min) => set({ rate: { ...f.rate, min } })} />
+            <PercentInput label="Rate to" value={f.rate.max} onChange={(max) => set({ rate: { ...f.rate, max } })} error={rangeProblem(f.rate) ?? undefined} />
+          </div>
+          <div className="flex gap-2">
+            <DateInput label="Closed from" value={f.closedFrom} onChange={(closedFrom) => set({ closedFrom })} />
+            <DateInput label="Closed to" value={f.closedTo} onChange={(closedTo) => set({ closedTo })} error={dateProblem} />
+          </div>
+          <div className="flex gap-2">
+            <CurrencyInput label="Loan amount from" value={f.amount.min} onChange={(min) => set({ amount: { ...f.amount, min } })} />
+            <CurrencyInput label="Loan amount to" value={f.amount.max} onChange={(max) => set({ amount: { ...f.amount, max } })} error={rangeProblem(f.amount) ?? undefined} />
+          </div>
+          <Select label="Purpose" value={f.purpose ?? ALL} onChange={(v) => set({ purpose: v === ALL ? null : v })} options={[{ value: ALL, label: 'Any' }, ...PURPOSES]} />
+          <Select label="Occupancy" value={f.occupancy ?? ALL} onChange={(v) => set({ occupancy: v === ALL ? null : v })} options={[{ value: ALL, label: 'Any' }, ...OCCUPANCY_OPTIONS]} />
+          <Select label="Term" value={f.termYears == null ? ALL : String(f.termYears * 12)} onChange={(v) => set({ termYears: v === ALL ? null : Number(v) / 12 })} options={[{ value: ALL, label: 'Any' }, ...TERM_OPTIONS]} />
+        </div>
+      </div>
+    </Card>
   )
 }
 

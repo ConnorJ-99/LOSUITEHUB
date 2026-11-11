@@ -59,6 +59,8 @@ export interface ClosedLoan {
   lo: MemberRef | null
   borrower: ClosedPerson | null
   coBorrowers: ClosedPerson[]
+  /** The lowest estimated credit score among the file's borrowers (prequal); null when none was saved. */
+  creditScore: number | null
   home: ClosedHome | null
 }
 
@@ -92,7 +94,7 @@ interface ClosedRow {
   program_name: string | null
   program: { name: string; lender: { name: string } | null } | null
   lo: { id: string; full_name: string | null; email: string } | null
-  borrowers: { role: 'primary' | 'co_borrower'; contact: PersonRow | null }[]
+  borrowers: { role: 'primary' | 'co_borrower'; estimated_credit_score: number | null; contact: PersonRow | null }[]
   home: {
     id: string
     address_line: string
@@ -111,7 +113,7 @@ const CLOSED_SELECT = `
   monthly_payment, lender_name, program_name,
   program:programs!loans_program_id_fkey ( name, lender:lenders ( name ) ),
   lo:profiles!loans_assigned_lo_id_fkey ( id, full_name, email ),
-  borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, email, phone, date_of_birth, sms_consent, email_consent, automate_reminders ) ),
+  borrowers:loan_borrowers ( role, estimated_credit_score, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, email, phone, date_of_birth, sms_consent, email_consent, automate_reminders ) ),
   home:properties!loans_subject_property_id_fkey ( id, address_line, city, state, zip, estimated_value, insurance_carrier, insurance_renewal_date, homestead_filed )
 `
 
@@ -126,6 +128,11 @@ const toPerson = (r: PersonRow): ClosedPerson => ({
   emailConsent: r.email_consent,
   automateReminders: r.automate_reminders === true,
 })
+
+const lowest = (scores: (number | null)[]) => {
+  const known = scores.filter((n): n is number => n != null)
+  return known.length ? Math.min(...known) : null
+}
 
 function toClosed(r: ClosedRow): ClosedLoan {
   const people = r.borrowers.filter((b) => b.contact)
@@ -151,6 +158,7 @@ function toClosed(r: ClosedRow): ClosedLoan {
     lo: r.lo ? { id: r.lo.id, name: r.lo.full_name || r.lo.email } : null,
     borrower: primary ? toPerson(primary) : null,
     coBorrowers: people.filter((b) => b.role === 'co_borrower').map((b) => toPerson(b.contact!)),
+    creditScore: lowest(r.borrowers.map((b) => b.estimated_credit_score)),
     home: r.home
       ? {
           id: r.home.id,
