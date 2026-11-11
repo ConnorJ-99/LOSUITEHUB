@@ -157,6 +157,8 @@ export interface LoanDetails {
   /** Revenue on the file, as typed: a percent of the loan amount or dollars (the other is calculated). */
   revenueType: 'percent' | 'amount' | null
   revenueValue: number | null
+  /** The lender comp plan the revenue was filled in from (Phase 5), if any. */
+  compPlanId: string | null
 }
 
 export type ImpoundWaiver = 'none' | 'taxes' | 'insurance' | 'all'

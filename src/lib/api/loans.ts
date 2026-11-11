@@ -112,6 +112,7 @@ const DETAIL_COLUMNS: Record<keyof LoanDetails, [string, boolean]> = {
   monthlyPayment: ['monthly_payment', true],
   revenueType: ['revenue_type', false],
   revenueValue: ['revenue_value', true],
+  compPlanId: ['comp_plan_id', false],
 }
 
 interface LoanProfileRow extends LoanRow {

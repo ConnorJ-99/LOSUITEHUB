@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CalendarHeartIcon, DownloadIcon, LandmarkIcon, TriangleAlertIcon } from 'lucide-react'
+import { CalendarHeartIcon, DownloadIcon, LandmarkIcon, TableIcon, TriangleAlertIcon } from 'lucide-react'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, SearchInput, Select, ToggleChip, ToggleChipGroup } from '@/components/shared'
@@ -144,7 +144,11 @@ export function ClosedLoansTab() {
         <div className="w-44"><Select label="Loan officer" value={lo} onChange={setLo} options={options(loans.map((l) => l.lo?.name ?? null))} /></div>
         <div className="w-40"><Select label="Loan type" value={loanType} onChange={setLoanType} options={options(loans.map((l) => (l.loanType ? typeLabel(l.loanType) : null)))} /></div>
         <div className="w-48"><Select label="Lender" value={lender} onChange={setLender} options={options(loans.map((l) => l.lender))} /></div>
-        <Button variant="outline" className="ml-auto" onClick={exportCsv} disabled={shown.length === 0}>
+        <Button variant="outline" className="ml-auto" onClick={() => navigate('/closed-register')} title="Production, revenue and comp by funding date">
+          <TableIcon />
+          Closed loan register
+        </Button>
+        <Button variant="outline" onClick={exportCsv} disabled={shown.length === 0}>
           <DownloadIcon />
           Export CSV
         </Button>

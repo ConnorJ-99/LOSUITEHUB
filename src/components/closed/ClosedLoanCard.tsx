@@ -9,6 +9,8 @@ import { useSetAutomateReminders } from '@/lib/api/drafts'
 import { useGhlOpportunity } from '@/components/messaging/useGhlOpportunity'
 import { AriveLink } from '@/components/loanfile/AriveLink'
 import { ClosedDates } from './ClosedDates'
+import { LoanCompPanel } from './LoanCompPanel'
+import { useAuth } from '@/lib/auth/context'
 import { CopyToLeadDialog } from './CopyToLeadDialog'
 import { MortgageCard } from './MortgageCard'
 import { useLoanTasks } from '@/lib/api/tasks'
@@ -44,6 +46,9 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
   const addFollowUp = useAddFollowUp(loan.id, loan.organizationId)
   const automate = useSetAutomateReminders()
   const [copying, setCopying] = useState(false)
+  const { state } = useAuth()
+  // The lead source and comp show to owners and admins only.
+  const isManager = state.status === 'signedIn' && (state.user.role === 'owner' || state.user.role === 'admin')
   const ghl = useGhlOpportunity()
   const [form, setForm] = useState({
     lenderName: c.lenderName,
@@ -131,6 +136,7 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
         {c.program && c.program !== c.programName && <p className="text-xs text-muted-foreground">Program from Product Search: {c.lender} · {c.program}</p>}
 
         <ClosedDates loanId={loan.id} closingDate={c.closingDate} fundingDate={c.fundingDate} />
+        {isManager && <LoanCompPanel loanId={loan.id} loanAmount={c.loanAmount} revenueType={loan.details.revenueType} revenueValue={loan.details.revenueValue} />}
 
         <FormGrid>
           <Input label="Lender" value={form.lenderName ?? ''} onChange={(v) => set('lenderName')(v || null)} span={2} />

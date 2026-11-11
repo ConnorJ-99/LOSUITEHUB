@@ -14,7 +14,8 @@ import { useEstimates } from '@/lib/api/estimates'
 import type { SavedFigures } from '@/lib/estimates/estimate'
 import { useProperties, useSaveHomeFigures, type HomeFigures } from '@/lib/api/properties'
 import type { Lien, LoanDetails, LoanProfile, Property } from '@/lib/api/types'
-import { computeScenario, dscrTransaction, loanRevenue, texasHomeEquityFlags, type DscrTransaction, type ScenarioResult } from '@/lib/calc'
+import { computeScenario, dscrTransaction, lenderComp, loanRevenue, planFor, texasHomeEquityFlags, type DscrTransaction, type ScenarioResult } from '@/lib/calc'
+import { useCompPlans } from '@/lib/api/compPlans'
 import { formatIsoDate, relativeTime, todayIso } from '@/lib/dates'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { formatPhone } from '@/lib/pipeline/helpers'
@@ -179,6 +180,42 @@ function RevenueFields({ loanAmount, type, value, onChange }: { loanAmount: numb
         </>
       )}
     </>
+  )
+}
+
+/**
+ * "From [Lender] comp plan: $X" under the revenue fields: the plan in effect on
+ * the closing date (else today) for the file's lender and program. One click
+ * fills in the revenue and records the plan; it can still be typed over, and a
+ * later change in the plan figure (the loan amount moved) asks before updating.
+ */
+function RevenueSuggestion({ form, onApply }: { form: EditableDetails; onApply: (amount: number, planId: string) => void }) {
+  const lenders = useLenders()
+  const plans = useCompPlans()
+  if (!plans.isSuccess || !lenders.data) return null
+  const lender = form.programId ? lenders.data.find((l) => l.programs.some((p) => p.id === form.programId)) : lenders.data.find((l) => l.name.toLowerCase() === (form.lenderName ?? '').trim().toLowerCase())
+  if (!lender) return null
+  const day = form.closingDate ?? todayIso()
+  const applied = form.compPlanId ? (plans.data.find((p) => p.id === form.compPlanId) ?? null) : null
+  const plan = applied ?? planFor(plans.data, { lenderId: lender.id, programId: form.programId, day })
+  if (!plan) return <p className="col-span-full text-xs text-muted-foreground">{lender.name} has no comp plan in effect on {formatIsoDate(day)} (Lenders → {lender.name} → Comp).</p>
+  const figure = lenderComp(form.loanAmount, plan)
+  if (figure == null) return <p className="col-span-full text-xs text-muted-foreground">Add the loan amount to see {lender.name}'s comp.</p>
+  const current = loanRevenue(form.loanAmount, form.revenueType, form.revenueValue).amount
+  const label = plan.compType === 'borrower_paid' ? 'borrower-paid' : 'lender-paid'
+  // Already filled in from this plan and still matching: just say where it came from.
+  if (applied && current != null && Math.abs(current - figure) < 0.01) return <p className="col-span-full text-xs text-muted-foreground">From {lender.name}'s {label} comp plan.</p>
+  return (
+    <div className="col-span-full flex flex-wrap items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-sm">
+      <span>
+        {applied ? 'Plan figure has changed: ' : `From ${lender.name} comp plan (${label}): `}
+        <span className="font-semibold tabular-nums">{formatCurrency(figure)}</span>
+        {applied && current != null && <span className="text-muted-foreground"> (revenue is {formatCurrency(current)})</span>}
+      </span>
+      <Button size="xs" variant="outline" onClick={() => onApply(figure, plan.id)}>
+        {applied ? 'Update?' : 'Use it'}
+      </Button>
+    </div>
   )
 }
 
@@ -462,6 +499,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
               </div>
               <LenderFields loan={loan} lenderName={form.lenderName} programName={form.programName} onLender={(v) => set('lenderName')(v.trim() ? v : null)} onProgram={(v) => set('programName')(v.trim() ? v : null)} />
               <RevenueFields loanAmount={form.loanAmount} type={form.revenueType} value={form.revenueValue} onChange={(type, value) => setForm((f) => ({ ...f, revenueType: value === null ? null : type, revenueValue: value }))} />
+              <RevenueSuggestion form={form} onApply={(amount, planId) => setForm((f) => ({ ...f, revenueType: 'amount', revenueValue: amount, compPlanId: planId }))} />
               {purpose === 'purchase' && (
                 <>
                   <DateInput label="Contract date" value={form.contractDate} onChange={set('contractDate')} span={2} />

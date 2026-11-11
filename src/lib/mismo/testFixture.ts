@@ -17,6 +17,7 @@ export const details: LoanDetails = {
   subjectPropertyId: 'prop-home', mortgageType: 'conventional', amortizationType: 'fixed', titleNames: null, titleManner: null,
   estateType: 'fee_simple', hasBalloon: false, hasInterestOnly: false, hasNegativeAmortization: false, hasPrepaymentPenalty: false,
   improvementsAmount: null, estimatedClosingCosts: 6000, prepaidItemsAmount: 2500, discountPointsAmount: null, sellerCredits: null, lenderCredits: null, estimatedTaxRatePct: null, estimatedAnnualInsurance: null, estimatedMonthlyHoa: null, miRatePct: null, upfrontFeePct: null, ariveLoanNumber: null, optionFee: null, contractFinancingAmount: null, financingDeadline: null, surveyDeadline: null, titlePolicyPaidBy: null, possession: null, hasHoaAddendum: null, incomeDocType: null, timeline: null, crossCollateral: false, estimatedFundingDate: null, firstPaymentDate: null, impoundWaiver: 'none', qualifyingRate: null, buydown: null, supplementalInsuranceMonthly: null, otherPaymentMonthly: null, otherPaymentLabel: null, pricingScenarioId: null, programId: null, chosenQuoteId: null, preapprovalMaxPrice: null, preapprovalMaxLoanAmount: null, preapprovalExpiresOn: null, lenderName: null, programName: null, monthlyPayment: null, revenueType: null, revenueValue: null,
+  compPlanId: null,
 }
 
 export const loan: LoanProfile = {

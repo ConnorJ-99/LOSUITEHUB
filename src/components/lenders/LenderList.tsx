@@ -3,7 +3,9 @@ import { AlertTriangleIcon, ChevronRightIcon, FileClockIcon } from 'lucide-react
 import { cn } from 'cn'
 import { SearchInput, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { LenderMark } from '@/components/products/ProgramCard'
+import { useCompPlans } from '@/lib/api/compPlans'
 import { useLenderLoans, usePendingReviewCounts, type Lender } from '@/lib/api/lenders'
+import { missingPlan } from '@/lib/calc/lenderComp'
 import { todayIso } from '@/lib/dates'
 import { filterLenders, lenderTiles, loanCounts, matrixState, offerCounts, OFFER_TAGS, tabCounts, type LenderFilters, type LenderTab, type ListLender, type OfferTag } from '@/lib/products/lenderSummary'
 import { daysSince } from '@/lib/products/stale'
@@ -38,10 +40,15 @@ export function LenderList({ lenders, onOpen }: { lenders: Lender[]; onOpen: (id
   const today = todayIso()
   const year = Number(today.slice(0, 4))
   const [f, setF] = useState<LenderFilters>({ tab: 'all', text: '', offers: [] })
+  const plans = useCompPlans()
+  // Signed-up (approved) lenders with no comp plan in effect today; unknown until the comp plans script has run.
+  const noPlan = (l: Pick<Lender, 'id' | 'status'>) => plans.isSuccess && l.status === 'approved' && missingPlan(l.id, plans.data, today)
+  const [onlyNoPlan, setOnlyNoPlan] = useState(false)
   const rows: ListLender[] = lenders.map((l) => ({ ...l, pendingReviews: pending.data?.get(l.id) ?? 0 }))
   const tiles = lenderTiles(rows, today)
   const counts = tabCounts(rows, f, today)
-  const shown = filterLenders(rows, f, today)
+  const shown = filterLenders(rows, f, today).filter((l) => !onlyNoPlan || noPlan(l))
+  const missingCount = rows.filter(noPlan).length
   const offered = OFFER_TAGS.filter((t) => rows.some((l) => offerCounts(l.programs).some((c) => c.tag === t)))
 
   return (
@@ -65,6 +72,11 @@ export function LenderList({ lenders, onOpen }: { lenders: Lender[]; onOpen: (id
           </div>
           <SearchInput label="Search lenders" value={f.text} onChange={(text) => setF({ ...f, text })} placeholder="Name, AE, state or program" className="min-w-56 flex-1" />
         </div>
+        {missingCount > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <ToggleChip label={`Missing comp plan · ${missingCount}`} pressed={onlyNoPlan} onChange={setOnlyNoPlan} />
+          </div>
+        )}
         {offered.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Offers</span>
@@ -82,7 +94,7 @@ export function LenderList({ lenders, onOpen }: { lenders: Lender[]; onOpen: (id
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {shown.map((l) => (
-            <LenderCard key={l.id} lender={l} channel={lenders.find((x) => x.id === l.id)!.channel} loans={loanCounts(loans.data?.get(l.id) ?? [], year)} today={today} onOpen={() => onOpen(l.id)} />
+            <LenderCard key={l.id} lender={l} channel={lenders.find((x) => x.id === l.id)!.channel} loans={loanCounts(loans.data?.get(l.id) ?? [], year)} today={today} noCompPlan={noPlan(l)} onOpen={() => onOpen(l.id)} />
           ))}
         </div>
       )}
@@ -106,7 +118,7 @@ function Tile({ label, value, tone, onClick }: { label: string; value: number; t
   )
 }
 
-function LenderCard({ lender: l, channel, loans, today, onOpen }: { lender: ListLender; channel: Lender['channel']; loans: { closedThisYear: number; active: number }; today: string; onOpen: () => void }) {
+function LenderCard({ lender: l, channel, loans, today, noCompPlan, onOpen }: { lender: ListLender; channel: Lender['channel']; loans: { closedThisYear: number; active: number }; today: string; noCompPlan: boolean; onOpen: () => void }) {
   const offers = offerCounts(l.programs)
   const matrix = matrixState(l, today)
   const inSearches = l.programs.filter((p) => p.active).length
@@ -159,7 +171,10 @@ function LenderCard({ lender: l, channel, loans, today, onOpen }: { lender: List
         </div>
       </dl>
 
-      <p className="mt-2 text-xs text-muted-foreground">AE: {l.aeName ?? 'not set'}</p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        AE: {l.aeName ?? 'not set'}
+        {noCompPlan && <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-800">Missing comp plan</span>}
+      </p>
 
       {l.pendingReviews > 0 ? (
         <p className="mt-3 flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-medium text-accent-foreground">
