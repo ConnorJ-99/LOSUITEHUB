@@ -1,6 +1,8 @@
 // The public shared-estimates page talks only to the estimate-view Edge
 // Function (build plan Phase 7). No sign-in: the link's token, then a 24-hour
 // session after the borrower confirms their email.
+// Deployed in Supabase as "estimate-views" (2026-11-11); the code lives in
+// supabase/functions/estimate-view and redeploys go to that same name.
 import type { ShareLo, ShareSnapshot } from '../../../supabase/functions/estimate-view/rules'
 import { db } from './client'
 
@@ -19,7 +21,7 @@ export interface ViewReply {
 }
 
 export async function callEstimateView(body: Record<string, unknown>): Promise<ViewReply> {
-  const { data, error } = await db().functions.invoke('estimate-view', { body })
+  const { data, error } = await db().functions.invoke('estimate-views', { body })
   if (!error) return { status: 200, body: (data ?? {}) as ViewReply['body'] }
   const ctx = (error as { context?: Response }).context
   if (ctx && typeof ctx.json === 'function') return { status: ctx.status, body: ((await ctx.json().catch(() => null)) ?? {}) as ViewReply['body'] }
