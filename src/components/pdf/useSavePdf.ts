@@ -18,6 +18,8 @@ export interface PdfRequest extends Omit<GeneratedPdf, 'file'> {
   render: (lib: RenderLib, brand: DocBrand) => Promise<FitResult<Blob>>
   /** What to shorten when it won't fit on one page. */
   tooLong: string
+  /** No "Saved" notice (sharing estimates saves several at once). */
+  quiet?: boolean
 }
 
 /**
@@ -41,7 +43,7 @@ export function useSavePdf(loan: LoanProfile, onSend?: (documentId: string) => v
   const [sendingId, setSendingId] = useState<string | null>(null)
 
   /** Returns the saved document's id, or null when it wasn't saved (the reason is shown). */
-  const save = async ({ render, tooLong, ...doc }: PdfRequest): Promise<string | null> => {
+  const save = async ({ render, tooLong, quiet, ...doc }: PdfRequest): Promise<string | null> => {
     const brand = brandNow()
     const missing = brandProblems(brand)
     if (missing.length) {
@@ -57,6 +59,7 @@ export function useSavePdf(loan: LoanProfile, onSend?: (documentId: string) => v
       }
       const id = await saveGeneratedPdf(loan.id, loan.organizationId, { ...doc, file: fit.file })
       await queryClient.invalidateQueries({ queryKey: keys.documents(loan.id) })
+      if (quiet) return id
       const url = URL.createObjectURL(fit.file)
       const open = { label: 'Open', onClick: () => window.open(url, '_blank') }
       toast.success(

@@ -12,18 +12,17 @@ import { draftOf, type EstimateData } from './useEstimateData'
 export function useEstimatePdf(loan: LoanProfile, data: EstimateData) {
   const pdf = useSavePdf(loan)
   const borrowerNames = data.application.borrowers.map((b) => `${b.person.firstName} ${b.person.lastName}`)
-  /** Saves the PDF to Documents; returns its id, or null when it wasn't made (the reason is shown). */
-  const save = async (estimate: Estimate, draft: EstimateDraft = draftOf(estimate), overrides: FeeOverride[] = data.feesOf(estimate.id)): Promise<string | null> => {
+  /**
+   * The estimate's worksheet (sections A–H, payment, cash to close) exactly as
+   * its PDF shows it, or the missing facts that stop a borrower PDF.
+   */
+  const worksheetFor = (estimate: Estimate, draft: EstimateDraft = draftOf(estimate), overrides: FeeOverride[] = data.feesOf(estimate.id), preparedAt = nowIso()) => {
     const facts = draft.loanSnapshot?.facts ?? data.factsFor(draft.propertyId)
     const r = computeEstimate(draft, overrides, data.templates, facts)
     const at = pricingDraft(draft)
     const missing = missingForBorrowerPdf(at, loan.purpose)
-    if (missing.length) {
-      toast.error(`Fill in the ${joinNames(missing)} first, so the estimate doesn't show a blank or $0 payment.`)
-      return null
-    }
+    if (missing.length) return { missing, worksheet: null, figures: r.priced.figures, scenario: at }
     const property = data.properties.find((p) => p.id === draft.propertyId) ?? null
-    const preparedAt = nowIso()
     const worksheet = feeWorksheet({
       scenarioId: estimate.id,
       purpose: loan.purpose,
@@ -41,6 +40,16 @@ export function useEstimatePdf(loan: LoanProfile, data: EstimateData) {
       borrowerNames,
       preparedAt,
     })
+    return { missing, worksheet, figures: r.priced.figures, scenario: at }
+  }
+  /** Saves the PDF to Documents; returns its id, or null when it wasn't made (the reason is shown). */
+  const save = async (estimate: Estimate, draft: EstimateDraft = draftOf(estimate), overrides: FeeOverride[] = data.feesOf(estimate.id), quiet = false): Promise<string | null> => {
+    const preparedAt = nowIso()
+    const { missing, worksheet } = worksheetFor(estimate, draft, overrides, preparedAt)
+    if (!worksheet) {
+      toast.error(`Fill in the ${joinNames(missing)} first, so the estimate doesn't show a blank or $0 payment.`)
+      return null
+    }
     return await pdf.save({
       render: (lib, brand) => lib.feeWorksheetPdf(worksheet, brand),
       tooLong: 'Combine or remove some fee lines.',
@@ -49,7 +58,8 @@ export function useEstimatePdf(loan: LoanProfile, data: EstimateData) {
       propertyId: draft.propertyId,
       pricingScenarioId: estimate.id,
       templateVersion: FEE_WORKSHEET_TEMPLATE,
+      quiet,
     })
   }
-  return { save, saving: pdf.saving, ready: pdf.ready, sendingId: pdf.sendingId, closeSend: pdf.closeSend, borrowerNames }
+  return { save, worksheetFor, saving: pdf.saving, ready: pdf.ready, sendingId: pdf.sendingId, closeSend: pdf.closeSend, borrowerNames }
 }

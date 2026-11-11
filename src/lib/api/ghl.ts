@@ -215,6 +215,8 @@ export interface MessagingSettings {
   testMode: boolean
   /** How many assistant bulk messages one loan officer may approve a day (Settings → Sending). */
   bulkDailyCap: number
+  /** How many days a shared estimates link works (Settings → Sending; 1–60). */
+  estimateShareDays: number
   /** False when the company has no saved row yet (defaults apply). */
   saved: boolean
   /** Where a closed client's GHL opportunity goes (decision 2: "Closed" / "Recently Closed"); null = not picked yet. */
@@ -244,7 +246,7 @@ export function useMessagingSettings() {
     enabled: !!orgId,
     queryFn: async (): Promise<MessagingSettings> => {
       const row = unwrap<
-        | ({ send_hours: unknown; time_zone: string; email_domain_verified: boolean; inbound_mode: string | null; last_synced_at: string | null; bulk_daily_cap: number | null } & Record<
+        | ({ send_hours: unknown; time_zone: string; email_domain_verified: boolean; inbound_mode: string | null; last_synced_at: string | null; bulk_daily_cap: number | null; estimate_share_days?: number | null } & Record<
             'closed_pipeline_id' | 'closed_stage_id' | 'closed_label' | 'comeback_pipeline_id' | 'comeback_stage_id' | 'comeback_label' | 'realtor_pipeline_id' | 'realtor_stage_id' | 'realtor_label',
             string | null
           >)
@@ -263,6 +265,7 @@ export function useMessagingSettings() {
         emailDomainVerified: row?.email_domain_verified ?? false,
         testMode: (row?.inbound_mode ?? 'test_only') === 'test_only',
         bulkDailyCap: row?.bulk_daily_cap ?? 250,
+        estimateShareDays: row?.estimate_share_days ?? 7,
         saved: !!row,
         closedStage: choice(row?.closed_pipeline_id ?? null, row?.closed_stage_id ?? null, row?.closed_label ?? null),
         comebackStage: choice(row?.comeback_pipeline_id ?? null, row?.comeback_stage_id ?? null, row?.comeback_label ?? null),
@@ -279,13 +282,14 @@ export function useSaveMessagingSettings() {
   const userId = state.status === 'signedIn' ? state.user.id : null
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (v: { sendHours?: SendHours; emailDomainVerified?: boolean; closedStage?: PipelineStageChoice; comebackStage?: PipelineStageChoice; realtorStage?: PipelineStageChoice; bulkDailyCap?: number }) => {
+    mutationFn: async (v: { sendHours?: SendHours; emailDomainVerified?: boolean; closedStage?: PipelineStageChoice; comebackStage?: PipelineStageChoice; realtorStage?: PipelineStageChoice; bulkDailyCap?: number; estimateShareDays?: number }) => {
       const row = {
         organization_id: orgId,
         updated_by: userId,
         ...(v.sendHours ? { send_hours: v.sendHours } : {}),
         ...(v.emailDomainVerified === undefined ? {} : { email_domain_verified: v.emailDomainVerified }),
         ...(v.bulkDailyCap === undefined ? {} : { bulk_daily_cap: v.bulkDailyCap }),
+        ...(v.estimateShareDays === undefined ? {} : { estimate_share_days: v.estimateShareDays }),
         ...(v.closedStage ? { closed_pipeline_id: v.closedStage.pipelineId, closed_stage_id: v.closedStage.stageId, closed_label: v.closedStage.label } : {}),
         ...(v.comebackStage ? { comeback_pipeline_id: v.comebackStage.pipelineId, comeback_stage_id: v.comebackStage.stageId, comeback_label: v.comebackStage.label } : {}),
         ...(v.realtorStage ? { realtor_pipeline_id: v.realtorStage.pipelineId, realtor_stage_id: v.realtorStage.stageId, realtor_label: v.realtorStage.label } : {}),

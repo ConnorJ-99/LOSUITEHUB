@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { ArchiveIcon, ArrowLeftRightIcon, CheckIcon, ChevronDownIcon, CopyIcon, ListIcon, PencilIcon, PlusIcon, SlidersHorizontalIcon, SparklesIcon } from 'lucide-react'
+import { ArchiveIcon, ArrowLeftRightIcon, CheckIcon, ChevronDownIcon, CopyIcon, ListIcon, PencilIcon, PlusIcon, Share2Icon, SlidersHorizontalIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,8 @@ import { CompareEstimates } from './CompareEstimates'
 import { EstimateEditor, type SaveState } from './EstimateEditor'
 import { SavedEstimates, StatusBadge } from './SavedEstimates'
 import { SelectDialog } from './SelectDialog'
+import { ShareEstimatesDialog } from './ShareEstimatesDialog'
+import { SharedEstimatesCard } from './SharedEstimatesCard'
 import { draftOf, useEstimateData } from './useEstimateData'
 import { useSelectEstimate } from './useSelectEstimate'
 import { useEstimatePdf } from './useEstimatePdf'
@@ -36,6 +38,7 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
   const [selecting, setSelecting] = useState<Estimate | null>(null)
   const [renaming, setRenaming] = useState<Estimate | null>(null)
   const [changingAll, setChangingAll] = useState(false)
+  const [sharing, setSharing] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const onSaveState = useCallback((s: SaveState) => setSaveState(s), [])
   const readOnly = loan.stage === 'closed'
@@ -141,6 +144,12 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
         <Button size="sm" variant="outline" onClick={() => setChangingAll(true)} disabled={active.length < 1}>
           <SlidersHorizontalIcon />
           Change for all
+        </Button>
+      )}
+      {!readOnly && (
+        <Button size="sm" variant="outline" onClick={() => setSharing(true)} disabled={active.length < 1}>
+          <Share2Icon />
+          {checkedList.length ? `Share selected (${checkedList.length})` : 'Share…'}
         </Button>
       )}
       {view === 'estimate' && open && !readOnly && (
@@ -282,9 +291,11 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
       {header}
       {view !== 'build' && view !== 'compare' && chips}
       {body}
+      {view !== 'build' && <SharedEstimatesCard loanId={loan.id} readOnly={readOnly} />}
       <SendSavedPdf loan={loan} docId={pdf.sendingId} onClose={pdf.closeSend} />
       {selecting && <SelectDialog estimate={selecting} current={selectedEstimate} isPurchase={isPurchase} onSelect={selectEstimate} onClose={() => setSelecting(null)} />}
       {renaming && <RenameDialog estimate={renaming} onSave={(name) => run(() => updateEstimate(renaming.id, { name }), 'Renamed')} onClose={() => setRenaming(null)} />}
+      {sharing && <ShareEstimatesDialog loan={loan} data={data} pdf={pdf} estimates={active} initial={checkedList.length ? checkedList.map((e) => e.id) : [open?.id ?? active[0]?.id].filter((x): x is string => !!x)} onClose={() => setSharing(false)} />}
       {changingAll && (
         <ChangeForAllDialog
           data={data}

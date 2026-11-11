@@ -296,6 +296,7 @@ export function SendingCard({ canEdit }: { canEdit: boolean }) {
             <ToggleChip className="mt-2" label="mps.mortgage is verified for sending in GHL" pressed={s.emailDomainVerified} onChange={setVerified} disabled={!canEdit || save.isPending} />
           </div>
           <BulkCapField cap={s.bulkDailyCap} canEdit={canEdit && s.saved} />
+          <ShareDaysField days={s.estimateShareDays} canEdit={canEdit && s.saved} />
           <TestModeSwitch testMode={s.testMode} canEdit={canEdit && s.saved} />
         </div>
       )}
@@ -326,6 +327,33 @@ function BulkCapField({ cap, canEdit }: { cap: number; canEdit: boolean }) {
         )}
       </div>
       {!valid && <p className="mt-1 text-xs text-destructive">A whole number from 0 to 2,000.</p>}
+    </div>
+  )
+}
+
+/** How long a shared estimates link works unless it's changed when sharing (build plan Phase 7). */
+function ShareDaysField({ days, canEdit }: { days: number; canEdit: boolean }) {
+  const save = useSaveMessagingSettings()
+  const [value, setValue] = useState(String(days))
+  const n = Number(value)
+  const valid = Number.isInteger(n) && n >= 1 && n <= 60
+  return (
+    <div className="border-t pt-4">
+      <p className="text-sm font-medium">Shared estimate links</p>
+      <p className="text-xs text-muted-foreground">How many days a link to shared estimates works. It can be changed each time you share.</p>
+      <div className="mt-2 flex items-end gap-2">
+        <Input label="Days" type="number" min={1} max={60} value={value} onChange={setValue} readOnly={!canEdit} className="w-32" />
+        {canEdit && n !== days && (
+          <Button
+            size="sm"
+            disabled={!valid || save.isPending}
+            onClick={() => save.mutate({ estimateShareDays: n }, { onSuccess: () => toast.success(`Links now last ${n} days`), onError: (e) => toast.error(e.message) })}
+          >
+            Save
+          </Button>
+        )}
+      </div>
+      {!valid && <p className="mt-1 text-xs text-destructive">A whole number from 1 to 60.</p>}
     </div>
   )
 }
