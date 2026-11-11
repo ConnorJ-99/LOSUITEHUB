@@ -432,7 +432,7 @@ export function GhlPipelinesCard({ canEdit }: { canEdit: boolean }) {
     const st = p?.stages.find((x) => x.id === stageId)
     return p && st ? { pipelineId, stageId, label: `${p.name} · ${st.name}` } : null
   }
-  const pick = (which: 'closedStage' | 'comebackStage') => (v: string) => {
+  const pick = (which: 'closedStage' | 'comebackStage' | 'realtorStage') => (v: string) => {
     const c = toChoice(v)
     if (!c) return
     save.mutate({ [which]: c }, { onSuccess: () => toast.success(`Saved: ${c.label}`), onError: (e) => toast.error(e.message) })
@@ -440,7 +440,7 @@ export function GhlPipelinesCard({ canEdit }: { canEdit: boolean }) {
   const suggested = pipelines.data?.suggestedClosed ?? null
   const showSuggestion = !!suggested && !s?.closedStage && canEdit
 
-  const row = (title: string, help: string, saved: PipelineStageChoice | null, which: 'closedStage' | 'comebackStage') => (
+  const row = (title: string, help: string, saved: PipelineStageChoice | null, which: 'closedStage' | 'comebackStage' | 'realtorStage') => (
     <div className="flex flex-wrap items-center justify-between gap-2 py-2">
       <div className="min-w-0">
         <p className="text-sm font-medium">{title}</p>
@@ -485,6 +485,7 @@ export function GhlPipelinesCard({ canEdit }: { canEdit: boolean }) {
           <div className="divide-y">
             {row('When a loan closes', "The borrower's opportunity moves here (made, if they have none). Nothing in GHL fires on it.", s.closedStage, 'closedStage')}
             {row('When a closed client comes back', '"Copy to a new lead" moves the same opportunity here, reopened.', s.comebackStage, 'comebackStage')}
+            {row('When a realtor is added to GoHighLevel', 'Their opportunity starts here (once; never a second one). Title and other partners are left out.', s.realtorStage, 'realtorStage')}
           </div>
           {s.testMode && <p className="text-xs text-muted-foreground">Test mode: only people with TEST in their name are changed in GHL.</p>}
           <p className="border-t pt-2 text-xs text-muted-foreground">

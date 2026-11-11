@@ -18,6 +18,8 @@ export interface Partner {
   emailOptedOutAt: string | null
   /** Set only by GHL matching (Add to GoHighLevel). */
   ghlContactId: string | null
+  /** Realtors: their opportunity in GHL's realtor pipeline (set only by the ghl function). */
+  ghlOpportunityId: string | null
   notes: string | null
   /** Relationship stage, owner and dates (Phase 4). Undefined until the partner stages script has run. */
   stage?: PartnerStage
@@ -45,6 +47,7 @@ interface PartnerRow {
   sms_opted_out_at: string | null
   email_opted_out_at: string | null
   ghl_contact_id: string | null
+  ghl_opportunity_id?: string | null
   notes: string | null
   stage?: PartnerStage
   assigned_lo_id?: string | null
@@ -83,6 +86,7 @@ function toPartner(r: PartnerRow): Partner {
     smsOptedOutAt: r.sms_opted_out_at,
     emailOptedOutAt: r.email_opted_out_at,
     ghlContactId: r.ghl_contact_id,
+    ghlOpportunityId: r.ghl_opportunity_id ?? null,
     notes: r.notes,
     stage: r.stage,
     assignedLoId: r.assigned_lo_id ?? null,

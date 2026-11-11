@@ -123,7 +123,7 @@ export function PartnerDialog({ partner, partners, onClose }: { partner: Partner
         {partner && (
           <div className="flex flex-wrap items-center justify-between gap-2 sm:col-span-2 lg:col-span-6">
             <span className="text-sm">GoHighLevel</span>
-            <AddToGhl target={{ kind: 'partner', partnerId: partner.id }} linked={!!partner.ghlContactId} name={partner.name} />
+            <AddToGhl target={{ kind: 'partner', partnerId: partner.id }} linked={!!partner.ghlContactId} name={partner.name} pipelineMissing={partner.kind === 'realtor' && !partner.ghlOpportunityId} />
           </div>
         )}
       </FormGrid>

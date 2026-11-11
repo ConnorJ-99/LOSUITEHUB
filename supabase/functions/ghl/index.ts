@@ -903,15 +903,24 @@ async function linkPartner(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   // * so this works before and after the partner stages script (assigned_lo_id).
   const found = await db.from('partners').select('*').eq('id', partnerId).eq('organization_id', organizationId).maybeSingle()
   if (found.error) throw new Error(found.error.message)
-  const partner = found.data as { id: string; name: string; email: string | null; phone: string | null; ghl_contact_id: string | null; assigned_lo_id?: string | null } | null
+  const partner = found.data as { id: string; name: string; kind: string; email: string | null; phone: string | null; ghl_contact_id: string | null; assigned_lo_id?: string | null; ghl_opportunity_id?: string | null } | null
   if (!partner) throw new UserError('That partner was not found.')
-  if (partner.ghl_contact_id) return { linked: true, created: false }
 
-  const settings = await admin.from('messaging_settings').select('inbound_mode').eq('organization_id', organizationId).maybeSingle()
+  // * so this works before the realtor pipeline script too.
+  const settings = await admin.from('messaging_settings').select('*').eq('organization_id', organizationId).maybeSingle()
   if (settings.error) throw new Error(settings.error.message)
-  if (((settings.data as { inbound_mode: string } | null)?.inbound_mode ?? 'test_only') === 'test_only' && !hasTestName(partner.name, null)) {
-    return { skipped: 'Test mode: LOSuite only adds people with TEST in their name to GHL, so GHL wasn\'t changed.' }
+  const s = settings.data as { inbound_mode?: string; realtor_pipeline_id?: string | null; realtor_stage_id?: string | null; realtor_label?: string | null } | null
+  if ((s?.inbound_mode ?? 'test_only') === 'test_only' && !hasTestName(partner.name, null)) {
+    return partner.ghl_contact_id ? { linked: true, created: false } : { skipped: 'Test mode: LOSuite only adds people with TEST in their name to GHL, so GHL wasn\'t changed.' }
   }
+
+  const link = await admin.from('ghl_user_links').select('ghl_user_id').eq('organization_id', organizationId).eq('profile_id', partner.assigned_lo_id ?? userId).maybeSingle()
+  if (link.error) throw new Error(link.error.message)
+  const assignTo = (link.data as { ghl_user_id: string } | null)?.ghl_user_id ?? null
+
+  // Already linked: just make sure a realtor is in the realtor pipeline.
+  if (partner.ghl_contact_id) return { linked: true, created: false, pipeline: await ensureRealtorOpportunity(admin, g, organizationId, partner, partner.ghl_contact_id, assignTo, s) }
+
   if (!partner.email?.trim() && !e164(partner.phone)) throw new UserError(`${partner.name} needs an email or a 10-digit phone before LOSuite can add them to GHL.`)
 
   const shared = sharedDetails(partner, await samePeople(admin, organizationId, 'partners', partner.id, partner.email, partner.phone))
@@ -919,10 +928,6 @@ async function linkPartner(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   const match = await findGhlMatches(g, partner.phone, partner.email)
   const picked = pickGhlMatch(match.byPhone, match.byEmail)
   if ('problem' in picked) return { skipped: picked.problem }
-
-  const link = await admin.from('ghl_user_links').select('ghl_user_id').eq('organization_id', organizationId).eq('profile_id', partner.assigned_lo_id ?? userId).maybeSingle()
-  if (link.error) throw new Error(link.error.message)
-  const assignTo = (link.data as { ghl_user_id: string } | null)?.ghl_user_id ?? null
 
   let id = picked.id
   let created = false
@@ -955,7 +960,51 @@ async function linkPartner(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   }
   const saved = await admin.from('partners').update({ ghl_contact_id: id }).eq('id', partner.id).eq('organization_id', organizationId).is('ghl_contact_id', null)
   if (saved.error) throw new Error(saved.error.message)
-  return { linked: true, created }
+  return { linked: true, created, pipeline: await ensureRealtorOpportunity(admin, g, organizationId, partner, id!, assignTo, s) }
+}
+
+/**
+ * A realtor's opportunity in the realtor pipeline picked in Settings → GHL
+ * pipelines: the one saved, else one they already have in that pipeline,
+ * else a new one in the picked stage (named after them, assigned to their
+ * loan officer). Never a second one. Other partners (title, builders…) are
+ * left alone. Says what happened, or why not, in words.
+ */
+async function ensureRealtorOpportunity(
+  admin: SupabaseClient,
+  g: Ghl,
+  organizationId: string,
+  partner: { id: string; name: string; kind: string; ghl_opportunity_id?: string | null },
+  ghlContactId: string,
+  assignTo: string | null,
+  s: { realtor_pipeline_id?: string | null; realtor_stage_id?: string | null; realtor_label?: string | null } | null,
+): Promise<string | null> {
+  if (partner.kind !== 'realtor') return null
+  if (partner.ghl_opportunity_id) return 'Already in the realtor pipeline.'
+  if (!s?.realtor_pipeline_id || !s.realtor_stage_id) return 'Pick the realtor pipeline in Settings → GHL pipelines to add them to it.'
+  // Their opportunities: GET /opportunities/search (opportunities.readonly).
+  const search = await g.call(plan('opportunities_read'), `/opportunities/search?location_id=${encodeURIComponent(g.locationId)}&contact_id=${encodeURIComponent(ghlContactId)}&status=all&limit=20`)
+  if (search.outcome.result !== 'works') return `GHL's opportunities couldn't be read: ${search.outcome.detail}`
+  let opportunityId = pickOpportunities(search.body).find((o) => o.pipelineId === s.realtor_pipeline_id)?.id ?? null
+  let added = false
+  if (!opportunityId) {
+    // POST /opportunities/ (opportunities.write).
+    const made = await g.call({ ...plan('opportunities_write'), method: 'POST', dryRun: false }, '/opportunities/', {
+      locationId: g.locationId,
+      contactId: ghlContactId,
+      pipelineId: s.realtor_pipeline_id,
+      pipelineStageId: s.realtor_stage_id,
+      name: partner.name,
+      status: 'open',
+      ...(assignTo ? { assignedTo: assignTo } : {}),
+    })
+    opportunityId = pickOpportunity((made.body as { opportunity?: Record<string, unknown> } | null)?.opportunity)?.id ?? null
+    if (made.outcome.result !== 'works' || !opportunityId) return `GHL didn't add them to the realtor pipeline: ${made.outcome.detail}`
+    added = true
+  }
+  const saved = await admin.from('partners').update({ ghl_opportunity_id: opportunityId }).eq('id', partner.id).eq('organization_id', organizationId)
+  if (saved.error) return saved.error.code === '23505' ? 'That GHL opportunity is already linked to another partner. An admin should check.' : saved.error.message
+  return added ? `Added to ${s.realtor_label ?? 'the realtor pipeline'}.` : 'Linked to their opportunity in the realtor pipeline.'
 }
 
 /**

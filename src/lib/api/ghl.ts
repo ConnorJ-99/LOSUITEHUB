@@ -221,6 +221,8 @@ export interface MessagingSettings {
   closedStage: PipelineStageChoice | null
   /** Where it goes back to when a closed client starts a new loan; null = not picked yet. */
   comebackStage: PipelineStageChoice | null
+  /** Where a realtor's GHL opportunity starts when they're added to GoHighLevel; null = not picked yet. */
+  realtorStage: PipelineStageChoice | null
   /** The last time GHL was checked for new messages (the 10-minute scheduler, or Check for new messages). */
   lastSyncedAt: string | null
 }
@@ -243,14 +245,15 @@ export function useMessagingSettings() {
     queryFn: async (): Promise<MessagingSettings> => {
       const row = unwrap<
         | ({ send_hours: unknown; time_zone: string; email_domain_verified: boolean; inbound_mode: string | null; last_synced_at: string | null; bulk_daily_cap: number | null } & Record<
-            'closed_pipeline_id' | 'closed_stage_id' | 'closed_label' | 'comeback_pipeline_id' | 'comeback_stage_id' | 'comeback_label',
+            'closed_pipeline_id' | 'closed_stage_id' | 'closed_label' | 'comeback_pipeline_id' | 'comeback_stage_id' | 'comeback_label' | 'realtor_pipeline_id' | 'realtor_stage_id' | 'realtor_label',
             string | null
           >)
         | null
       >(
         await db()
           .from('messaging_settings')
-          .select('send_hours, time_zone, email_domain_verified, inbound_mode, last_synced_at, bulk_daily_cap, closed_pipeline_id, closed_stage_id, closed_label, comeback_pipeline_id, comeback_stage_id, comeback_label')
+          // * so it works before the realtor pipeline script adds its columns.
+          .select('*')
           .eq('organization_id', orgId!)
           .maybeSingle(),
       )
@@ -263,6 +266,7 @@ export function useMessagingSettings() {
         saved: !!row,
         closedStage: choice(row?.closed_pipeline_id ?? null, row?.closed_stage_id ?? null, row?.closed_label ?? null),
         comebackStage: choice(row?.comeback_pipeline_id ?? null, row?.comeback_stage_id ?? null, row?.comeback_label ?? null),
+        realtorStage: choice(row?.realtor_pipeline_id ?? null, row?.realtor_stage_id ?? null, row?.realtor_label ?? null),
         lastSyncedAt: row?.last_synced_at ?? null,
       }
     },
@@ -275,7 +279,7 @@ export function useSaveMessagingSettings() {
   const userId = state.status === 'signedIn' ? state.user.id : null
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (v: { sendHours?: SendHours; emailDomainVerified?: boolean; closedStage?: PipelineStageChoice; comebackStage?: PipelineStageChoice; bulkDailyCap?: number }) => {
+    mutationFn: async (v: { sendHours?: SendHours; emailDomainVerified?: boolean; closedStage?: PipelineStageChoice; comebackStage?: PipelineStageChoice; realtorStage?: PipelineStageChoice; bulkDailyCap?: number }) => {
       const row = {
         organization_id: orgId,
         updated_by: userId,
@@ -284,6 +288,7 @@ export function useSaveMessagingSettings() {
         ...(v.bulkDailyCap === undefined ? {} : { bulk_daily_cap: v.bulkDailyCap }),
         ...(v.closedStage ? { closed_pipeline_id: v.closedStage.pipelineId, closed_stage_id: v.closedStage.stageId, closed_label: v.closedStage.label } : {}),
         ...(v.comebackStage ? { comeback_pipeline_id: v.comebackStage.pipelineId, comeback_stage_id: v.comebackStage.stageId, comeback_label: v.comebackStage.label } : {}),
+        ...(v.realtorStage ? { realtor_pipeline_id: v.realtorStage.pipelineId, realtor_stage_id: v.realtorStage.stageId, realtor_label: v.realtorStage.label } : {}),
       }
       const rows = unwrap<{ organization_id: string }[]>(await db().from('messaging_settings').upsert(row, { onConflict: 'organization_id' }).select('organization_id'))
       if (rows.length === 0) throw new Error('Only owners and admins can change sending settings.')
@@ -356,7 +361,7 @@ export function moveGhlOpportunity(organizationId: string, loanId: string, move:
 }
 
 /** What happened to the borrower's GHL contact. `skipped` = GHL wasn't changed, and why. */
-export type ContactLinkResult = { skipped: string } | { linked: true; created: boolean }
+export type ContactLinkResult = { skipped: string } | { linked: true; created: boolean; /** Realtors: what happened in the realtor pipeline, in words. */ pipeline?: string | null }
 
 /** Matches or creates the borrower's GHL contact, assigned to the file's loan officer (prequal results, decision 7). */
 export function linkGhlContact(organizationId: string, loanId: string, contactId: string) {
