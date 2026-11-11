@@ -23,6 +23,8 @@ import { toast } from 'sonner'
 import { useMarkStep } from '@/lib/api/loanfile'
 import { formatIsoDate, todayIso } from '@/lib/dates'
 import { GROUPS, OWNER_LABEL, type StepResult, type Workflow } from '@/lib/loanfile/workflow'
+import { offerMilestoneUpdate } from '@/components/messaging/fileTextRequests'
+import { milestoneForStep } from '@/lib/messaging/updates'
 import { GroupProgress, NextStepCard, StepGroup, StepRow } from './Workflow'
 
 const ICONS: Record<string, LucideIcon> = {
@@ -62,7 +64,13 @@ export function WorkflowPanel({ workflow, loanId, organizationId, days, onOpenSe
     mark.mutate(
       { step, status, doneOn: todayIso() },
       {
-        onSuccess: () => toast.success(status === 'done' ? `${step.name}: done${step.milestone ? ' (milestone recorded)' : ''}` : status === 'na' ? `${step.name}: not applicable` : `${step.name}: cleared`),
+        onSuccess: () => {
+          if (status !== 'done') return toast.success(status === 'na' ? `${step.name}: not applicable` : `${step.name}: cleared`)
+          // A step people care about (appraisal ordered or in, clear to close…): offer the update texts; any other step: a button for one.
+          const milestone = milestoneForStep(step.name)
+          if (milestone) void offerMilestoneUpdate(loanId, milestone)
+          toast.success(`${step.name}: done${step.milestone ? ' (milestone recorded)' : ''}`, milestone ? undefined : { action: { label: 'Send an update', onClick: () => void offerMilestoneUpdate(loanId, 'other') } })
+        },
         onError: (e) => toast.error(e.message),
       },
     )

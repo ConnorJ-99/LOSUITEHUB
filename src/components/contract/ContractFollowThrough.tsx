@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, ToggleChip } from '@/components/shared'
+import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
 import { useAddToTeam, useContractPeople, useQueueIntroEmails, useSyncDeadlineTasks } from '@/lib/api/contract'
 import { useLoanFile } from '@/lib/api/loanfile'
 import { usePartners } from '@/lib/api/partners'
@@ -136,7 +137,19 @@ function PeopleCard({ loan }: { loan: LoanProfile }) {
                   size="sm"
                   variant="outline"
                   disabled={add.isPending}
-                  onClick={() => add.mutate({ role, person, partnerId: known?.id ?? null }, { onSuccess: () => toast.success(`${person.name} added as ${ROLE_LABEL[role].toLowerCase()}`), onError: (e) => toast.error(e.message) })}
+                  onClick={() =>
+                    add.mutate(
+                      { role, person, partnerId: known?.id ?? null },
+                      {
+                        onSuccess: (partnerId) => {
+                          toast.success(`${person.name} added as ${ROLE_LABEL[role].toLowerCase()}`)
+                          // New on this file: add them to GoHighLevel (if they aren't there) and offer the intro text.
+                          if (partnerId) void afterPartnerJoined(loan.organizationId, loan.id, partnerId)
+                        },
+                        onError: (e) => toast.error(e.message),
+                      },
+                    )
+                  }
                 >
                   <UserPlusIcon />
                   {current ? `Replace ${current.name ?? 'current'}` : 'Add to team'}

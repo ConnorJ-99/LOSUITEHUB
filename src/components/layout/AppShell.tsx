@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { NewLeadContext, type NewLeadPreset } from '@/components/leads/new-lead-context'
 import { NewLeadDialog } from '@/components/leads/NewLeadDialog'
 import { useNewMessageAlerts } from '@/components/messages/useNewMessageAlerts'
+import { FileTextsHost } from '@/components/messaging/FileTextsHost'
 import { MobileAssistantButton } from '@/components/assistant/FileAssistant'
 import { NotificationsBell } from '@/components/notifications/NotificationsBell'
 import { useMessagesLive } from '@/lib/api/messages'
@@ -107,6 +108,7 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
         </div>
       </div>
       {!preview && <NewLeadDialog open={newLeadOpen} onOpenChange={setNewLeadOpen} preset={newLeadPreset} />}
+      {!preview && <FileTextsHost />}
     </NewLeadContext.Provider>
   )
 }

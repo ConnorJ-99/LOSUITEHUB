@@ -8,6 +8,8 @@ import { db, unwrap } from '@/lib/api/client'
 import { useCloseLoan, useUpdateStage } from '@/lib/api/loans'
 import { todayIso } from '@/lib/dates'
 import { LOST_REASONS, stageLabel, type PipelineStage } from '@/lib/pipeline/stages'
+import { milestoneForStage } from '@/lib/messaging/updates'
+import { offerMilestoneUpdate } from '@/components/messaging/fileTextRequests'
 
 interface Pending {
   loanId: string
@@ -38,7 +40,12 @@ export function useStageChanger() {
     updateStage.mutate(
       { loanId, stage, lostReason },
       {
-        onSuccess: () => toast.success(`Moved to ${stageLabel(stage)}`),
+        onSuccess: () => {
+          toast.success(`Moved to ${stageLabel(stage)}`)
+          // With underwriting, approved, clear to close: offer the borrower and realtor update texts.
+          const milestone = milestoneForStage(stage)
+          if (milestone) void offerMilestoneUpdate(loanId, milestone)
+        },
         onError: (error) => toast.error(`Could not change stage: ${error.message}`),
       },
     )
@@ -82,6 +89,7 @@ export function useStageChanger() {
           toast.success('Moved to Closed')
           setPendingClosed(null)
           void ghl.move(loanId, 'closed', borrowerName)
+          void offerMilestoneUpdate(loanId, 'closed')
         },
         onError: (error) => toast.error(`Could not mark closed: ${error.message}`),
       },

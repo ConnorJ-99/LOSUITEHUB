@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { linkGhlContact, linkGhlPartner, useGhlStatus, type ContactLinkResult } from '@/lib/api/ghl'
 import { useAuth } from '@/lib/auth/context'
 import { TONE_CLASS } from '@/components/messages/tone'
+import { offerBorrowerIntro } from './fileTextRequests'
 
 type Target = { kind: 'borrower'; loanId: string; contactId: string } | { kind: 'partner'; partnerId: string }
 
@@ -36,6 +37,8 @@ export function AddToGhl({ target, linked, name }: { target: Target; linked: boo
       else {
         toast.success(r.created ? `${name} added to GoHighLevel` : `${name} linked to their GoHighLevel contact`)
         for (const key of [['messages', 'people'], ['partners'], ['closedLoans']]) queryClient.invalidateQueries({ queryKey: key })
+        // A borrower: offer the intro text with the work number and personal cell.
+        if (target.kind === 'borrower') void offerBorrowerIntro(target.loanId, target.contactId)
       }
     } catch (e) {
       setProblem((e as Error).message)

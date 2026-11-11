@@ -323,7 +323,9 @@ async function linkUser(db: SupabaseClient, g: Ghl, organizationId: string, user
 
 interface SendRequest {
   approvalId: string
-  contactId: string
+  /** A borrower on the file, or (partnerId) a partner on the file's team. */
+  contactId: string | null
+  partnerId: string | null
   loanId: string
   channel: 'text' | 'email'
   body: string
@@ -335,7 +337,8 @@ interface SendRequest {
 
 interface ApprovalRow {
   id: string
-  contact_id: string
+  contact_id: string | null
+  partner_id: string | null
   loan_id: string
   channel: 'text' | 'email'
   subject: string | null
@@ -357,7 +360,7 @@ async function loadApproval(admin: SupabaseClient, organizationId: string, userI
   if (!/^[0-9a-f-]{36}$/i.test(approvalId)) throw new UserError('Nothing was sent: this message has no approval. Approve it in MPS HQ first.')
   const found = await admin
     .from('send_approvals')
-    .select('id, contact_id, loan_id, channel, subject, body, document_ids, approved_by, used_at, voided_at')
+    .select('id, contact_id, partner_id, loan_id, channel, subject, body, document_ids, approved_by, used_at, voided_at')
     .eq('id', approvalId)
     .eq('organization_id', organizationId)
     .maybeSingle()
@@ -368,7 +371,7 @@ async function loadApproval(admin: SupabaseClient, organizationId: string, userI
   if (a.voided_at) throw new UserError('Nothing was sent: that approval was cancelled.')
   const documentIds = a.document_ids ?? []
   if (documentIds.length > MAX_ATTACHMENTS) throw new UserError(`Attach at most ${MAX_ATTACHMENTS} documents to one email.`)
-  return { approvalId: a.id, contactId: a.contact_id, loanId: a.loan_id, channel: a.channel, body: a.body, subject: a.subject, idempotencyKey: `approval:${a.id}`, documentIds }
+  return { approvalId: a.id, contactId: a.contact_id, partnerId: a.partner_id, loanId: a.loan_id, channel: a.channel, body: a.body, subject: a.subject, idempotencyKey: `approval:${a.id}`, documentIds }
 }
 
 /** Uses the approval exactly once (the database re-checks who may approve). False = it was already used. */
@@ -496,16 +499,7 @@ const DEFAULT_HOURS: SendHoursValue = { mon: ['09:00', '21:00'], tue: ['09:00', 
 async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, userId: string, body: Record<string, unknown>) {
   const req = await loadApproval(admin, organizationId, userId, body)
 
-  // What the sender can see (Row Level Security): the person, and that they're on this file.
-  const person = await db
-    .from('contacts')
-    .select('id, first_name, last_name, email, phone, sms_consent, email_consent, sms_opted_out_at, email_opted_out_at, ghl_contact_id')
-    .eq('id', req.contactId)
-    .eq('organization_id', organizationId)
-    .maybeSingle()
-  if (person.error) throw new Error(person.error.message)
-  if (!person.data) throw new UserError('That person was not found, or their file is not yours.')
-  const p = person.data as {
+  type Recipient = {
     first_name: string | null
     last_name: string | null
     email: string | null
@@ -516,11 +510,42 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
     email_opted_out_at: string | null
     ghl_contact_id: string | null
   }
+  let p: Recipient
+  let loId: string | null
+  if (req.partnerId) {
+    // A partner (realtor, title…) on this file's team, as the sender sees them (Row Level Security).
+    const partner = await db
+      .from('partners')
+      .select('id, name, email, phone, sms_consent, email_consent, sms_opted_out_at, email_opted_out_at, ghl_contact_id')
+      .eq('id', req.partnerId)
+      .eq('organization_id', organizationId)
+      .maybeSingle()
+    if (partner.error) throw new Error(partner.error.message)
+    if (!partner.data) throw new UserError('That partner was not found.')
+    const pt = partner.data as Omit<Recipient, 'first_name' | 'last_name'> & { name: string }
+    const name = splitName(pt.name)
+    p = { ...pt, first_name: name.first, last_name: name.last }
+    const team = await db.from('loan_team_members').select('loan:loans ( assigned_lo_id )').eq('loan_id', req.loanId).eq('partner_id', req.partnerId).limit(1)
+    if (team.error) throw new Error(team.error.message)
+    if (!team.data?.length) throw new UserError(`${pt.name} is not on this file's team.`)
+    loId = (team.data[0] as unknown as { loan: { assigned_lo_id: string | null } | null }).loan?.assigned_lo_id ?? null
+  } else {
+    // What the sender can see (Row Level Security): the person, and that they're on this file.
+    const person = await db
+      .from('contacts')
+      .select('id, first_name, last_name, email, phone, sms_consent, email_consent, sms_opted_out_at, email_opted_out_at, ghl_contact_id')
+      .eq('id', req.contactId!)
+      .eq('organization_id', organizationId)
+      .maybeSingle()
+    if (person.error) throw new Error(person.error.message)
+    if (!person.data) throw new UserError('That person was not found, or their file is not yours.')
+    p = person.data as Recipient
+    const onFile = await db.from('loan_borrowers').select('loan_id, loan:loans ( assigned_lo_id )').eq('loan_id', req.loanId).eq('contact_id', req.contactId!).maybeSingle()
+    if (onFile.error) throw new Error(onFile.error.message)
+    if (!onFile.data) throw new UserError('That person is not on this file.')
+    loId = (onFile.data as unknown as { loan: { assigned_lo_id: string | null } | null }).loan?.assigned_lo_id ?? null
+  }
   const first = p.first_name || 'This person'
-  const onFile = await db.from('loan_borrowers').select('loan_id, loan:loans ( assigned_lo_id )').eq('loan_id', req.loanId).eq('contact_id', req.contactId).maybeSingle()
-  if (onFile.error) throw new Error(onFile.error.message)
-  if (!onFile.data) throw new UserError('That person is not on this file.')
-  const loId = (onFile.data as unknown as { loan: { assigned_lo_id: string | null } | null }).loan?.assigned_lo_id ?? null
 
   // A message already sent (or being sent) with this key: say so, never send again.
   const already = await admin.from('messages').select('id, status, send_error').eq('organization_id', organizationId).eq('idempotency_key', req.idempotencyKey).maybeSingle()
@@ -579,7 +604,18 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   }
 
   // The person's GHL contact: found, or created and assigned to the loan officer; linked to them the first time.
-  const ghlContactId = (await ensureGhlContact(admin, g, organizationId, req.contactId, p, loGhlUserId)).id
+  // A partner is linked through Add to GoHighLevel's own rules (a shared phone or two GHL people wait for an admin).
+  let ghlContactId: string
+  if (req.partnerId) {
+    if (p.ghl_contact_id) ghlContactId = p.ghl_contact_id
+    else {
+      const linked = await linkPartner(db, admin, g, organizationId, userId, { partnerId: req.partnerId })
+      if ('skipped' in linked) throw new UserError(`Nothing was sent: ${linked.skipped}`)
+      const again = await admin.from('partners').select('ghl_contact_id').eq('id', req.partnerId).maybeSingle()
+      if (!again.data?.ghl_contact_id) throw new UserError('Nothing was sent: the partner could not be linked to GoHighLevel.')
+      ghlContactId = again.data.ghl_contact_id as string
+    }
+  } else ghlContactId = (await ensureGhlContact(admin, g, organizationId, req.contactId!, p, loGhlUserId)).id
 
   // GHL's Do Not Disturb, checked live: GET /contacts/{contactId} (contacts.readonly).
   const live = await g.call(plan('contacts_read'), `/contacts/${encodeURIComponent(ghlContactId)}`)
@@ -587,8 +623,12 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   if (!contact) throw new UserError('GHL did not return this contact, so nothing was sent. Try again in a minute.')
   if (req.channel === 'text' ? contact.dndText : contact.dndEmail) {
     const field = req.channel === 'text' ? 'sms' : 'email'
-    await admin.from('contacts').update({ [`${field}_consent`]: false, [`${field}_opted_out_at`]: new Date().toISOString() }).eq('id', req.contactId).is(`${field}_opted_out_at`, null)
-    await admin.from('consent_events').insert({ organization_id: organizationId, contact_id: req.contactId, channel: req.channel, change: 'opted_out', source: 'ghl_dnd' })
+    if (req.partnerId) {
+      await admin.from('partners').update({ [`${field}_consent`]: false, [`${field}_opted_out_at`]: new Date().toISOString() }).eq('id', req.partnerId).is(`${field}_opted_out_at`, null)
+    } else {
+      await admin.from('contacts').update({ [`${field}_consent`]: false, [`${field}_opted_out_at`]: new Date().toISOString() }).eq('id', req.contactId!).is(`${field}_opted_out_at`, null)
+      await admin.from('consent_events').insert({ organization_id: organizationId, contact_id: req.contactId, channel: req.channel, change: 'opted_out', source: 'ghl_dnd' })
+    }
     throw new UserError(`${first} has Do Not Disturb on in GHL, so ${req.channel === 'text' ? 'texting' : 'email'} is now turned off for them. Nothing was sent.`)
   }
 
@@ -602,6 +642,7 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
     .insert({
       organization_id: organizationId,
       contact_id: req.contactId,
+      partner_id: req.partnerId,
       loan_id: req.loanId,
       channel: req.channel,
       direction: 'outbound',

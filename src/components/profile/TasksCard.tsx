@@ -11,6 +11,8 @@ import type { Task } from '@/lib/api/types'
 import { dueLabel, todayIso } from '@/lib/dates'
 import { ActionChip } from '@/components/queue/PriorityList'
 import { PRIORITY_ACTIONS, itemNote, itemTitle, type PriorityAction } from '@/lib/queue/priorityList'
+import { offerMilestoneUpdate } from '@/components/messaging/fileTextRequests'
+import { milestoneForStep } from '@/lib/messaging/updates'
 
 function TaskRow({ task, onToggle, onDelete }: { task: Task; onToggle: () => void; onDelete: () => void }) {
   const done = !!task.completedAt
@@ -114,7 +116,20 @@ export function TasksCard({ loanId, organizationId }: { loanId: string; organiza
             <TaskRow
               key={task.id}
               task={task}
-              onToggle={() => toggleTask.mutate({ id: task.id, done: true }, { onError })}
+              onToggle={() =>
+                toggleTask.mutate(
+                  { id: task.id, done: true },
+                  {
+                    onError,
+                    // A task people care about (order appraisal…): offer the update texts; any other: a button for one.
+                    onSuccess: () => {
+                      const milestone = milestoneForStep(task.title)
+                      if (milestone) void offerMilestoneUpdate(loanId, milestone)
+                      else toast.success(`Done: ${task.title}`, { action: { label: 'Send an update', onClick: () => void offerMilestoneUpdate(loanId, 'other') } })
+                    },
+                  },
+                )
+              }
               onDelete={() => deleteTask.mutate(task.id, { onError })}
             />
           ))}

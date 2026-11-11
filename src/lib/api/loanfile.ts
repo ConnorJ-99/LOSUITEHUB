@@ -148,9 +148,10 @@ export function useSaveTeamMember(loanId: string, organizationId: string) {
     mutationFn: async ({ role, member }: { role: TeamRole; member: { profileId?: string | null; name?: string | null; company?: string | null; email?: string | null; phone?: string | null; partnerId?: string | null } | null }) => {
       if (!member) {
         unwrap(await db().from('loan_team_members').delete().eq('loan_id', loanId).eq('role', role))
-        return
+        return null
       }
-      unwrap(
+      const before = unwrap<{ partner_id: string | null } | null>(await db().from('loan_team_members').select('partner_id').eq('loan_id', loanId).eq('role', role).maybeSingle())?.partner_id ?? null
+      const saved = unwrap<{ partner_id: string | null }[]>(
         await db()
           .from('loan_team_members')
           .upsert(
@@ -167,8 +168,11 @@ export function useSaveTeamMember(loanId: string, organizationId: string) {
             },
             { onConflict: 'loan_id,role' },
           )
-          .select('id'),
+          .select('partner_id'),
       )
+      // The partner the database linked them to, when they're new on this file (for the intro text).
+      const now = saved[0]?.partner_id ?? null
+      return now && now !== before ? now : null
     },
     onSettled: () => {
       invalidate()

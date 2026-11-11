@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, confirmAction, CurrencyInput, DateInput, FormGrid, Input, PercentInput, Select, SummaryBar, ToggleChip, ToggleChipGroup, type SummaryItem } from '@/components/shared'
 import { AriveLink } from '@/components/loanfile/AriveLink'
+import { offerMilestoneUpdate } from '@/components/messaging/fileTextRequests'
 import { StageBadge } from '@/components/pipeline/StageBadge'
 import { lastContact, useNotes } from '@/lib/api/notes'
 import { useLenders } from '@/lib/api/lenders'
@@ -301,6 +302,8 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
       if (homeDirty && savedSubject) await saveHome.mutateAsync({ propertyId: savedSubject.id, firstLienId: savedFirstLien?.id ?? null, figures: homeChanges })
       setHome({})
       toast.success('Loan details saved')
+      // A new closing date on a file in process: offer the borrower and realtor update texts.
+      if ('closingDate' in changes && changes.closingDate && ['under_contract', 'processing', 'clear_to_close'].includes(loan.stage)) void offerMilestoneUpdate(loan.id, 'closing_date_changed')
     } catch (error) {
       toast.error(`Could not save: ${(error as Error).message}`)
     }

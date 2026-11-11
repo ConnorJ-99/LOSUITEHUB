@@ -11,6 +11,7 @@ import { StageBadge } from '@/components/pipeline/StageBadge'
 import { useMatchingContacts } from '@/lib/api/contacts'
 import { db, keys, unwrap } from '@/lib/api/client'
 import { linkGhlContact, useGhlStatus } from '@/lib/api/ghl'
+import { offerBorrowerIntro } from '@/components/messaging/fileTextRequests'
 import { reassignLoan, useCreateLead, useOrgMembers, useUpdateStage } from '@/lib/api/loans'
 import type { ContactSummary } from '@/lib/api/types'
 import { useAuth } from '@/lib/auth/context'
@@ -129,7 +130,11 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
             try {
               const r = await linkGhlContact(organizationId, loanId, borrower)
               if ('skipped' in r) toast.message(`${name} wasn't added to GoHighLevel: ${r.skipped}`)
-              else toast.success(r.created ? `${name} added to GoHighLevel` : `${name} linked to their GoHighLevel contact`)
+              else {
+                toast.success(r.created ? `${name} added to GoHighLevel` : `${name} linked to their GoHighLevel contact`)
+                // Offer the intro text (work number, personal cell) while they're fresh.
+                void offerBorrowerIntro(loanId, borrower)
+              }
             } catch (e) {
               toast.error(`${name} wasn't added to GoHighLevel: ${(e as Error).message} Retry from the file's Messages tab.`)
             }

@@ -207,15 +207,19 @@ export function useAddToTeam(loanId: string, organizationId: string) {
   return useMutation({
     mutationFn: async ({ role, person, partnerId }: { role: TeamRoleFromContract; person: Person; partnerId?: string | null }) => {
       if (!person.name?.trim()) throw new Error('This person has no name.')
-      unwrap(
+      const before = unwrap<{ partner_id: string | null } | null>(await db().from('loan_team_members').select('partner_id').eq('loan_id', loanId).eq('role', role).maybeSingle())?.partner_id ?? null
+      const saved = unwrap<{ partner_id: string | null }[]>(
         await db()
           .from('loan_team_members')
           .upsert(
             { loan_id: loanId, organization_id: organizationId, role, profile_id: null, name: person.name.trim(), company: person.company?.trim() || null, email: person.email?.trim() || null, phone: person.phone?.trim() || null, partner_id: partnerId ?? null },
             { onConflict: 'loan_id,role' },
           )
-          .select('id'),
+          .select('partner_id'),
       )
+      // The partner the database linked them to, when they're new on this file (for the intro text).
+      const now = saved[0]?.partner_id ?? null
+      return now && now !== before ? now : null
     },
     onSettled: () => {
       for (const key of [keys.loanFile(loanId), keys.partners]) queryClient.invalidateQueries({ queryKey: key })

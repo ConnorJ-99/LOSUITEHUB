@@ -32,6 +32,7 @@ import { DocumentsTab } from '@/components/documents/DocumentsTab'
 import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
 import { FileHeader, FileNav, MetricStrip, MilestoneStepper, TeamRow, type FileNavItem, type TeamMember } from '@/components/loanfile'
 import { AriveLink } from '@/components/loanfile/AriveLink'
+import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
 import { UrlaChecklistPanel } from '@/components/loanfile/UrlaChecklistPanel'
 import { WorkflowPanel } from '@/components/loanfile/WorkflowPanel'
@@ -371,7 +372,15 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           onSave={(member) =>
             saveTeam.mutate(
               { role: teamEdit.role, member },
-              { onSuccess: () => { toast.success(`${teamEdit.label} saved`); setTeamEdit(null) }, onError: (e) => toast.error(e.message) },
+              {
+                onSuccess: (partnerId) => {
+                  toast.success(`${teamEdit.label} saved`)
+                  setTeamEdit(null)
+                  // A partner new on this file: add them to GoHighLevel (if they aren't there) and offer the intro text.
+                  if (partnerId) void afterPartnerJoined(loan.organizationId, loan.id, partnerId)
+                },
+                onError: (e) => toast.error(e.message),
+              },
             )
           }
         />
