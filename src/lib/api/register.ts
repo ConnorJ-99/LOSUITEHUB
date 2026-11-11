@@ -22,6 +22,7 @@ interface Row {
   comp_base_bps: unknown
   comp_split_pct: unknown
   comp_member_type: CompSnapshot['memberType'] | null
+  review_status: RegisterLoan['reviewStatus']
   lender_name: string | null
   program_name: string | null
   assigned_lo_id: string | null
@@ -32,7 +33,7 @@ interface Row {
 }
 
 const SELECT = `id, closing_date, funding_date, stage_changed_at, purpose, occupancy, loan_amount, note_rate, term_months, arive_loan_number,
-  lead_source_type, revenue_type, revenue_value, comp_plan_id, comp_base_mode, comp_base_bps, comp_split_pct, comp_member_type,
+  lead_source_type, revenue_type, revenue_value, comp_plan_id, comp_base_mode, comp_base_bps, comp_split_pct, comp_member_type, review_status,
   lender_name, program_name, assigned_lo_id,
   program:programs!loans_program_id_fkey ( id, name, lender:lenders ( id, name ) ),
   lo:profiles!loans_assigned_lo_id_fkey ( full_name, email ),
@@ -78,6 +79,7 @@ export function useRegisterLoans(lenders: { id: string; name: string }[] | undef
           revenueType: r.revenue_type,
           revenueValue: num(r.revenue_value),
           compPlanId: r.comp_plan_id,
+          reviewStatus: r.review_status ?? null,
           snapshot: r.comp_base_mode && split != null ? { baseMode: r.comp_base_mode, baseBps: num(r.comp_base_bps), splitPct: split, memberType: r.comp_member_type ?? 'commission' } : null,
         }
       }),

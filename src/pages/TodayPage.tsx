@@ -15,6 +15,7 @@ import { useAuth } from '@/lib/auth/context'
 import { formatIsoDate, todayIso } from '@/lib/dates'
 import { formatCompactCurrency } from '@/lib/format'
 import { CLOSING_STYLE, closingsGlance, monthLabel, type ClosingStatus } from '@/lib/pipeline/closings'
+import { useReviewCounts } from '@/lib/api/reviews'
 import { fullName } from '@/lib/pipeline/helpers'
 import { pipelineTiles } from '@/lib/pipeline/leadsHome'
 import { cardAmount, pipelineInfo, stageLabelFor } from '@/lib/pipeline/pipelines'
@@ -236,6 +237,7 @@ export function TodayPage() {
           <SectionTitle eyebrow="Closings" title="Closing" highlight="calendar" />
           <Card className="border-t-2 border-t-primary" action={<Button variant="ghost" size="sm" asChild><Link to="/pipeline/closings"><CalendarDaysIcon />Open</Link></Button>} title="Closings">
             <ClosingsGlance />
+            <ReviewCountsLine />
           </Card>
         </div>
         <div className="min-w-0 space-y-5 lg:col-start-1 lg:row-span-2 lg:row-start-1">
@@ -279,5 +281,16 @@ export function TodayPage() {
         </div>
       </div>
     </>
+  )
+}
+
+/** "Reviews: X requested / Y received this month" (files you can see). Not part of the Priority list. */
+function ReviewCountsLine() {
+  const counts = useReviewCounts()
+  if (!counts.data) return null
+  return (
+    <p className="mt-3 border-t pt-2 text-xs text-muted-foreground">
+      Reviews this month: <span className="font-semibold text-foreground tabular-nums">{counts.data.requested}</span> requested / <span className="font-semibold text-foreground tabular-nums">{counts.data.received}</span> received
+    </p>
   )
 }

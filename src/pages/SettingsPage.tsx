@@ -18,6 +18,7 @@ import { useAddMember, useOrganization, useProfile, useRemoveMember, useSetMembe
 import type { OrgMember } from '@/lib/api/types'
 import { ariveTemplateProblem } from '@/lib/arive'
 import { CompensationCard } from '@/components/settings/CompensationCard'
+import { ReviewsCard } from '@/components/settings/ReviewsCard'
 import { roleLabels, useAuth, type CurrentUser, type OrgRole } from '@/lib/auth/context'
 
 function SaveBar({ dirty, saving, onSave, onDiscard }: { dirty: boolean; saving: boolean; onSave: () => void; onDiscard: () => void }) {
@@ -299,6 +300,7 @@ export function SettingsPage() {
         <DocumentRulesCard canEdit={canEditCompany} />
         <FeeListCard canEdit={canEditCompany} />
         {canEditCompany && <CompensationCard />}
+        <ReviewsCard canEdit={canEditCompany} />
         <RefiScenariosCard canEdit={canEditCompany} />
         {me && <TeamCard members={members.data ?? []} me={me} />}
         {canEditCompany && <GhlCard members={members.data ?? []} />}

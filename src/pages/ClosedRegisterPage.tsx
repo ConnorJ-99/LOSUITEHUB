@@ -9,6 +9,7 @@ import { useCompPlans } from '@/lib/api/compPlans'
 import { useLenders } from '@/lib/api/lenders'
 import { useRegisterLoans } from '@/lib/api/register'
 import { useAuth } from '@/lib/auth/context'
+import { REVIEW_STATUS_LABEL } from '@/lib/closed/reviews'
 import { filterRegister, REGISTER_COLUMNS, registerCells, registerRow, registerTotals, thisMonth, type RegisterFilters } from '@/lib/closed/register'
 import { formatIsoDate, todayIso } from '@/lib/dates'
 import { downloadText } from '@/lib/download'
@@ -44,7 +45,7 @@ export function ClosedRegisterPage() {
   const exportCsv = () =>
     downloadText(
       `closed-register-${f.from ?? 'all'}-to-${f.to ?? 'all'}.csv`,
-      toCsv([[...REGISTER_COLUMNS], ...rows.map((r) => registerCells(r, { purpose: (p) => purposeLabel(p as never), occupancy })), ['Totals', '', '', `${totals.count} loans`, '', '', '', '', '', '', totals.volume, '', '', '', '', totals.gross, totals.loComp, totals.net, '']]),
+      toCsv([[...REGISTER_COLUMNS], ...rows.map((r) => registerCells(r, { purpose: (p) => purposeLabel(p as never), occupancy })), ['Totals', '', '', `${totals.count} loans`, '', '', '', '', '', '', totals.volume, '', '', '', '', totals.gross, totals.loComp, totals.net, '', '']]),
       'text/csv',
     )
 
@@ -104,12 +105,13 @@ export function ClosedRegisterPage() {
                   <th className="text-right!">Gross</th>
                   <th className="text-right!">LO comp</th>
                   <th className="text-right!">Net</th>
+                  <th>Review</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={13} className="py-10 text-center text-sm text-muted-foreground">
+                    <td colSpan={14} className="py-10 text-center text-sm text-muted-foreground">
                       No closed loans in these dates.
                     </td>
                   </tr>
@@ -148,6 +150,7 @@ export function ClosedRegisterPage() {
                     <td className="text-right tabular-nums">{r.gross == null ? <span className="text-amber-700">Needs revenue</span> : money(r.gross)}</td>
                     <td className="text-right tabular-nums">{money(r.loComp)}</td>
                     <td className="text-right tabular-nums">{money(r.net)}</td>
+                    <td className="text-xs whitespace-nowrap">{r.reviewStatus ? REVIEW_STATUS_LABEL[r.reviewStatus] : '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -163,6 +166,7 @@ export function ClosedRegisterPage() {
                     <td className="text-right tabular-nums">{money(totals.gross)}</td>
                     <td className="text-right tabular-nums">{money(totals.loComp)}</td>
                     <td className="text-right tabular-nums">{money(totals.net)}</td>
+                    <td />
                   </tr>
                 </tfoot>
               )}

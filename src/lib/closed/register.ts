@@ -7,6 +7,7 @@ import { lenderComp, planFor, type CompPlan } from '@/lib/calc/lenderComp'
 import { loanComp, type CompSnapshot } from '@/lib/calc/loanComp'
 import { loanRevenue } from '@/lib/calc/revenue'
 import { productionDate } from './production'
+import { REVIEW_STATUS_LABEL, type ReviewStatus } from './reviews'
 
 export interface RegisterLoan {
   id: string
@@ -32,6 +33,8 @@ export interface RegisterLoan {
   revenueValue: number | null
   compPlanId: string | null
   snapshot: CompSnapshot | null
+  /** Phase 6: the review request status. */
+  reviewStatus: ReviewStatus | null
 }
 
 export interface RegisterRow extends RegisterLoan {
@@ -94,13 +97,13 @@ export function registerTotals(rows: RegisterRow[]): RegisterTotals {
   return { count: rows.length, volume: sum((r) => r.loanAmount), gross: sum((r) => r.gross), loComp: sum((r) => r.loComp), net: sum((r) => r.net), missingRevenue: rows.filter((r) => r.gross == null).length }
 }
 
-export const REGISTER_COLUMNS = ['Production date', 'Closing date', 'Funding date', 'Borrower', 'Property', 'Loan officer', 'Lender', 'Program', 'Purpose', 'Occupancy', 'Loan amount', 'Rate', 'Term (years)', 'Arive loan #', 'Lead source', 'Gross revenue', 'LO comp', 'Net', 'Flags'] as const
+export const REGISTER_COLUMNS = ['Production date', 'Closing date', 'Funding date', 'Borrower', 'Property', 'Loan officer', 'Lender', 'Program', 'Purpose', 'Occupancy', 'Loan amount', 'Rate', 'Term (years)', 'Arive loan #', 'Lead source', 'Gross revenue', 'LO comp', 'Net', 'Review', 'Flags'] as const
 
 /** The rows on screen as CSV cells, in REGISTER_COLUMNS order. */
 export function registerCells(r: RegisterRow, labels: { purpose: (p: string) => string; occupancy: (o: string | null) => string }): (string | number | null)[] {
   return [
     r.productionDate, r.closingDate, r.fundingDate, r.borrower, r.property, r.loName, r.lender, r.program, labels.purpose(r.purpose), labels.occupancy(r.occupancy),
     r.loanAmount, r.rate, r.termMonths ? r.termMonths / 12 : null, r.ariveLoanNumber, r.leadSourceType === 'company' ? 'Company' : r.leadSourceType === 'self' ? 'Self' : null,
-    r.gross, r.loComp, r.net, r.flags.join('; ') || null,
+    r.gross, r.loComp, r.net, r.reviewStatus ? REVIEW_STATUS_LABEL[r.reviewStatus] : null, r.flags.join('; ') || null,
   ]
 }

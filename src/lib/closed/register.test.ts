@@ -6,7 +6,7 @@ const loan = (o: Partial<RegisterLoan> = {}): RegisterLoan => ({
   id: 'a', closingDate: '2026-11-06', fundingDate: '2026-11-06', stageChangedAt: '2026-11-09T15:00:00Z', borrower: 'Pat TEST', property: null, loId: 'me', loName: 'Connor',
   lenderId: 'L', lender: 'Lender', programId: null, program: null, purpose: 'purchase', occupancy: 'primary', loanAmount: 400_000, rate: 6.5, termMonths: 360,
   ariveLoanNumber: null, leadSourceType: 'self', revenueType: 'amount', revenueValue: 11_000, compPlanId: null,
-  snapshot: { baseMode: 'revenue', baseBps: null, splitPct: 70.25, memberType: 'commission' }, ...o,
+  snapshot: { baseMode: 'revenue', baseBps: null, splitPct: 70.25, memberType: 'commission' }, reviewStatus: 'requested', ...o,
 })
 const plans: CompPlan[] = [{ id: 'p', lenderId: 'L', compType: 'lender_paid', compPct: 2.75, minAmount: null, maxAmount: null, fees: [], effectiveFrom: '2026-01-01', effectiveTo: null, programIds: null }]
 

@@ -10,6 +10,7 @@ import { useGhlOpportunity } from '@/components/messaging/useGhlOpportunity'
 import { AriveLink } from '@/components/loanfile/AriveLink'
 import { ClosedDates } from './ClosedDates'
 import { LoanCompPanel } from './LoanCompPanel'
+import { ReviewPanel } from './ReviewPanel'
 import { useAuth } from '@/lib/auth/context'
 import { CopyToLeadDialog } from './CopyToLeadDialog'
 import { MortgageCard } from './MortgageCard'
@@ -136,6 +137,7 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
         {c.program && c.program !== c.programName && <p className="text-xs text-muted-foreground">Program from Product Search: {c.lender} · {c.program}</p>}
 
         <ClosedDates loanId={loan.id} closingDate={c.closingDate} fundingDate={c.fundingDate} />
+        {loan.stage === 'closed' && <ReviewPanel loanId={loan.id} />}
         {isManager && <LoanCompPanel loanId={loan.id} loanAmount={c.loanAmount} revenueType={loan.details.revenueType} revenueValue={loan.details.revenueValue} />}
 
         <FormGrid>
