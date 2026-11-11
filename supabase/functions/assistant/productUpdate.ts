@@ -10,6 +10,8 @@
 // assistant never approves anything: Connor ticks the changes, and approving
 // the drafts they make is the usual matrix approval.
 
+// The response form stays under the API limit of 16 "value or null" fields (schemas.test.ts): lists are
+// plain arrays where empty means none.
 // Import-free (the paste builder needs that): the lists below are matrix.ts's, and a test keeps them the same.
 export const DOC_TYPES = ['full_doc', 'bank_statement_12', 'bank_statement_24', 'form_1099', 'pnl_only', 'asset_depletion', 'dscr', 'wvoe', 'no_ratio', 'retirement_distribution'] as const
 export const PURPOSES = ['purchase', 'rate_term', 'cash_out'] as const
@@ -105,14 +107,14 @@ export const UPDATE_SCHEMA = {
           rule_field: nullable({ type: 'string', enum: [...RULE_FIELDS] }),
           rule_op: nullable({ type: 'string', enum: [...RULE_OPS] }),
           rule_number: nullable({ type: 'number' }, 'For <= and >=: the number (55 for 55%, 640 for a 640 score, 6 for 6 months).'),
-          rule_list: nullable({ type: 'array', items: { type: 'string' } }, 'For in / not_in: the FULL new list (two-letter state codes for states), the current list with the change applied.'),
+          rule_list: { type: 'array', items: { type: 'string' }, description: 'For in / not_in: the FULL new list (two-letter state codes for states), the current list with the change applied. Empty otherwise.' },
           rule_min: nullable({ type: 'number' }),
           rule_max: nullable({ type: 'number' }),
-          applies_purposes: nullable(enumList(PURPOSES), 'Only when the email limits the rule to these purposes.'),
-          applies_occupancies: nullable(enumList(OCCUPANCIES), 'Only when the email limits the rule to these occupancies.'),
+          applies_purposes: { ...enumList(PURPOSES), description: 'Only when the email limits the rule to these purposes; empty otherwise.' },
+          applies_occupancies: { ...enumList(OCCUPANCIES), description: 'Only when the email limits the rule to these occupancies; empty otherwise.' },
           limit_occupancy: nullable({ type: 'string', enum: [...OCCUPANCIES] }),
-          limit_purposes: nullable(enumList(PURPOSES)),
-          limit_property_types: nullable(enumList(PROPERTY_TYPES)),
+          limit_purposes: { ...enumList(PURPOSES), description: 'Empty = every purpose.' },
+          limit_property_types: { ...enumList(PROPERTY_TYPES), description: 'Empty = every property type.' },
           limit_doc_type: nullable({ type: 'string', enum: [...DOC_TYPES] }),
           limit_fico_min: nullable({ type: 'integer' }, 'The credit row by its lowest score; null = every row.'),
           limit_loan_amount_max: nullable({ type: 'number' }, 'The loan tier by its upper amount; null = every tier.'),

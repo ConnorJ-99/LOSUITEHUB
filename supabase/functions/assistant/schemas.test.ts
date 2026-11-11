@@ -4,6 +4,7 @@ import { CONTRACT_SCHEMA } from './contract'
 import { DRAFT_SCHEMA } from './followUp'
 import { ANSWER_SCHEMA } from './guidelineAnswer'
 import { MATRIX_SCHEMA } from './matrix'
+import { UPDATE_SCHEMA } from './productUpdate'
 import { SCENARIO_SCHEMA, normalizeScenarioRead } from './scenarioRead'
 
 /** Places in a schema that are "one of several types" (anyOf, or a list of types). */
@@ -23,6 +24,7 @@ describe('structured output limits', () => {
     ['follow-up draft', DRAFT_SCHEMA],
     ['guideline answer', ANSWER_SCHEMA],
     ['matrix', MATRIX_SCHEMA],
+    ['product update', UPDATE_SCHEMA],
     ['scenario', SCENARIO_SCHEMA],
   ])('the %s form has at most 16 "value or null" fields', (_name, schema) => {
     expect(unions(schema)).toBeLessThanOrEqual(16)
