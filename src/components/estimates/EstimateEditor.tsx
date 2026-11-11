@@ -223,7 +223,7 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
   const mortgagee = chosenLender?.mortgageeClause ?? null
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <SendSavedPdf loan={loan} docId={pdf.sendingId} onClose={pdf.closeSend} />
 
       {changed.length > 0 && (
@@ -241,7 +241,7 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
         </div>
       )}
 
-      <div className="sticky top-0 z-10 grid grid-cols-2 overflow-hidden rounded-xl border bg-card shadow-soft sm:grid-cols-4 lg:grid-cols-7">
+      <div className="sticky top-14 z-10 grid grid-cols-2 md:top-11 overflow-hidden rounded-xl border bg-card shadow-soft sm:grid-cols-4 lg:grid-cols-7">
         <Tile label="Total loan" value={formatCurrency(f.totalLoanAmount)} hint={f.financedFee ? `incl. ${formatCurrency(f.financedFee)} financed` : purposeLabel(loan.purpose)} />
         <Tile label="Rate" value={formatPercent(f.ratePct)} hint={`${draft.termMonths ? draft.termMonths / 12 : '—'} yr · ${draft.pointsPct ? `${formatPercent(draft.pointsPct)} pts` : '0 pts'}`} />
         <Tile label="Monthly payment" value={formatCurrency(f.pitia)} hint={f.mi ? 'PITI + MI' : 'PITI'} money />
@@ -251,13 +251,13 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
         <Tile label="DTI" value={f.dtiFront != null ? `${formatPercent(f.dtiFront, 1)} / ${formatPercent(f.dtiBack, 1)}` : '—'} hint={f.dtiFront != null ? 'front / back' : 'no income on the 1003'} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[13rem_minmax(0,7fr)_minmax(0,4fr)]">
+      <div className="grid gap-3 lg:grid-cols-[12rem_minmax(0,1fr)] xl:grid-cols-[12rem_minmax(0,7fr)_minmax(0,4fr)] [&_[data-slot=card]]:[--card-spacing:--spacing(3)] [&_[data-slot=card-title]]:text-base">
         <aside className="space-y-3 lg:row-span-2">
           <Card contentClassName="p-2">
             <ol className="space-y-1">
               {steps.map((s, i) => (
                 <li key={s.title}>
-                  <button type="button" onClick={() => go(i + 1)} className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-muted">
+                  <button type="button" onClick={() => go(i + 1)} className="flex w-full items-start gap-2 rounded-lg px-1.5 py-1.5 text-left hover:bg-muted">
                     <span className={cn('mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold', s.done ? 'bg-nurture text-white' : 'border bg-card text-muted-foreground')}>{s.done ? <CheckIcon className="size-3.5" /> : i + 1}</span>
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold">{s.title}</span>
@@ -547,10 +547,10 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
 
 function Tile({ label, value, hint, money, warn }: { label: string; value: string; hint?: string; money?: boolean; warn?: boolean }) {
   return (
-    <div className="border-r border-b px-4 py-2.5 last:border-r-0 lg:border-b-0">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn('text-lg font-semibold tabular-nums', money && 'text-money', warn && 'text-destructive')}>{value}</p>
-      {hint && <p className={cn('truncate text-xs', money && !warn ? 'text-money' : 'text-muted-foreground')}>{hint}</p>}
+    <div className="border-r border-b px-3 py-1 last:border-r-0 lg:border-b-0">
+      <p className="truncate text-[0.65rem] font-semibold tracking-wide text-muted-foreground uppercase">{label}</p>
+      <p className={cn('text-[0.95rem] leading-tight font-semibold tabular-nums', money && 'text-money', warn && 'text-destructive')}>{value}</p>
+      {hint && <p className={cn('truncate text-[0.65rem]', money && !warn ? 'text-money' : 'text-muted-foreground')}>{hint}</p>}
     </div>
   )
 }

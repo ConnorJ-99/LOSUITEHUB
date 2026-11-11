@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { cn } from 'cn'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   BadgeDollarSignIcon,
@@ -23,6 +24,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Card, EmptyState, confirmAction } from '@/components/shared'
 import { ClosedLoanCard } from '@/components/closed/ClosedLoanCard'
 import { LoansTab } from '@/components/closed/LoansTab'
@@ -30,7 +32,8 @@ import { ConditionsTab } from '@/components/conditions/ConditionsTab'
 import { ContractTab } from '@/components/contract/ContractTab'
 import { DocumentsTab } from '@/components/documents/DocumentsTab'
 import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
-import { FileHeader, FileNav, MetricStrip, MilestoneStepper, TeamRow, type FileNavItem, type TeamMember } from '@/components/loanfile'
+import { ChevronProgress, CompactHeader, FileNav, OverflowMenu, TeamChip, type FileNavItem, type KeyFigure, type TeamMember } from '@/components/loanfile'
+import { useSelectedCashToClose } from '@/lib/api/headerFigures'
 import { AriveLink } from '@/components/loanfile/AriveLink'
 import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
@@ -60,7 +63,7 @@ import { useOrganization, useProfile } from '@/lib/api/settings'
 import type { LoanProfile } from '@/lib/api/types'
 import { useApplication } from '@/lib/api/urla'
 import { formatIsoDate, relativeTime, todayIso } from '@/lib/dates'
-import { headerMetrics, qualifyingScore } from '@/lib/loanfile/metrics'
+import { LOAN_TYPE_SHORT, keyFigures, qualifyingScore } from '@/lib/loanfile/metrics'
 import { validateApplication } from '@/lib/loanfile/urla'
 import { buildWorkflow, daysWaiting, milestoneView, OWNER_LABEL } from '@/lib/loanfile/workflow'
 import { fullName } from '@/lib/pipeline/helpers'
@@ -134,7 +137,25 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   // Processors work files but don't delete them; the database checks the rest.
   const canDelete = state.status === 'signedIn' && state.user.role !== null && state.user.role !== 'processor'
   const [editing, setEditing] = useState(false)
-  const [detailsOpen, setDetailsOpen] = useState(true)
+  // "Hide details" is remembered per person on this computer.
+  const detailsKey = `mps-file-header-details:${state.status === 'signedIn' ? state.user.id : 'anon'}`
+  const [detailsOpen, setDetailsOpen] = useState(() => {
+    try {
+      return localStorage.getItem(detailsKey) !== 'hidden'
+    } catch {
+      return true
+    }
+  })
+  const toggleDetails = () =>
+    setDetailsOpen((open) => {
+      try {
+        localStorage.setItem(detailsKey, open ? 'hidden' : 'shown')
+      } catch {
+        // Private window: it just isn't remembered.
+      }
+      return !open
+    })
+  const selectedCash = useSelectedCashToClose(loan.details.pricingScenarioId)
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [completing, setCompleting] = useState(false)
   const [teamEdit, setTeamEdit] = useState<{ role: TeamRole; label: string; withCompany: boolean } | null>(null)
@@ -218,26 +239,70 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     ? CLOSED_SECTIONS.map((id) => allNav.find((n) => n.id === id)!).map((n) => (n.id === 'properties' ? { ...n, label: 'Property' } : n.id === 'messages' ? n : { ...n, marker: undefined }))
     : allNav
 
+  // The compact header: status chip, key figures (each opens its tab), Change status and Delete.
+  const statusText = loan.stage === 'closed' ? 'Loan closed' : loan.stage === 'lost' ? 'Loan lost' : `Loan open · ${stageLabel(loan.stage)}`
+  const figures: KeyFigure[] = keyFigures(loan, summary, creditScore, selectedCash.data ?? null).map((f) => ({
+    label: f.label,
+    value: f.value,
+    note: f.note,
+    tone: f.tone,
+    title: f.title,
+    onClick: f.tab && nav.some((n) => n.id === f.tab) ? () => goTo(f.tab!) : undefined,
+  }))
+  const statusButton = (size: 'xs' | 'sm') => (
+    <StageMenu stage={loan.stage} onSelect={(stage) => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, stage)}>
+      <Button size={size}>
+        Change status
+        <ChevronDownIcon />
+      </Button>
+    </StageMenu>
+  )
+  const deleteFile = async () => {
+    const ok = await confirmAction(
+      `Delete ${name}'s ${purposeLabel(loan.purpose)} file, with its tasks, documents and 1003? People on it who have no other file are deleted too, with their notes. This can't be undone.`,
+      { confirmLabel: 'Delete file', destructive: true },
+    )
+    if (!ok) return
+    deleteLead.mutate(
+      { loanId: loan.id, organizationId: loan.organizationId },
+      {
+        onSuccess: () => {
+          toast.success(`${name}'s file deleted`)
+          navigate(home ? `/pipeline/${home}` : '/pipeline')
+        },
+        onError: (e) => toast.error(e.message),
+      },
+    )
+  }
+
   // Remount the Overview form after its saved values change, so it shows what was saved.
   const { subjectPropertyId, ...savedDetails } = loan.details
   void subjectPropertyId
 
   return (
     <>
-      <FileHeader
+      <CompactHeader
         borrowerName={name}
         backTo={closedFile ? '/contacts?tab=closed' : home ? `/pipeline/${home}` : '/pipeline'}
         backLabel={closedFile ? 'Closed loans' : home ? pipelineInfo(home).label : 'Pipeline'}
-        fileNumberSlot={<AriveLink number={loan.details.ariveLoanNumber} onAdd={() => setEditing(true)} />}
-        statusLabel={`${purposeLabel(loan.purpose)} · ${stageLabel(loan.stage)}`}
-        nextStep={next && !closedFile ? `${next.name} · ${OWNER_LABEL[next.owner]} · ${days}d` : null}
-        updatedLabel={`In ${stageLabel(loan.stage)} since ${formatIsoDate(stageSince)} (${relativeTime(loan.stageChangedAt)})`}
+        chips={
+          <>
+            <span className="rounded-md bg-muted px-1.5 py-0.5 text-[0.7rem] font-medium">{[purposeLabel(loan.purpose), loan.details.mortgageType ? LOAN_TYPE_SHORT[loan.details.mortgageType] : null].filter(Boolean).join(' · ')}</span>
+            <span
+              className={cn('rounded-md px-1.5 py-0.5 text-[0.7rem] font-medium', loan.stage === 'lost' ? 'bg-destructive/10 text-destructive' : closedFile ? 'bg-emerald-50 text-emerald-700' : 'bg-primary/10 text-primary')}
+              title={`In ${stageLabel(loan.stage)} since ${formatIsoDate(stageSince)} (${relativeTime(loan.stageChangedAt)})`}
+            >
+              {statusText}
+            </span>
+            <AriveLink number={loan.details.ariveLoanNumber} onAdd={() => setEditing(true)} />
+          </>
+        }
         detailsOpen={detailsOpen}
-        onToggleDetails={() => setDetailsOpen((o) => !o)}
+        onToggleDetails={toggleDetails}
         actions={
           <>
             <Button
-              size="sm"
+              size="xs"
               variant="outline"
               aria-pressed={loan.priority}
               disabled={setPriority.isPending}
@@ -247,64 +312,49 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
               <StarIcon className={loan.priority ? 'fill-amber-400 text-amber-500' : undefined} />
               {loan.priority ? 'Priority' : 'Star'}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+            <Button size="xs" variant="outline" onClick={() => setEditing(true)}>
               <PencilIcon />
               Edit
             </Button>
+            {statusButton('xs')}
             {canDelete && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-destructive hover:text-destructive"
-                disabled={deleteLead.isPending}
-                title="Delete this file"
-                onClick={async () => {
-                  const ok = await confirmAction(
-                    `Delete ${name}'s ${purposeLabel(loan.purpose)} file, with its tasks, documents and 1003? People on it who have no other file are deleted too, with their notes. This can't be undone.`,
-                    { confirmLabel: 'Delete file', destructive: true },
-                  )
-                  if (!ok) return
-                  deleteLead.mutate(
-                    { loanId: loan.id, organizationId: loan.organizationId },
-                    {
-                      onSuccess: () => {
-                        toast.success(`${name}'s file deleted`)
-                        navigate(home ? `/pipeline/${home}` : '/pipeline')
-                      },
-                      onError: (e) => toast.error(e.message),
-                    },
-                  )
-                }}
-              >
-                <Trash2Icon />
-                Delete
-              </Button>
+              <OverflowMenu>
+                <DropdownMenuItem variant="destructive" disabled={deleteLead.isPending} onSelect={() => void deleteFile()}>
+                  <Trash2Icon />
+                  Delete file…
+                </DropdownMenuItem>
+              </OverflowMenu>
             )}
-            <StageMenu stage={loan.stage} onSelect={(stage) => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, stage)}>
-              <Button size="sm">
-                Change status
-                <ChevronDownIcon />
-              </Button>
-            </StageMenu>
           </>
         }
+        figures={figures}
+        progress={
+          file.data && !closedFile && loan.stage !== 'lost' ? (
+            <div className="flex min-w-0 items-center gap-3">
+              <StageMenu stage={loan.stage} onSelect={(stage) => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, stage)}>
+                <ChevronProgress
+                  milestones={milestoneView(file.data.milestones).map((m) => ({ label: m.label, state: m.state, date: m.date ? formatIsoDate(m.date) : null }))}
+                  current={stageLabel(loan.stage)}
+                />
+              </StageMenu>
+              {next && (
+                <span className="hidden min-w-0 truncate rounded-md border border-primary/20 px-1.5 py-0.5 text-[0.7rem] text-primary sm:inline" title="Next step">
+                  Next: {next.name} · {OWNER_LABEL[next.owner]} · {days}d
+                </span>
+              )}
+            </div>
+          ) : null
+        }
+        team={<TeamChip members={team} onAssign={assign} onCustom={custom} />}
         notice={
           loan.stage === 'lost' && loan.lostReason ? (
-            <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm">
+            <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1 text-xs">
               <span className="font-medium">Lost:</span> {loan.lostReason}
             </div>
           ) : null
         }
-      >
-        {summary && <MetricStrip metrics={headerMetrics(loan, summary, creditScore)} />}
-        {file.data && !closedFile && (
-          <MilestoneStepper
-            milestones={milestoneView(file.data.milestones).map((m) => ({ label: m.label, state: m.state, date: m.date ? formatIsoDate(m.date) : null }))}
-            band={loan.stage === 'closed' ? 'Loan closed' : loan.stage === 'lost' ? 'Loan lost' : `Loan open · ${stageLabel(loan.stage)}`}
-          />
-        )}
-        <TeamRow members={team} onAssign={assign} onCustom={custom} />
-      </FileHeader>
+        slim={{ status: statusText, figures: figures.filter((f) => ['Loan amount', 'Rate', 'Cash to close'].includes(f.label)), action: statusButton('xs') }}
+      />
 
       <div className="mt-4 flex flex-col gap-4 md:flex-row md:gap-6">
         <FileNav items={nav} active={section} onSelect={goTo} collapsed={navCollapsed} onToggleCollapsed={() => setNavCollapsed((c) => !c)} />

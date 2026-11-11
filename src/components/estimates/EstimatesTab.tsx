@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { ArchiveIcon, ArrowLeftRightIcon, CheckIcon, ChevronDownIcon, CopyIcon, ListIcon, PencilIcon, PlusIcon, Share2Icon, SlidersHorizontalIcon, SparklesIcon } from 'lucide-react'
+import { ArchiveIcon, ArrowLeftRightIcon, CheckIcon, ChevronDownIcon, CopyIcon, ListIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, Share2Icon, SlidersHorizontalIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -127,46 +127,39 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
   )
 
   const header = (
-    <div className="flex flex-wrap items-center gap-2">
-      <h2 className="mr-auto text-xl font-bold tracking-tight">Scenarios & Estimate</h2>
+    <div className="ml-auto flex flex-wrap items-center gap-1.5">
       {view === 'estimate' && open && !readOnly && <SaveIndicator state={saveState} />}
       {!readOnly && (
-        <Button size="sm" className="bg-money text-white hover:bg-money/90" onClick={() => show('build')}>
+        <Button size="xs" className="bg-money text-white hover:bg-money/90" onClick={() => show('build')}>
           <SparklesIcon />
           Build estimates
         </Button>
       )}
-      <Button size="sm" variant="outline" onClick={() => show('compare')} disabled={active.length < 1}>
+      <Button size="xs" variant="outline" onClick={() => show('compare')} disabled={active.length < 1} title="Compare estimates">
         <ArrowLeftRightIcon />
-        Compare
+        <span className="hidden 2xl:inline">Compare</span>
       </Button>
       {!readOnly && (
-        <Button size="sm" variant="outline" onClick={() => setChangingAll(true)} disabled={active.length < 1}>
+        <Button size="xs" variant="outline" onClick={() => setChangingAll(true)} disabled={active.length < 1} title="Change one field on several estimates">
           <SlidersHorizontalIcon />
-          Change for all
+          <span className="hidden 2xl:inline">Change for all</span>
         </Button>
       )}
       {!readOnly && (
-        <Button size="sm" variant="outline" onClick={() => setSharing(true)} disabled={active.length < 1}>
+        <Button size="xs" variant="outline" onClick={() => setSharing(true)} disabled={active.length < 1}>
           <Share2Icon />
           {checkedList.length ? `Share selected (${checkedList.length})` : 'Share…'}
         </Button>
       )}
       {view === 'estimate' && open && !readOnly && (
         <>
-          <Button size="sm" variant="outline" onClick={() => duplicate(open)}>
-            Duplicate
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => archive(open)} disabled={open.id === selectedId}>
-            Archive
-          </Button>
           {open.id === selectedId ? (
-            <span className="inline-flex h-7 items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 text-[0.8rem] font-medium text-emerald-700">
+            <span className="inline-flex h-6 items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 text-xs font-medium text-emerald-700">
               <CheckIcon className="size-3.5" />
               Selected for file
             </span>
           ) : (
-            <Button size="sm" className="bg-nurture text-white hover:bg-nurture/90" onClick={() => setSelecting(open)}>
+            <Button size="xs" className="bg-nurture text-white hover:bg-nurture/90" onClick={() => setSelecting(open)}>
               Select for this file
             </Button>
           )}
@@ -175,58 +168,74 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
     </div>
   )
 
+  // One estimate selector: the open estimate, a list of all of them, and New.
+  const shownEstimate = view === 'estimate' ? open : null
   const chips = (
-    <div className="flex flex-wrap items-stretch gap-2">
-      {active.map((e) => {
-        const f = data.figuresOf(e)
-        const status = estimateStatus(e, selectedId)
-        const isOpen = view === 'estimate' && open?.id === e.id
-        return (
-          <DropdownMenu key={e.id}>
-            <div className={cn('flex items-stretch overflow-hidden rounded-xl border-2 bg-card text-left shadow-soft', isOpen ? 'border-primary' : 'border-transparent ring-1 ring-border')}>
-              <button type="button" onClick={() => openEstimate(e.id)} className="px-3 py-1.5 text-left hover:bg-muted/50">
-                <span className="flex items-center gap-2">
-                  <span className="text-sm font-semibold">{e.name}</span>
-                  <StatusBadge status={status} />
+    <div className="flex min-w-0 items-center gap-1">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button type="button" className="flex min-w-0 items-center gap-1.5 rounded-lg border bg-card px-2 py-1 text-left shadow-soft hover:bg-muted/50" aria-label="Pick an estimate">
+            {shownEstimate ? (
+              <>
+                <span className="truncate text-xs font-semibold">{shownEstimate.name}</span>
+                <StatusBadge status={estimateStatus(shownEstimate, selectedId)} />
+                <span className="hidden text-[0.7rem] text-muted-foreground tabular-nums 2xl:inline">
+                  {formatPercent(data.figuresOf(shownEstimate).ratePct)} · {formatCurrency(data.figuresOf(shownEstimate).pitia)}
                 </span>
-                <span className="block text-xs text-muted-foreground tabular-nums">
-                  {formatPercent(f.ratePct)} · {formatCurrency(f.pitia)}/mo · {formatCurrency(Math.abs(f.cashToClose))} to close
+              </>
+            ) : (
+              <span className="text-xs font-semibold">{view === 'list' ? 'Saved estimates' : 'Pick an estimate'}</span>
+            )}
+            <span className="text-[0.7rem] text-muted-foreground tabular-nums">({active.length})</span>
+            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-96">
+          {active.map((e) => {
+            const f = data.figuresOf(e)
+            return (
+              <DropdownMenuItem key={e.id} onSelect={() => openEstimate(e.id)} className={cn(shownEstimate?.id === e.id && 'bg-muted')}>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5">
+                    <span className="truncate font-medium">{e.name}</span>
+                    <StatusBadge status={estimateStatus(e, selectedId)} />
+                  </span>
+                  <span className="block text-xs text-muted-foreground tabular-nums">
+                    {formatPercent(f.ratePct)} · {formatCurrency(f.pitia)}/mo · {formatCurrency(Math.abs(f.cashToClose))} to close
+                  </span>
                 </span>
-              </button>
-              <DropdownMenuTrigger asChild>
-                <button type="button" aria-label={`${e.name} menu`} className="border-l px-1.5 text-muted-foreground hover:bg-muted">
-                  <ChevronDownIcon className="size-4" />
-                </button>
-              </DropdownMenuTrigger>
-            </div>
-            {menu(e)}
-          </DropdownMenu>
-        )
-      })}
-      {!readOnly && (
+              </DropdownMenuItem>
+            )
+          })}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => show(view === 'list' ? null : 'list')}>
+            <ListIcon />
+            {view === 'list' ? 'Back to the estimate' : `Saved estimates (${all.length})${all.some((e) => e.archivedAt) ? ' · Show archived' : ''}`}
+          </DropdownMenuItem>
+          {!readOnly && (
+            <>
+              <DropdownMenuItem onSelect={() => show('build')}>
+                <SparklesIcon />
+                Build estimates (several programs)
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={newBlank}>
+                <PlusIcon />
+                One estimate from the loan
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {shownEstimate && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button type="button" className="rounded-xl border-2 border-dashed px-4 text-sm font-medium text-muted-foreground hover:bg-muted">
-              <PlusIcon className="mr-1 inline size-4" />
-              New
-            </button>
+            <Button size="icon-sm" variant="ghost" aria-label={`${shownEstimate.name} menu`} title="Open, duplicate, rename, archive, select">
+              <MoreHorizontalIcon />
+            </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuItem onSelect={() => show('build')}>
-              <SparklesIcon />
-              Build estimates (several programs)
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={newBlank}>
-              <PlusIcon />
-              One estimate from the loan
-            </DropdownMenuItem>
-          </DropdownMenuContent>
+          {menu(shownEstimate)}
         </DropdownMenu>
       )}
-      <button type="button" onClick={() => show(view === 'list' ? null : 'list')} className="ml-auto self-center text-sm text-muted-foreground hover:text-foreground">
-        <ListIcon className="mr-1 inline size-4" />
-        {view === 'list' ? 'Back to the estimate' : `Saved estimates (${all.length})${all.some((e) => e.archivedAt) ? ' · Show archived' : ''}`}
-      </button>
     </div>
   )
 
@@ -287,9 +296,12 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
     )
 
   return (
-    <div className="space-y-4">
-      {header}
-      {view !== 'build' && view !== 'compare' && chips}
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <h2 className="text-base font-bold tracking-tight">Scenarios & Estimate</h2>
+        {view !== 'build' && view !== 'compare' && chips}
+        {header}
+      </div>
       {body}
       {view !== 'build' && <SharedEstimatesCard loanId={loan.id} readOnly={readOnly} />}
       <SendSavedPdf loan={loan} docId={pdf.sendingId} onClose={pdf.closeSend} />
