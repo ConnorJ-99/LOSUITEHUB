@@ -6,6 +6,7 @@ import {
   ChevronDownIcon,
   FileSignatureIcon,
   FileTextIcon,
+  FileUpIcon,
   FolderIcon,
   HomeIcon,
   LayersIcon,
@@ -31,6 +32,7 @@ import { LoansTab } from '@/components/closed/LoansTab'
 import { ConditionsTab } from '@/components/conditions/ConditionsTab'
 import { ContractTab } from '@/components/contract/ContractTab'
 import { DocumentsTab } from '@/components/documents/DocumentsTab'
+import { RequestDocumentsHost, openRequestDocuments } from '@/components/documents/RequestDocumentsHost'
 import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
 import { ChevronProgress, CompactHeader, FileNav, OverflowMenu, TeamChip, type FileNavItem, type KeyFigure, type TeamMember } from '@/components/loanfile'
 import { useSelectedCashToClose } from '@/lib/api/headerFigures'
@@ -316,14 +318,20 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
               Edit
             </Button>
             {statusButton('xs')}
-            {canDelete && (
-              <OverflowMenu>
+            <OverflowMenu>
+              {!closedFile && (
+                <DropdownMenuItem onSelect={() => openRequestDocuments(loan.id)}>
+                  <FileUpIcon />
+                  Request documents…
+                </DropdownMenuItem>
+              )}
+              {canDelete && (
                 <DropdownMenuItem variant="destructive" disabled={deleteLead.isPending} onSelect={() => void deleteFile()}>
                   <Trash2Icon />
                   Delete file…
                 </DropdownMenuItem>
-              </OverflowMenu>
-            )}
+              )}
+            </OverflowMenu>
           </>
         }
         figures={figures}
@@ -430,6 +438,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
         />
       )}
       {dialog}
+      <RequestDocumentsHost loan={loan} />
       <FileAssistant loanId={loan.id} borrowerName={name} />
     </>
   )

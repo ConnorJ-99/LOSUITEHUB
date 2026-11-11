@@ -6,6 +6,7 @@ import { Select as BaseSelect, SelectContent, SelectItem, SelectTrigger, SelectV
 import { Card, confirmAction, FormGrid, Input, PageHeader, Select } from '@/components/shared'
 import { BRAND_TYPES, useBrandImage, useRemoveBrandImage, useUploadBrandImage } from '@/lib/api/brandFiles'
 import { DocumentRulesCard } from '@/components/documents/DocumentRulesCard'
+import { DocumentCatalogCard } from '@/components/documents/DocumentCatalogCard'
 import { GhlCard, GhlPipelinesCard, SendingCard } from '@/components/messaging/GhlSettingsCards'
 import { NotificationSettingsCard } from '@/components/notifications/NotificationSettingsCard'
 import { FeeListCard } from '@/components/pricing/FeeListCard'
@@ -298,6 +299,7 @@ export function SettingsPage() {
         {org.data && me && <CompanyCard key={JSON.stringify(org.data)} org={org.data} canEdit={canEditCompany} userId={me.id} />}
         <MessageTemplatesCard />
         <DocumentRulesCard canEdit={canEditCompany} />
+        <DocumentCatalogCard canEdit={canEditCompany} />
         <FeeListCard canEdit={canEditCompany} />
         {canEditCompany && <CompensationCard />}
         <ReviewsCard canEdit={canEditCompany} />

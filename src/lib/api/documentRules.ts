@@ -161,7 +161,8 @@ export function useDeleteDocumentRule() {
 // Requests on a file
 // ---------------------------------------------------------------------------
 
-export type RequestStatus = 'requested' | 'received' | 'reviewed' | 'waived'
+/** received = uploaded / in; reviewed = accepted; rejected = back on the borrower's page with a reason. */
+export type RequestStatus = 'requested' | 'received' | 'reviewed' | 'rejected' | 'waived'
 
 export interface DocumentRequest {
   id: string
@@ -174,6 +175,12 @@ export interface DocumentRequest {
   receivedAt: string | null
   reviewedAt: string | null
   documentId: string | null
+  /** Custom requests (UI pass Part 3); empty before the upload links script. */
+  instructions?: string | null
+  conditionId?: string | null
+  linkId?: string | null
+  dueOn?: string | null
+  rejectReason?: string | null
 }
 
 interface RequestRow {
@@ -187,14 +194,36 @@ interface RequestRow {
   received_at: string | null
   reviewed_at: string | null
   document_id: string | null
+  instructions?: string | null
+  condition_id?: string | null
+  link_id?: string | null
+  due_on?: string | null
+  reject_reason?: string | null
 }
 
 export function useDocumentRequests(loanId: string) {
   return useQuery({
     queryKey: keys.documentRequests(loanId),
     queryFn: async () =>
-      unwrap<RequestRow[]>(await db().from('document_requests').select('id, contact_id, rule_key, label, kind, status, requested_at, received_at, reviewed_at, document_id').eq('loan_id', loanId).order('requested_at')).map(
-        (r): DocumentRequest => ({ id: r.id, contactId: r.contact_id, ruleKey: r.rule_key, label: r.label, kind: r.kind, status: r.status, requestedAt: r.requested_at, receivedAt: r.received_at, reviewedAt: r.reviewed_at, documentId: r.document_id }),
+      // * so it works before the upload links script adds its columns.
+      unwrap<RequestRow[]>(await db().from('document_requests').select('*').eq('loan_id', loanId).order('requested_at')).map(
+        (r): DocumentRequest => ({
+          id: r.id,
+          contactId: r.contact_id,
+          ruleKey: r.rule_key,
+          label: r.label,
+          kind: r.kind,
+          status: r.status,
+          requestedAt: r.requested_at,
+          receivedAt: r.received_at,
+          reviewedAt: r.reviewed_at,
+          documentId: r.document_id,
+          instructions: r.instructions ?? null,
+          conditionId: r.condition_id ?? null,
+          linkId: r.link_id ?? null,
+          dueOn: r.due_on ?? null,
+          rejectReason: r.reject_reason ?? null,
+        }),
       ),
   })
 }

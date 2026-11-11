@@ -4,6 +4,7 @@ import { addDays } from '@/lib/closed/keyDates'
 import { todayIso } from '@/lib/dates'
 import { draftContactId, planConditionDrafts, planKeyDateDrafts, type AutomatedLoan, type ConditionLoan, type DraftPerson, type ExistingDraft } from '@/lib/queue/drafts'
 import { db, keys, unwrap } from './client'
+import { makeUploadReminderDrafts } from './uploadRequests'
 
 // The drafting engine's data side: loads what the plan needs, saves the drafts
 // it returns. Row Level Security limits everything to the files you can see.
@@ -148,7 +149,9 @@ export function useReminderDrafts(enabled: boolean) {
     const today = todayIso()
     if (!enabled || lastRun === today) return
     lastRun = today
-    makeReminderDrafts(today)
+    // Upload-link reminders (UI pass Part 3) ride along; they never block the others.
+    Promise.all([makeReminderDrafts(today), makeUploadReminderDrafts(today).catch(() => 0)])
+      .then(([a, b]) => a + b)
       .then((added) => {
         if (added > 0) queryClient.invalidateQueries({ queryKey: keys.today })
       })

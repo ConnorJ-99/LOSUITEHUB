@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { ClipboardPasteIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { ClipboardPasteIcon, FileUpIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { openRequestDocuments } from '@/components/documents/RequestDocumentsHost'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -88,7 +89,7 @@ export function ConditionsTab({ loan, step }: { loan: LoanProfile; step: StepRes
       ) : (
         <ol className="divide-y">
           {list.map((c, i) => (
-            <ConditionRow key={c.id} n={i + 1} c={c} flag={flagOf.get(c.id)} busy={update.isPending} onChange={(changes) => change(c, changes)} onRemove={async () => (await confirmAction('Remove this condition?', { confirmLabel: 'Remove', destructive: true })) && remove.mutate(c.id, { onError: (e) => toast.error(e.message) })} />
+            <ConditionRow key={c.id} n={i + 1} c={c} flag={flagOf.get(c.id)} onRequestDocs={() => openRequestDocuments(loan.id, c.id)} busy={update.isPending} onChange={(changes) => change(c, changes)} onRemove={async () => (await confirmAction('Remove this condition?', { confirmLabel: 'Remove', destructive: true })) && remove.mutate(c.id, { onError: (e) => toast.error(e.message) })} />
           ))}
         </ol>
       )}
@@ -113,7 +114,7 @@ export function ConditionsTab({ loan, step }: { loan: LoanProfile; step: StepRes
   )
 }
 
-function ConditionRow({ n, c, flag, busy, onChange, onRemove }: { n: number; c: Condition; flag: Flagged | undefined; busy: boolean; onChange: (changes: ConditionChanges) => void; onRemove: () => void }) {
+function ConditionRow({ n, c, flag, busy, onChange, onRemove, onRequestDocs }: { n: number; c: Condition; flag: Flagged | undefined; busy: boolean; onChange: (changes: ConditionChanges) => void; onRemove: () => void; onRequestDocs: () => void }) {
   return (
     <li className="grid gap-2 py-3 md:grid-cols-[1.5rem_minmax(0,1fr)_auto]">
       <span className="pt-1.5 text-xs text-muted-foreground tabular-nums">{n}.</span>
@@ -156,9 +157,17 @@ function ConditionRow({ n, c, flag, busy, onChange, onRemove }: { n: number; c: 
         </div>
         <FlaggedNote flag={flag} />
       </div>
-      <Button size="icon-sm" variant="ghost" aria-label={`Remove condition ${n}`} className="justify-self-end text-muted-foreground hover:text-destructive" onClick={onRemove}>
-        <Trash2Icon />
-      </Button>
+      <div className="flex items-start gap-1 justify-self-end">
+        {c.status !== 'cleared' && c.status !== 'waived' && (
+          <Button size="xs" variant="outline" onClick={onRequestDocs} title="Ask the borrower for documents for this condition">
+            <FileUpIcon />
+            Request docs
+          </Button>
+        )}
+        <Button size="icon-sm" variant="ghost" aria-label={`Remove condition ${n}`} className="text-muted-foreground hover:text-destructive" onClick={onRemove}>
+          <Trash2Icon />
+        </Button>
+      </div>
     </li>
   )
 }

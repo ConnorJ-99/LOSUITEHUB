@@ -44,7 +44,7 @@ export interface FileFacts extends RuleFacts {
 
 export interface Existing {
   conditions: { id: string; sourceKey: string | null; status: string }[]
-  requests: { id: string; contactId: string | null; ruleKey: string; status: 'requested' | 'received' | 'reviewed' | 'waived' }[]
+  requests: { id: string; contactId: string | null; ruleKey: string; status: 'requested' | 'received' | 'reviewed' | 'rejected' | 'waived' }[]
   dismissed: string[]
 }
 
@@ -262,7 +262,8 @@ export function suggestConditions(facts: FileFacts, rules: DocRule[], existing: 
     .filter((s) => !used.has(s.key) && !dismissed.has(s.key))
     .flatMap((s) => {
       const r = requestFor(s)
-      if (r && r.status !== 'requested') return []
+      // Rejected is still needed (back on the borrower's page), like requested.
+      if (r && r.status !== 'requested' && r.status !== 'rejected') return []
       return [{ ...s, request: r ? { id: r.id, status: 'requested' as const } : null }]
     })
   const live = new Set(all.map((s) => s.key))
