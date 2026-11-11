@@ -62,16 +62,19 @@ export function YesNo({
   value,
   onChange,
   children,
+  field,
 }: {
   label: string
   prefix?: string
+  /** The 1003 field it answers, so the section list can jump to it. */
+  field?: string
   value: boolean | null
   onChange: (value: boolean | null) => void
   /** Follow-up fields shown when the answer is Yes. */
   children?: React.ReactNode
 }) {
   return (
-    <div className="space-y-2 py-2.5">
+    <div className="space-y-2 rounded-md py-2.5" data-urla-field={field}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
         <p className="text-sm">
           {prefix && <span className="mr-1.5 font-semibold text-muted-foreground">{prefix}.</span>}

@@ -54,7 +54,7 @@ export function DeclarationsSection({ loanId, borrower, isPurchase }: { loanId: 
         </ToggleChipGroup>
       ) : undefined
     return (
-      <YesNo key={q.key} prefix={q.letter} label={q.text} value={form[key] as boolean | null} onChange={(v) => set(key)(v as never)}>
+      <YesNo key={q.key} field={q.key} prefix={q.letter} label={q.text} value={form[key] as boolean | null} onChange={(v) => set(key)(v as never)}>
         {followUp}
       </YesNo>
     )

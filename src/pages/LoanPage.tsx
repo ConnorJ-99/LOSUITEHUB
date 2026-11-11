@@ -37,7 +37,6 @@ import { useSelectedCashToClose } from '@/lib/api/headerFigures'
 import { AriveLink } from '@/components/loanfile/AriveLink'
 import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
-import { UrlaChecklistPanel } from '@/components/loanfile/UrlaChecklistPanel'
 import { WorkflowPanel } from '@/components/loanfile/WorkflowPanel'
 import { StageMenu } from '@/components/pipeline/StageMenu'
 import { useStageChanger } from '@/components/pipeline/useStageChanger'
@@ -378,12 +377,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
             </>
           )}
           {section === 'prequal' && <PrequalTab loan={loan} />}
-          {section === '1003' && (
-            <>
-              {validation && <UrlaChecklistPanel validation={validation} borrowerCount={app.data?.borrowers.length ?? 1} onCompleteFields={() => setCompleting(true)} />}
-              <UrlaTab loan={loan} />
-            </>
-          )}
+          {section === '1003' && <UrlaTab loan={loan} validation={validation} onCompleteFields={() => setCompleting(true)} />}
           {section === 'income' && <IncomeTab loan={loan} />}
           {section === 'contract' && <ContractTab loan={loan} />}
           {section === 'estimates' && <EstimatesTab loan={loan} />}

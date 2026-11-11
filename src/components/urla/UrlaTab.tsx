@@ -22,21 +22,15 @@ import { OriginatorSection } from './OriginatorSection'
 import { PersonSection } from './PersonSection'
 import { RealEstateSection } from './RealEstateSection'
 import { applicationSummary } from '@/lib/urla/summary'
+import type { UrlaIssue, UrlaValidation } from '@/lib/loanfile/urla'
+import { UrlaSectionNav, focusIssue } from './UrlaSectionNav'
 
-const NAV = [
-  { id: 'section-1', label: '1. Borrower' },
-  { id: 'section-2', label: '2. Assets & liabilities' },
-  { id: 'section-3', label: '3. Real estate' },
-  { id: 'section-4', label: '4. Loan & property' },
-  { id: 'section-5', label: '5. Declarations' },
-  { id: 'section-8', label: '8. Demographics' },
-  { id: 'section-9', label: '9. Originator' },
-]
-
-const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-
-/** The 1003 (Uniform Residential Loan Application), sectioned like the real form. */
-export function UrlaTab({ loan }: { loan: LoanProfile }) {
+/**
+ * The 1003 (Uniform Residential Loan Application), sectioned like the real
+ * form, with one sticky section list showing each group's status (the same
+ * validation as the sidebar's 1003 badge).
+ */
+export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: LoanProfile; validation?: UrlaValidation | null; onCompleteFields?: () => void }) {
   const app = useApplication(loan.id)
   const properties = useProperties(loan.id)
   const removeBorrower = useRemoveBorrower(loan.id)
@@ -67,6 +61,13 @@ export function UrlaTab({ loan }: { loan: LoanProfile }) {
   if (borrowers.length === 0) return <p className="py-12 text-center text-sm text-muted-foreground">No borrower on this loan.</p>
 
   const borrower = borrowers.find((b) => b.contactId === selectedId) ?? borrowers[0]
+  // The amber count: switch to that borrower if it's their field, then go to it.
+  const goToIssue = (issue: UrlaIssue) => {
+    const anchor = validation?.sections.find((s) => s.id === issue.section)?.anchor ?? 'section-1'
+    const other = issue.contactId && issue.contactId !== borrower.contactId && borrowers.some((b) => b.contactId === issue.contactId)
+    if (other) setSelectedId(issue.contactId!)
+    setTimeout(() => focusIssue(issue, anchor), other ? 250 : 0)
+  }
   // Key figures for the summary bar.
   const { subject, isPurchase, scenario, housing, qualifying: q } = applicationSummary(loan, app.data!, properties.data)
 
@@ -78,18 +79,8 @@ export function UrlaTab({ loan }: { loan: LoanProfile }) {
 
   return (
     <>
-      <div className="grid gap-6 lg:grid-cols-[11rem_1fr]">
-        <nav aria-label="1003 sections" className="hidden lg:block">
-          <ul className="sticky top-6 space-y-0.5 text-sm">
-            {NAV.map((n) => (
-              <li key={n.id}>
-                <button type="button" onClick={() => jump(n.id)} className="w-full rounded-md px-2 py-1.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
-                  {n.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
+      <div className="grid gap-x-6 gap-y-3 lg:grid-cols-[12.5rem_1fr]">
+        <UrlaSectionNav validation={validation} onFirstMissing={goToIssue} onCompleteFields={onCompleteFields} />
 
         <div className="min-w-0 space-y-4">
           <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3">
