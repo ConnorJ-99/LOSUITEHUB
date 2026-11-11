@@ -16,7 +16,7 @@ export const PROPERTY_TYPES = ['sfr_pud', 'condo', 'non_warrantable_condo', 'two
 export const OCCUPANCIES = ['primary', 'second_home', 'investment'] as const
 /** Term options: fixed terms, ARMs, and HELOC draw/repay periods (years). */
 export const TERMS = ['fixed_40', 'fixed_30', 'fixed_25', 'fixed_20', 'fixed_15', 'fixed_10', 'arm_5_6', 'arm_7_6', 'arm_10_6', 'heloc_10_20', 'heloc_10_15', 'heloc_5_25', 'heloc_3_27'] as const
-export const RULE_FIELDS = ['dti', 'reserves_months', 'mortgage_lates_12', 'mortgage_lates_24', 'bk_seasoning_months', 'fc_seasoning_months', 'state', 'citizenship', 'self_employed_years', 'loan_amount', 'fico', 'ltv', 'cltv', 'dscr', 'units', 'first_time_buyer', 'income_vs_ami'] as const
+export const RULE_FIELDS = ['dti', 'reserves_months', 'mortgage_lates_12', 'mortgage_lates_24', 'bk_seasoning_months', 'fc_seasoning_months', 'state', 'citizenship', 'self_employed_years', 'loan_amount', 'fico', 'ltv', 'cltv', 'dscr', 'units', 'first_time_buyer', 'income_vs_ami', 'bank_statement_months', 'asset_statement_months', 'tax_return_years'] as const
 export const RULE_OPS = ['<=', '>=', 'in', 'not_in', 'required', 'between'] as const
 /** How a grid's loan amounts read: "up to $X" tiers (a larger tier also covers smaller loans) or printed ranges. */
 export const LOAN_AMOUNT_MODES = ['max_tiers', 'explicit_ranges'] as const

@@ -443,7 +443,7 @@ export function setColumnHeader(g: ReadGrid, i: number, text: string): ReadGrid 
 // Program rules typed by hand
 // ---------------------------------------------------------------------------
 
-export type RulePresetId = 'ltv_cap' | 'cltv_cap' | 'max_dti' | 'min_reserves' | 'max_lates_12' | 'max_lates_24' | 'bk_seasoning' | 'fc_seasoning' | 'min_fico' | 'loan_amount' | 'min_dscr' | 'self_employed' | 'fthb_above' | 'states' | 'citizenship'
+export type RulePresetId = 'ltv_cap' | 'cltv_cap' | 'max_dti' | 'min_reserves' | 'max_lates_12' | 'max_lates_24' | 'bk_seasoning' | 'fc_seasoning' | 'min_fico' | 'loan_amount' | 'min_dscr' | 'self_employed' | 'fthb_above' | 'states' | 'citizenship' | 'bank_statement_months' | 'asset_statement_months' | 'tax_return_years'
 
 export interface RulePreset {
   id: RulePresetId
@@ -470,6 +470,10 @@ export const RULE_PRESETS: RulePreset[] = [
   { id: 'fthb_above', label: 'First-time buyers only above an LTV (e.g. 97% FTHB, 95% others)', field: 'first_time_buyer', op: 'required', input: 'number', unit: '% LTV' },
   { id: 'states', label: 'States allowed', field: 'state', op: 'in', input: 'states' },
   { id: 'citizenship', label: 'Citizenship allowed', field: 'citizenship', op: 'in', input: 'citizenship' },
+  // Documents the program wants (used by suggested conditions, not by search).
+  { id: 'bank_statement_months', label: 'Bank statements required (months), for suggested conditions', field: 'bank_statement_months', op: '>=', input: 'number', unit: 'months' },
+  { id: 'asset_statement_months', label: 'Asset statements required (months), for suggested conditions', field: 'asset_statement_months', op: '>=', input: 'number', unit: 'months' },
+  { id: 'tax_return_years', label: 'Tax returns required (years), for suggested conditions', field: 'tax_return_years', op: '>=', input: 'number', unit: 'years' },
 ]
 
 export interface RuleInput {
@@ -516,6 +520,9 @@ export function ruleFromInput(input: RuleInput): ReadRule | { error: string } {
       min_dscr: `Min DSCR ${n.toFixed(2)}`,
       self_employed: `Self-employed ${plural(n, 'year')}`,
       fthb_above: `Above ${formatNumber(n)}% LTV, first-time buyers only`,
+      bank_statement_months: `${plural(n, 'month')} of bank statements`,
+      asset_statement_months: `${plural(n, 'month')} of asset statements`,
+      tax_return_years: `${plural(n, 'year')} of tax returns`,
     }[preset.id as Exclude<RulePresetId, 'loan_amount' | 'states' | 'citizenship'>]
   } else if (preset.input === 'range') {
     const min = input.min ?? 0

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
 import { guidelineQuery } from '@/lib/products/guidelineSearch'
+import { DOCUMENT_RULE_FIELDS } from '@/lib/products/taxonomy'
 import type { Catalog, CatalogLender, CatalogProgram, MatrixCell, ProgramRule, Scenario, SearchResult } from '@/lib/products/types'
 import { db, keys, num, unwrap } from './client'
 
@@ -256,7 +257,8 @@ export function useCatalog() {
           ),
         ),
       ])
-      return toCatalog({ lenders, programs, versions, cells, rules, overlays: overlays.map((o) => ({ ...o, program_id: o.program_id ?? undefined })) })
+      // Document rules (statement months) are for suggested conditions, not eligibility.
+      return toCatalog({ lenders, programs, versions, cells, rules: rules.filter((r) => !(DOCUMENT_RULE_FIELDS as readonly string[]).includes(r.field)), overlays: overlays.map((o) => ({ ...o, program_id: o.program_id ?? undefined })) })
     },
   })
 }

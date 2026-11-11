@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth/context'
 import { DEFAULT_DOCUMENT_RULES, type DocRule, type DocumentCondition } from '@/lib/prequal/nextStep'
+import { NO_RULE_FILTERS, type RuleFilters } from '@/lib/conditions/ruleFilters'
 import type { DocumentKind } from './documents'
 import { db, keys, unwrap } from './client'
 
@@ -8,7 +9,7 @@ import { db, keys, unwrap } from './client'
 // Checklist rules (Settings)
 // ---------------------------------------------------------------------------
 
-export interface SavedRule extends DocRule {
+export interface SavedRule extends Omit<DocRule, keyof RuleFilters>, RuleFilters {
   id: string
   builtIn: boolean
 }
@@ -23,7 +24,66 @@ interface RuleRow {
   sort_order: number
   active: boolean
   built_in: boolean
+  // Phase 8 (missing before the suggested conditions script).
+  use_for?: RuleFilters['useFor']
+  scope?: RuleFilters['scope']
+  party?: RuleFilters['party']
+  stage?: RuleFilters['stage']
+  mortgage_types?: RuleFilters['mortgageTypes']
+  purposes?: RuleFilters['purposes']
+  occupancies?: RuleFilters['occupancies']
+  property_types?: RuleFilters['propertyTypes']
+  income_doc_types?: RuleFilters['incomeDocTypes']
+  texas_cash_out?: boolean | null
+  entity_vesting?: boolean | null
+  va_exempt?: boolean | null
+  lender_id?: string | null
+  program_id?: string | null
 }
+
+const fromRuleRow = (r: RuleRow): SavedRule => ({
+  id: r.id,
+  key: r.key,
+  condition: r.condition,
+  shortText: r.short_text,
+  fullText: r.full_text,
+  kind: r.kind,
+  sortOrder: r.sort_order,
+  active: r.active,
+  builtIn: r.built_in,
+  useFor: r.use_for ?? 'both',
+  scope: r.scope ?? 'person',
+  party: r.party ?? 'borrower',
+  stage: r.stage ?? 'processing',
+  mortgageTypes: r.mortgage_types ?? null,
+  purposes: r.purposes ?? null,
+  occupancies: r.occupancies ?? null,
+  propertyTypes: r.property_types ?? null,
+  incomeDocTypes: r.income_doc_types ?? null,
+  texasCashOut: r.texas_cash_out ?? null,
+  entityVesting: r.entity_vesting ?? null,
+  vaExempt: r.va_exempt ?? null,
+  lenderId: r.lender_id ?? null,
+  programId: r.program_id ?? null,
+})
+
+/** The Phase 8 columns to save (only once the script has added them). */
+export const ruleFilterRow = (r: RuleFilters) => ({
+  use_for: r.useFor,
+  scope: r.scope,
+  party: r.party,
+  stage: r.stage,
+  mortgage_types: r.mortgageTypes?.length ? r.mortgageTypes : null,
+  purposes: r.purposes?.length ? r.purposes : null,
+  occupancies: r.occupancies?.length ? r.occupancies : null,
+  property_types: r.propertyTypes?.length ? r.propertyTypes : null,
+  income_doc_types: r.incomeDocTypes?.length ? r.incomeDocTypes : null,
+  texas_cash_out: r.texasCashOut,
+  entity_vesting: r.entityVesting,
+  va_exempt: r.vaExempt,
+  lender_id: r.lenderId,
+  program_id: r.programId,
+})
 
 export const CONDITION_LABEL: Record<DocumentCondition, string> = {
   everyone: 'Everyone',
@@ -52,16 +112,18 @@ export function useDocumentRules() {
     queryKey: [...keys.documentRules, orgId],
     queryFn: async (): Promise<SavedRule[]> => {
       // Someone in more than one company sees each company's rules; use the current one.
-      let query = db().from('document_rules').select('id, key, condition, short_text, full_text, kind, sort_order, active, built_in')
+      // * so it works before the suggested conditions script adds the filter columns.
+      let query = db().from('document_rules').select('*')
       if (orgId) query = query.eq('organization_id', orgId)
       const { data, error } = await query.order('sort_order')
-      if (error || !data?.length) return DEFAULT_DOCUMENT_RULES.map((r) => ({ ...r, id: r.key, builtIn: true }))
-      return (data as RuleRow[]).map((r) => ({ id: r.id, key: r.key, condition: r.condition, shortText: r.short_text, fullText: r.full_text, kind: r.kind, sortOrder: r.sort_order, active: r.active, builtIn: r.built_in }))
+      if (error || !data?.length) return DEFAULT_DOCUMENT_RULES.map((r) => ({ ...NO_RULE_FILTERS, ...r, id: r.key, builtIn: true }))
+      return (data as RuleRow[]).map(fromRuleRow)
     },
   })
 }
 
-export type RuleDraft = Omit<SavedRule, 'id' | 'builtIn' | 'key'> & { id: string | null; key: string | null }
+/** withFilters: save the Phase 8 fields too (only once the script has added the columns). */
+export type RuleDraft = Omit<SavedRule, 'id' | 'builtIn' | 'key'> & { id: string | null; key: string | null; withFilters?: boolean }
 
 /** A key from the wording: "A written VOE" → "a_written_voe". */
 export const ruleKeyFrom = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'custom'
@@ -73,7 +135,7 @@ export function useSaveDocumentRule() {
   return useMutation({
     mutationFn: async (r: RuleDraft) => {
       if (!r.shortText.trim() || !r.fullText.trim()) throw new Error('A rule needs both the short and the full wording.')
-      const row = { condition: r.condition, short_text: r.shortText.trim(), full_text: r.fullText.trim(), kind: r.kind, sort_order: r.sortOrder, active: r.active }
+      const row = { condition: r.condition, short_text: r.shortText.trim(), full_text: r.fullText.trim(), kind: r.kind, sort_order: r.sortOrder, active: r.active, ...(r.withFilters ? ruleFilterRow(r) : {}) }
       const result = r.id
         ? await db().from('document_rules').update(row).eq('id', r.id).select('id')
         : await db().from('document_rules').insert({ ...row, organization_id: orgId, key: `custom_${ruleKeyFrom(r.shortText)}` }).select('id')

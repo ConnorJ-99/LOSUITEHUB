@@ -30,6 +30,10 @@ export interface Condition {
   dueOn: string | null
   notes: string | null
   statusChangedAt: string
+  /** The suggestion it was added from (Phase 8), if any. */
+  sourceKey?: string | null
+  /** The document request it follows, if any. */
+  documentRequestId?: string | null
 }
 
 /** Off our plate: sent to the lender, cleared, or waived. */

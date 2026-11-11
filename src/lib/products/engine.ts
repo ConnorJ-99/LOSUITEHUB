@@ -269,6 +269,11 @@ function ruleValue(r: ProgramRule, s: Scenario, p: CatalogProgram): number | str
     case 'units': return s.units
     case 'first_time_buyer': return s.firstTimeBuyer
     case 'income_vs_ami': return s.incomeVsAmiPct
+    // Document rules (suggested conditions) never decide eligibility; the catalog leaves them out.
+    case 'bank_statement_months':
+    case 'asset_statement_months':
+    case 'tax_return_years':
+      return null
   }
 }
 

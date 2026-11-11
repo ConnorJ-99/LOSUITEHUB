@@ -10,6 +10,7 @@ import type { DraftMessage } from '@/lib/queue/today'
 import type { OtherIncomeType } from '@/lib/urla/options'
 import type { PrequalDraft } from './draft'
 import { NURTURE_LABEL, type CreditEventType, type Readiness } from './readiness'
+import { appliesTo, hasFilters, type RuleFacts, type RuleFilters } from '@/lib/conditions/ruleFilters'
 
 // ---------------------------------------------------------------------------
 // Next step
@@ -70,6 +71,8 @@ export interface ChecklistInput {
   incomeDocType: IncomeDocType | null
   /** Homes they already own (not the one being bought): rented out or not. */
   homes: { addressLine: string; rented: boolean }[]
+  /** The file's loan type, purpose and so on, for rules with "Applies when" filters. Without it, filtered rules are left out. */
+  file?: RuleFacts
 }
 
 export interface DocItem {
@@ -108,8 +111,12 @@ export type DocumentCondition =
   | 'owns_home'
   | 'rental_or_dscr'
 
-/** One checklist rule (Settings). {income} and {each_job} are filled in per person. */
-export interface DocRule {
+/**
+ * One checklist rule (Settings). {income} and {each_job} are filled in per
+ * person. The Phase 8 fields (filters, party, stage, use for) are optional:
+ * without them a rule applies to every file, per person, on both lists.
+ */
+export interface DocRule extends Partial<RuleFilters> {
   key: string
   condition: DocumentCondition
   shortText: string
@@ -143,19 +150,38 @@ export const DEFAULT_DOCUMENT_RULES: DocRule[] = [
   ['leases', 'rental_or_dscr', 'current leases', 'A copy of the current lease for each rented home', 'lease', 200],
 ].map(([key, condition, shortText, fullText, kind, sortOrder]) => ({ key, condition, shortText, fullText, kind, sortOrder, active: true }) as DocRule)
 
-/** Conditions about the whole file rather than one person. */
-const FILE_CONDITIONS: DocumentCondition[] = ['owns_home', 'rental_or_dscr']
+export type PersonCondition = Exclude<DocumentCondition, 'award_income' | 'owns_home' | 'rental_or_dscr'>
 
-const AWARD_LETTER: Partial<Record<OtherIncomeType, string>> = {
-  social_security: 'Social Security',
-  retirement: 'pension or retirement',
-  disability: 'disability',
-  va_compensation: 'VA',
+/** Which person-level rule conditions fit one borrower (shared with the condition suggestions). */
+export function personConditions(p: Pick<ChecklistPerson, 'jobs' | 'otherIncomes' | 'assetTypes' | 'creditEvents'>, doc: IncomeDocType): Record<PersonCondition, boolean> {
+  const wage = p.jobs.filter((j) => !j.selfEmployed)
+  const selfEmployed = p.jobs.filter((j) => j.selfEmployed)
+  const bankStatementIncome = doc === 'bank_statement' && p.jobs.length > 0
+  const income1099 = doc === 'form_1099' && p.jobs.length > 0
+  const fullDoc = !bankStatementIncome && !income1099 && doc !== 'asset_based' && doc !== 'dscr'
+  return {
+    everyone: true,
+    wage_earner: fullDoc && wage.length > 0,
+    self_employed: fullDoc && selfEmployed.length > 0,
+    bank_statement_income: bankStatementIncome,
+    form_1099_income: income1099,
+    asset_based_income: doc === 'asset_based',
+    support_income: p.otherIncomes.some((t) => SUPPORT_INCOMES.includes(t)),
+    bank_accounts: p.assetTypes.some((t) => BANKABLE_ASSETS.includes(t)),
+    investment_accounts: doc !== 'asset_based' && p.assetTypes.some((t) => INVESTMENT_ASSETS.includes(t)),
+    gift: p.assetTypes.some((t) => GIFT_ASSETS.includes(t)),
+    bankruptcy: p.creditEvents.some((t) => t === 'bankruptcy_ch7' || t === 'bankruptcy_ch13'),
+    foreclosure: p.creditEvents.some((t) => t === 'foreclosure' || t === 'short_sale' || t === 'deed_in_lieu'),
+    late_or_collection: p.creditEvents.some((t) => t === 'late_payment' || t === 'collection'),
+  }
 }
-const SUPPORT: OtherIncomeType[] = ['child_support', 'alimony', 'separate_maintenance']
-const BANKABLE = ['checking', 'savings', 'money_market', 'certificate_of_deposit']
-const INVESTMENT = ['mutual_fund', 'stocks', 'stock_options', 'bonds', 'retirement', 'trust_account']
-const GIFT = ['gift_cash', 'gift_equity', 'grant']
+
+export const BANKABLE_ASSETS = ['checking', 'savings', 'money_market', 'certificate_of_deposit']
+export const INVESTMENT_ASSETS = ['mutual_fund', 'stocks', 'stock_options', 'bonds', 'retirement', 'trust_account']
+export const GIFT_ASSETS = ['gift_cash', 'gift_equity', 'grant']
+export const SUPPORT_INCOMES: OtherIncomeType[] = ['child_support', 'alimony', 'separate_maintenance']
+export const AWARD_INCOMES = { social_security: 'Social Security', retirement: 'pension or retirement', disability: 'disability', va_compensation: 'VA' } as Partial<Record<OtherIncomeType, string>>
+export const FILE_RULE_CONDITIONS: DocumentCondition[] = ['owns_home', 'rental_or_dscr']
 
 /**
  * What to ask each person for, from how they earn money, what they have and
@@ -164,36 +190,21 @@ const GIFT = ['gift_cash', 'gift_equity', 'grant']
  */
 export function documentChecklist(input: ChecklistInput, rules: DocRule[] = DEFAULT_DOCUMENT_RULES): DocGroup[] {
   const doc = input.incomeDocType ?? 'full_doc'
-  const active = rules.filter((r) => r.active).sort((a, b) => a.sortOrder - b.sortOrder)
+  // "Conditions only" rules never go in the borrower's checklist; filtered rules need the file's facts.
+  const active = rules
+    .filter((r) => r.active && r.useFor !== 'conditions' && (!hasFilters(r) || (input.file && appliesTo(r, input.file))))
+    .sort((a, b) => a.sortOrder - b.sortOrder)
   const fill = (text: string, values: Record<string, string>) => text.replace(/\{(\w+)\}/g, (m, k: string) => values[k] ?? m)
 
   const groups: DocGroup[] = input.people.map((p) => {
     const wage = p.jobs.filter((j) => !j.selfEmployed)
-    const selfEmployed = p.jobs.filter((j) => j.selfEmployed)
-    const bankStatementIncome = doc === 'bank_statement' && p.jobs.length > 0
-    const income1099 = doc === 'form_1099' && p.jobs.length > 0
-    const fullDoc = !bankStatementIncome && !income1099 && doc !== 'asset_based' && doc !== 'dscr'
-    const has: Record<Exclude<DocumentCondition, 'award_income' | 'owns_home' | 'rental_or_dscr'>, boolean> = {
-      everyone: true,
-      wage_earner: fullDoc && wage.length > 0,
-      self_employed: fullDoc && selfEmployed.length > 0,
-      bank_statement_income: bankStatementIncome,
-      form_1099_income: income1099,
-      asset_based_income: doc === 'asset_based',
-      support_income: p.otherIncomes.some((t) => SUPPORT.includes(t)),
-      bank_accounts: p.assetTypes.some((t) => BANKABLE.includes(t)),
-      investment_accounts: doc !== 'asset_based' && p.assetTypes.some((t) => INVESTMENT.includes(t)),
-      gift: p.assetTypes.some((t) => GIFT.includes(t)),
-      bankruptcy: p.creditEvents.some((t) => t === 'bankruptcy_ch7' || t === 'bankruptcy_ch13'),
-      foreclosure: p.creditEvents.some((t) => t === 'foreclosure' || t === 'short_sale' || t === 'deed_in_lieu'),
-      late_or_collection: p.creditEvents.some((t) => t === 'late_payment' || t === 'collection'),
-    }
+    const has = personConditions(p, doc)
     const values = { each_job: wage.length > 1 ? ' from each job' : '' }
     const items: DocItem[] = active.flatMap((r): DocItem[] => {
-      if (FILE_CONDITIONS.includes(r.condition)) return []
+      if (FILE_RULE_CONDITIONS.includes(r.condition)) return []
       if (r.condition === 'award_income') {
-        const types = [...new Set(p.otherIncomes.filter((t) => AWARD_LETTER[t]))]
-        return types.map((t) => ({ key: `${r.key}_${t}`, short: fill(r.shortText, { ...values, income: AWARD_LETTER[t]! }), full: fill(r.fullText, { ...values, income: AWARD_LETTER[t]! }), kind: r.kind }))
+        const types = [...new Set(p.otherIncomes.filter((t) => AWARD_INCOMES[t]))]
+        return types.map((t) => ({ key: `${r.key}_${t}`, short: fill(r.shortText, { ...values, income: AWARD_INCOMES[t]! }), full: fill(r.fullText, { ...values, income: AWARD_INCOMES[t]! }), kind: r.kind }))
       }
       return has[r.condition as keyof typeof has] ? [{ key: r.key, short: fill(r.shortText, values), full: fill(r.fullText, values), kind: r.kind }] : []
     })
@@ -204,7 +215,7 @@ export function documentChecklist(input: ChecklistInput, rules: DocRule[] = DEFA
     owns_home: input.homes.length > 0,
     rental_or_dscr: input.homes.some((h) => h.rented) || doc === 'dscr',
   }
-  const fileItems = active.filter((r) => FILE_CONDITIONS.includes(r.condition) && fileHas[r.condition as keyof typeof fileHas]).map((r) => ({ key: r.key, short: r.shortText, full: r.fullText, kind: r.kind }))
+  const fileItems = active.filter((r) => FILE_RULE_CONDITIONS.includes(r.condition) && fileHas[r.condition as keyof typeof fileHas]).map((r) => ({ key: r.key, short: r.shortText, full: r.fullText, kind: r.kind }))
   if (fileItems.length) groups.push({ title: HOMES, contactId: null, items: fileItems })
   return groups.filter((g) => g.items.length)
 }

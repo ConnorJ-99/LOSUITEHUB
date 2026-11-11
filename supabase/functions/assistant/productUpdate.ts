@@ -17,7 +17,7 @@ export const DOC_TYPES = ['full_doc', 'bank_statement_12', 'bank_statement_24', 
 export const PURPOSES = ['purchase', 'rate_term', 'cash_out'] as const
 export const PROPERTY_TYPES = ['sfr_pud', 'condo', 'non_warrantable_condo', 'two_to_four', 'manufactured', 'mixed_use', 'condotel', 'rural', 'five_plus'] as const
 export const OCCUPANCIES = ['primary', 'second_home', 'investment'] as const
-export const RULE_FIELDS = ['dti', 'reserves_months', 'mortgage_lates_12', 'mortgage_lates_24', 'bk_seasoning_months', 'fc_seasoning_months', 'state', 'citizenship', 'self_employed_years', 'loan_amount', 'fico', 'ltv', 'cltv', 'dscr', 'units', 'first_time_buyer', 'income_vs_ami'] as const
+export const RULE_FIELDS = ['dti', 'reserves_months', 'mortgage_lates_12', 'mortgage_lates_24', 'bk_seasoning_months', 'fc_seasoning_months', 'state', 'citizenship', 'self_employed_years', 'loan_amount', 'fico', 'ltv', 'cltv', 'dscr', 'units', 'first_time_buyer', 'income_vs_ami', 'bank_statement_months', 'asset_statement_months', 'tax_return_years'] as const
 export const RULE_OPS = ['<=', '>=', 'in', 'not_in', 'required', 'between'] as const
 
 type Of<T extends readonly string[]> = T[number]

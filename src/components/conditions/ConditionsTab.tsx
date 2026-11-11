@@ -11,6 +11,8 @@ import type { LoanProfile } from '@/lib/api/types'
 import { todayIso } from '@/lib/dates'
 import { CONDITION_PARTIES, CONDITION_STATUSES, conditionCounts, guessParty, splitConditions, type Condition, type ConditionParty, type ConditionStatus } from '@/lib/loanfile/conditions'
 import type { StepResult } from '@/lib/loanfile/workflow'
+import type { Flagged } from '@/lib/conditions/suggest'
+import { FlaggedNote, SuggestedConditions, useConditionSuggestions } from './SuggestedConditions'
 
 const STATUS_CLASS: Record<ConditionStatus, string> = {
   outstanding: 'border-amber-200 bg-amber-50 text-amber-900',
@@ -27,7 +29,8 @@ const partyLabel = (p: ConditionParty) => CONDITION_PARTIES.find((x) => x.value 
  * Underwriting conditions on the file, tracked here (documents are handled
  * with the lender). Paste the lender's list to split it into rows. When every
  * condition is Submitted, Cleared or Waived, the Workflow's "Submit
- * conditions" step is marked done, the same as clicking it.
+ * conditions" step is marked done, the same as clicking it. Suggested
+ * conditions (Phase 8) from the checklist rules sit above the list.
  */
 export function ConditionsTab({ loan, step }: { loan: LoanProfile; step: StepResult | null }) {
   const conditions = useConditions(loan.id)
@@ -41,6 +44,8 @@ export function ConditionsTab({ loan, step }: { loan: LoanProfile; step: StepRes
   const counts = conditionCounts(list.map((c) => c.status))
   const lastPosition = list.reduce((m, c) => Math.max(m, c.position), 0)
   const onBorrower = list.filter((c) => c.party === 'borrower' && !['submitted', 'cleared', 'waived'].includes(c.status)).length
+  const suggested = useConditionSuggestions(loan, conditions.data)
+  const flagOf = new Map<string, Flagged>((suggested?.flagged ?? []).map((f) => [f.conditionId, f]))
 
   const change = (c: Condition, changes: ConditionChanges) =>
     update.mutate(
@@ -73,6 +78,7 @@ export function ConditionsTab({ loan, step }: { loan: LoanProfile; step: StepRes
         </Button>
       }
     >
+      {suggested && loan.stage !== 'closed' && <SuggestedConditions loan={loan} suggestions={suggested.suggestions} lastPosition={lastPosition} />}
       {conditions.isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : conditions.error ? (
@@ -82,7 +88,7 @@ export function ConditionsTab({ loan, step }: { loan: LoanProfile; step: StepRes
       ) : (
         <ol className="divide-y">
           {list.map((c, i) => (
-            <ConditionRow key={c.id} n={i + 1} c={c} busy={update.isPending} onChange={(changes) => change(c, changes)} onRemove={async () => (await confirmAction('Remove this condition?', { confirmLabel: 'Remove', destructive: true })) && remove.mutate(c.id, { onError: (e) => toast.error(e.message) })} />
+            <ConditionRow key={c.id} n={i + 1} c={c} flag={flagOf.get(c.id)} busy={update.isPending} onChange={(changes) => change(c, changes)} onRemove={async () => (await confirmAction('Remove this condition?', { confirmLabel: 'Remove', destructive: true })) && remove.mutate(c.id, { onError: (e) => toast.error(e.message) })} />
           ))}
         </ol>
       )}
@@ -107,7 +113,7 @@ export function ConditionsTab({ loan, step }: { loan: LoanProfile; step: StepRes
   )
 }
 
-function ConditionRow({ n, c, busy, onChange, onRemove }: { n: number; c: Condition; busy: boolean; onChange: (changes: ConditionChanges) => void; onRemove: () => void }) {
+function ConditionRow({ n, c, flag, busy, onChange, onRemove }: { n: number; c: Condition; flag: Flagged | undefined; busy: boolean; onChange: (changes: ConditionChanges) => void; onRemove: () => void }) {
   return (
     <li className="grid gap-2 py-3 md:grid-cols-[1.5rem_minmax(0,1fr)_auto]">
       <span className="pt-1.5 text-xs text-muted-foreground tabular-nums">{n}.</span>
@@ -148,6 +154,7 @@ function ConditionRow({ n, c, busy, onChange, onRemove }: { n: number; c: Condit
             className={cn(control, 'min-w-40 flex-1 bg-card')}
           />
         </div>
+        <FlaggedNote flag={flag} />
       </div>
       <Button size="icon-sm" variant="ghost" aria-label={`Remove condition ${n}`} className="justify-self-end text-muted-foreground hover:text-destructive" onClick={onRemove}>
         <Trash2Icon />

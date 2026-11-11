@@ -174,8 +174,14 @@ export const RULE_FIELDS = labels([
   ['units', 'Units'],
   ['first_time_buyer', 'First-time buyer'],
   ['income_vs_ami', 'Income as % of area median'],
+  ['bank_statement_months', 'Bank statement months (documents)'],
+  ['asset_statement_months', 'Asset statement months (documents)'],
+  ['tax_return_years', 'Tax return years (documents)'],
 ] as const)
 export type RuleField = (typeof RULE_FIELDS.values)[number]
+
+/** Rules that say which documents a program wants (Phase 8 suggested conditions). Product Search ignores them. */
+export const DOCUMENT_RULE_FIELDS: readonly RuleField[] = ['bank_statement_months', 'asset_statement_months', 'tax_return_years']
 
 export const RULE_OPS = ['<=', '>=', 'in', 'not_in', 'required', 'between'] as const
 export type RuleOp = (typeof RULE_OPS)[number]
