@@ -21,6 +21,8 @@ export interface ClosedPerson {
   emailConsent: boolean | null
   /** The "Automate reminders" switch: key-date reminders are drafted on their own. */
   automateReminders: boolean
+  /** Their estimated credit score on this loan (loan_borrowers). */
+  creditScore: number | null
 }
 
 export interface ClosedHome {
@@ -117,7 +119,7 @@ const CLOSED_SELECT = `
   home:properties!loans_subject_property_id_fkey ( id, address_line, city, state, zip, estimated_value, insurance_carrier, insurance_renewal_date, homestead_filed )
 `
 
-const toPerson = (r: PersonRow): ClosedPerson => ({
+const toPerson = (r: PersonRow, creditScore: number | null = null): ClosedPerson => ({
   id: r.id,
   firstName: r.first_name,
   lastName: r.last_name,
@@ -127,6 +129,7 @@ const toPerson = (r: PersonRow): ClosedPerson => ({
   smsConsent: r.sms_consent,
   emailConsent: r.email_consent,
   automateReminders: r.automate_reminders === true,
+  creditScore,
 })
 
 const lowest = (scores: (number | null)[]) => {
@@ -136,7 +139,8 @@ const lowest = (scores: (number | null)[]) => {
 
 function toClosed(r: ClosedRow): ClosedLoan {
   const people = r.borrowers.filter((b) => b.contact)
-  const primary = people.find((b) => b.role === 'primary')?.contact
+  const primaryRow = people.find((b) => b.role === 'primary')
+  const primary = primaryRow?.contact
   return {
     id: r.id,
     purpose: r.purpose,
@@ -156,8 +160,8 @@ function toClosed(r: ClosedRow): ClosedLoan {
     lenderName: r.lender_name,
     programName: r.program_name,
     lo: r.lo ? { id: r.lo.id, name: r.lo.full_name || r.lo.email } : null,
-    borrower: primary ? toPerson(primary) : null,
-    coBorrowers: people.filter((b) => b.role === 'co_borrower').map((b) => toPerson(b.contact!)),
+    borrower: primary ? toPerson(primary, primaryRow!.estimated_credit_score) : null,
+    coBorrowers: people.filter((b) => b.role === 'co_borrower').map((b) => toPerson(b.contact!, b.estimated_credit_score)),
     creditScore: lowest(r.borrowers.map((b) => b.estimated_credit_score)),
     home: r.home
       ? {
@@ -203,13 +207,15 @@ export interface ClosedFactsInput {
   loan: { lenderName: string | null; programName: string | null; monthlyPayment: number | null }
   home: { id: string; insuranceCarrier: string | null; insuranceRenewalDate: string | null; homesteadFiled: boolean | null } | null
   person: { id: string; smsConsent: boolean | null; emailConsent: boolean | null } | null
+  /** Changed credit scores by contact id (null clears it). */
+  scores?: Record<string, number | null>
 }
 
 /** Saves the closed loan card: each value to its own place (loan, home, person). */
 export function useSaveClosedFacts(loanId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ loan, home, person }: ClosedFactsInput) => {
+    mutationFn: async ({ loan, home, person, scores }: ClosedFactsInput) => {
       await saveLoanDetails(loanId, loan)
       if (home) {
         unwrap(
@@ -222,6 +228,10 @@ export function useSaveClosedFacts(loanId: string) {
       }
       if (person) {
         unwrap(await db().from('contacts').update({ sms_consent: person.smsConsent, email_consent: person.emailConsent }).eq('id', person.id).select('id'))
+      }
+      for (const [contactId, score] of Object.entries(scores ?? {})) {
+        const rows = unwrap<{ contact_id: string }[]>(await db().from('loan_borrowers').update({ estimated_credit_score: score }).eq('loan_id', loanId).eq('contact_id', contactId).select('contact_id'))
+        if (!rows.length) throw new Error('The credit score could not be saved.')
       }
     },
     onSuccess: () => {

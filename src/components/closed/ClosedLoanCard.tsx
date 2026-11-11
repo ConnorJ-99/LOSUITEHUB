@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { CalendarPlusIcon, CheckIcon, RefreshCwIcon, UserPlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card, CurrencyInput, DateInput, FormGrid, Input, ToggleChip, ToggleChipGroup } from '@/components/shared'
+import { Card, CurrencyInput, DateInput, FormGrid, Input, NumberInput, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { MORTGAGE_TYPE_OPTIONS, OCCUPANCY_OPTIONS } from '@/components/profile/options'
 import { useAddFollowUp, useClosedLoan, useSaveClosedFacts, type ClosedLoan } from '@/lib/api/closed'
 import { useSetAutomateReminders } from '@/lib/api/drafts'
@@ -62,7 +62,13 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
     emailConsent: c.borrower?.emailConsent ?? null,
   })
   const set = <K extends keyof typeof form>(key: K) => (value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
+  // Each borrower's estimated credit score on this loan (searchable on Closed loans).
+  const people = [c.borrower, ...c.coBorrowers].filter((p): p is NonNullable<typeof p> => !!p)
+  const [scores, setScores] = useState<Record<string, number | null>>(() => Object.fromEntries(people.map((p) => [p.id, p.creditScore])))
+  const changedScores = Object.fromEntries(people.filter((p) => scores[p.id] !== p.creditScore).map((p) => [p.id, scores[p.id]]))
+  const badScore = Object.values(scores).some((n) => n != null && (!Number.isInteger(n) || n < 300 || n > 850))
   const dirty =
+    Object.keys(changedScores).length > 0 ||
     form.lenderName !== c.lenderName || form.programName !== c.programName || form.monthlyPayment !== c.monthlyPayment ||
     form.insuranceCarrier !== (c.home?.insuranceCarrier ?? null) || form.insuranceRenewalDate !== (c.home?.insuranceRenewalDate ?? null) ||
     form.homesteadFiled !== (c.home?.homesteadFiled ?? null) || form.smsConsent !== (c.borrower?.smsConsent ?? null) || form.emailConsent !== (c.borrower?.emailConsent ?? null)
@@ -83,6 +89,7 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
         loan: { lenderName: form.lenderName?.trim() || null, programName: form.programName?.trim() || null, monthlyPayment: form.monthlyPayment },
         home: c.home ? { id: c.home.id, insuranceCarrier: form.insuranceCarrier, insuranceRenewalDate: form.insuranceRenewalDate, homesteadFiled: form.homesteadFiled } : null,
         person: c.borrower ? { id: c.borrower.id, smsConsent: form.smsConsent, emailConsent: form.emailConsent } : null,
+        scores: changedScores,
       },
       { onSuccess: () => toast.success('Closed loan saved'), onError: (e) => toast.error(e.message) },
     )
@@ -144,6 +151,16 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
           <Input label="Lender" value={form.lenderName ?? ''} onChange={(v) => set('lenderName')(v || null)} span={2} />
           <Input label="Program" value={form.programName ?? ''} onChange={(v) => set('programName')(v || null)} span={2} />
           <CurrencyInput label="Monthly payment at closing" value={form.monthlyPayment} onChange={set('monthlyPayment')} hint="Principal, interest, taxes, insurance, MI" span={2} />
+          {people.map((p) => (
+            <NumberInput
+              key={p.id}
+              label={people.length > 1 ? `Credit score · ${p.firstName}` : 'Credit score'}
+              value={scores[p.id] ?? null}
+              onChange={(n) => setScores((s) => ({ ...s, [p.id]: n }))}
+              maxDecimals={0}
+              error={scores[p.id] != null && (scores[p.id]! < 300 || scores[p.id]! > 850) ? '300 to 850' : undefined}
+            />
+          ))}
           {c.home ? (
             <>
               <Input label="Insurance carrier" value={form.insuranceCarrier ?? ''} onChange={(v) => set('insuranceCarrier')(v || null)} span={2} />
@@ -160,7 +177,7 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
         </ToggleChipGroup>
         {dirty && (
           <div className="flex justify-end">
-            <Button size="sm" disabled={save.isPending} onClick={submit}>{save.isPending ? 'Saving…' : 'Save'}</Button>
+            <Button size="sm" disabled={save.isPending || badScore} onClick={submit}>{save.isPending ? 'Saving…' : 'Save'}</Button>
           </div>
         )}
 
