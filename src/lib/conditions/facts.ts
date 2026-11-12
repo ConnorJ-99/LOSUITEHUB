@@ -24,6 +24,8 @@ export function fileFactsFrom(
   events: { contactId: string; eventType: CreditEventType }[],
   program: SelectedProgram | null,
   year: number,
+  /** YYYY-MM-DD; the employment rules count back from it. */
+  today: string,
 ): FileFacts {
   const d = loan.details
   const subject = properties.find((p) => p.id === d.subjectPropertyId) ?? null
@@ -41,10 +43,12 @@ export function fileFactsFrom(
     programName: program?.name ?? null,
     program: program?.limits ?? {},
     year,
+    today,
     people: app.borrowers.map((b) => ({
       contactId: b.contactId,
       firstName: b.person.firstName,
       jobs: b.employments.filter((j) => j.status === 'current' && j.employerName.trim()).map((j) => ({ id: j.id, employerName: j.employerName.trim(), selfEmployed: j.isSelfEmployed })),
+      history: b.employments.filter((j) => j.employerName.trim()).map((j) => ({ id: j.id, employerName: j.employerName.trim(), selfEmployed: j.isSelfEmployed, current: j.status === 'current', startDate: j.startDate, endDate: j.endDate })),
       otherIncomes: b.otherIncomes.map((o) => o.incomeType),
       assets: app.assets
         .filter((a) => a.contactId === b.contactId)

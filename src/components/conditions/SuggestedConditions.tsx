@@ -12,8 +12,12 @@ import { useProperties } from '@/lib/api/properties'
 import type { LoanProfile } from '@/lib/api/types'
 import { useApplication } from '@/lib/api/urla'
 import { fileFactsFrom } from '@/lib/conditions/facts'
+import { documentSuggestions, type AnalyzedDoc } from '@/lib/conditions/fromDocuments'
+import { useAnalyses } from '@/lib/api/analyses'
+import { useLoanDocuments } from '@/lib/api/documents'
 import { suggestConditions, type Flagged, type Suggestion } from '@/lib/conditions/suggest'
 import { CONDITION_PARTIES, type Condition, type ConditionParty } from '@/lib/loanfile/conditions'
+import { todayIso } from '@/lib/dates'
 
 const STAGE_LABEL = { application: 'At application', processing: 'In processing', before_closing: 'Before closing' } as const
 const partyLabel = (p: string) => CONDITION_PARTIES.find((x) => x.value === p)?.label ?? p
@@ -32,16 +36,23 @@ export function useConditionSuggestions(loan: LoanProfile, conditions: Condition
   const requests = useDocumentRequests(loan.id)
   const dismissed = useConditionDismissals(loan.id)
   const program = useSelectedProgram(loan.details.programId)
+  // Stage 3c: flags on analyzed uploads (null before the analyses script has run, then nothing is added).
+  const analyses = useAnalyses(loan.id)
+  const docs = useLoanDocuments(loan.id)
   const ready = !!app.data && !!properties.data && !!rules.data && !!requests.data && !!dismissed.data && !!conditions && (events.data !== undefined || (app.data?.borrowers.length ?? 0) === 0) && (!loan.details.programId || program.data !== undefined)
   return useMemo(() => {
     if (!ready) return null
-    const facts = fileFactsFrom(loan, app.data!, properties.data!, events.data ?? [], program.data ?? null, new Date().getFullYear())
+    const facts = fileFactsFrom(loan, app.data!, properties.data!, events.data ?? [], program.data ?? null, new Date().getFullYear(), todayIso())
+    const analyzed: AnalyzedDoc[] = [...(analyses.data?.values() ?? [])].flatMap((a) => {
+      const d = docs.data?.find((x) => x.id === a.documentId)
+      return d && (a.status === 'ready' || a.status === 'needs_review') ? [{ documentId: d.id, contactId: d.contactId, fileName: d.fileName, kind: a.suggestedKind, fields: a.fields, flags: a.flags }] : []
+    })
     return suggestConditions(facts, rules.data!, {
       conditions: conditions!.map((c) => ({ id: c.id, sourceKey: c.sourceKey ?? null, status: c.status })),
       requests: requests.data!.map((r) => ({ id: r.id, contactId: r.contactId, ruleKey: r.ruleKey, status: r.status })),
       dismissed: dismissed.data!,
-    })
-  }, [ready, loan, app.data, properties.data, events.data, program.data, rules.data, requests.data, dismissed.data, conditions])
+    }, documentSuggestions(analyzed))
+  }, [ready, loan, app.data, properties.data, events.data, program.data, rules.data, requests.data, dismissed.data, conditions, analyses.data, docs.data])
 }
 
 export function SuggestedConditions({ loan, suggestions, lastPosition }: { loan: LoanProfile; suggestions: Suggestion[]; lastPosition: number }) {

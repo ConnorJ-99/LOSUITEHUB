@@ -9,6 +9,7 @@ const pat: SuggestPerson = {
   contactId: 'pat',
   firstName: 'Pat',
   jobs: [{ id: 'job1', employerName: 'ABC Company', selfEmployed: false }],
+  history: [],
   otherIncomes: [],
   assets: [{ id: 'a1', assetType: 'checking', institutionName: 'Chase', accountLast4: '9981234', amount: 20000, giftSource: null }],
   creditEvents: [],
@@ -29,6 +30,7 @@ const base: FileFacts = {
   programName: null,
   program: {},
   year: 2026,
+  today: '2026-11-12',
 }
 const none: Existing = { conditions: [], requests: [], dismissed: [] }
 const keys = (f: FileFacts) => allSuggestions(f, RULES).map((s) => s.ruleKey)
@@ -150,5 +152,39 @@ describe('the borrower checklist', () => {
     const sql = Object.values(scripts)[0]
     const seeded = [...sql.matchAll(/\(org, '(cond_[a-z0-9_]+)', 'everyone', '((?:[^']|'')*)', '((?:[^']|'')*)', '([a-z_]+)', (\d+), true, 'conditions', '(\w+)', '(\w+)', '(\w+)'/g)].map((m) => [m[1], m[2].replace(/''/g, "'"), m[3].replace(/''/g, "'"), m[4], Number(m[5]), m[6], m[7], m[8]])
     expect(seeded).toEqual(STARTER_CONDITION_RULES.map((r) => [r.key, r.shortText, r.fullText, r.kind, r.sortOrder, r.scope, r.party, r.stage]))
+  })
+})
+
+describe('employment dates (Stage 3a)', () => {
+  const dated: SuggestPerson = {
+    ...pat,
+    jobs: [{ id: 'excel', employerName: 'Excel', selfEmployed: false }],
+    history: [
+      { id: 'excel', employerName: 'Excel', selfEmployed: false, current: true, startDate: '2025-06-15', endDate: null },
+      { id: 'hd', employerName: 'Home Depot', selfEmployed: false, current: false, startDate: '2024-06-01', endDate: '2025-04-30' },
+    ],
+  }
+  const f = { ...base, people: [dated] }
+  const bodies = (rule: string) => allSuggestions(f, RULES).filter((s) => s.ruleKey === rule).map((s) => s.body)
+  it('pay stubs for the current job, a final pay stub for the last one', () => {
+    expect(bodies('paystubs')).toEqual(['Pay stubs covering the last 30 days: Excel', 'Final pay stub (if available): Home Depot'])
+  })
+  it('one W-2 per year worked inside the window', () => {
+    expect(bodies('w2s')).toEqual(['W-2 for 2025: Excel', 'W-2 for 2024: Home Depot', 'W-2 for 2025: Home Depot'])
+  })
+  it('a gap becomes a suggested letter of explanation, keyed so it is never suggested twice', () => {
+    const gap = allSuggestions(f, RULES).find((s) => s.ruleKey === 'emp_gap')!
+    expect(gap).toMatchObject({ key: 'emp_gap:pat:2025-05-01', body: 'Letter of explanation for the employment gap May 1, 2025 – Jun 14, 2025', party: 'borrower', kind: 'explanation_letter' })
+    const added = suggestConditions(f, RULES, { ...none, conditions: [{ id: 'c1', sourceKey: gap.key, status: 'outstanding' }] })
+    expect(added.suggestions.some((s) => s.key === gap.key)).toBe(false)
+  })
+  it('a requested W-2 year shows as requested, not suggested twice', () => {
+    const w2 = allSuggestions(f, RULES).find((s) => s.body === 'W-2 for 2024: Home Depot')!
+    const r = suggestConditions(f, RULES, { ...none, requests: [{ id: 'r1', contactId: 'pat', ruleKey: w2.requestKey!, status: 'received' }] })
+    expect(r.suggestions.some((s) => s.key === w2.key)).toBe(false)
+  })
+  it('a condition from a gap that was fixed on the 1003 is flagged, not deleted', () => {
+    const r = suggestConditions({ ...base, people: [pat] }, RULES, { ...none, conditions: [{ id: 'c1', sourceKey: 'emp_gap:pat:2025-05-01', status: 'outstanding' }] })
+    expect(r.flagged).toEqual([{ conditionId: 'c1', why: 'No longer matches the file (the employment history changed)' }])
   })
 })

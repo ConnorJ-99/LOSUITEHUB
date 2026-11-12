@@ -10,11 +10,15 @@ import { AWARD_INCOMES, BANKABLE_ASSETS, FILE_RULE_CONDITIONS, GIFT_ASSETS, INVE
 import type { CreditEventType } from '@/lib/prequal/readiness'
 import { ASSET_OPTIONS, GIFT_SOURCE_OPTIONS, type OtherIncomeType } from '@/lib/urla/options'
 import type { DocumentKind } from '@/lib/api/documents'
+import { ruleKeyOf } from '@/lib/documents/uploadRequests'
+import { employmentDocs, historyChecks, type HistoryJob } from './employment'
 
 export interface SuggestPerson {
   contactId: string
   firstName: string
   jobs: { id: string; employerName: string; selfEmployed: boolean }[]
+  /** Every job on the 1003 with its dates (current and previous), for the employment rules. */
+  history: HistoryJob[]
   otherIncomes: OtherIncomeType[]
   assets: { id: string; assetType: string; institutionName: string | null; accountLast4: string | null; amount: number; giftSource: string | null }[]
   creditEvents: CreditEventType[]
@@ -40,6 +44,8 @@ export interface FileFacts extends RuleFacts {
   program: ProgramLimits
   /** This year (tax years count back from last year). */
   year: number
+  /** Today, YYYY-MM-DD (the employment window counts back from it). */
+  today: string
 }
 
 export interface Existing {
@@ -67,6 +73,8 @@ export interface Suggestion {
   kind: DocumentKind
   /** A document request already asked for (not in yet): adding links to it. */
   request: { id: string; status: 'requested' } | null
+  /** The checklist key a request for it would have, when it isn't the rule's (one W-2 year, a final pay stub, a gap letter). */
+  requestKey?: string
 }
 
 export interface Flagged {
@@ -75,6 +83,9 @@ export interface Flagged {
 }
 
 const conditionsOf = (p: SuggestPerson, doc: NonNullable<FileFacts['incomeDocType']>) => personConditions({ ...p, assetTypes: p.assets.map((a) => a.assetType) }, doc)
+
+/** Rules whose items follow the job dates when there are any. */
+const DATED_RULES = ['paystubs', 'w2s']
 
 const STAGE_ORDER: Record<RuleStage, number> = { application: 0, processing: 1, before_closing: 2 }
 const labelOf = (options: readonly { value: string; label: string }[], v: string | null) => (v ? (options.find((o) => o.value === v)?.label ?? v) : null)
@@ -151,10 +162,12 @@ interface Item {
   why: string
   requestRuleKey: string
   fill?: Record<string, string>
+  /** Wording that replaces the rule's ("W-2 for 2025"). */
+  text?: string
 }
 
 /** The items one person-level rule gives one borrower: one per account or job where that's what it's about. */
-function personItems(rule: DocRule, p: SuggestPerson, has: Record<PersonCondition, boolean>): Item[] {
+function personItems(rule: DocRule, p: SuggestPerson, has: Record<PersonCondition, boolean>, today: string): Item[] {
   const base = { contactId: p.contactId, requestRuleKey: rule.key }
   const k = (...parts: string[]) => [rule.key, p.contactId, ...parts].join(':')
   const c = rule.condition
@@ -180,7 +193,17 @@ function personItems(rule: DocRule, p: SuggestPerson, has: Record<PersonConditio
     })
   }
   if (c === 'wage_earner') {
-    return p.jobs.filter((j) => !j.selfEmployed).map((j) => ({ ...base, key: k(j.id), detail: j.employerName, why: `Job on the 1003: ${j.employerName}`, fill: { each_job: '' } }))
+    // Pay stubs and W-2s follow the job dates when the 1003 has them (employment.ts); other jobs keep the plain rule.
+    const docs = DATED_RULES.includes(rule.key) ? employmentDocs(p.history, today) : []
+    const dated = new Set(docs.map((d) => d.jobId))
+    const plain = p.jobs.filter((j) => !j.selfEmployed && !dated.has(j.id)).map((j) => ({ ...base, key: k(j.id), detail: j.employerName, why: `Job on the 1003: ${j.employerName}`, fill: { each_job: '' } }))
+    const byDate = docs.flatMap((d): Item[] => {
+      if (rule.key === 'w2s' && d.type === 'w2') return [{ ...base, key: k(d.jobId, String(d.year)), text: `W-2 for ${d.year}`, detail: d.employer, why: d.why, requestRuleKey: ruleKeyOf({ key: null, label: d.label }) }]
+      if (rule.key === 'paystubs' && d.type === 'paystubs') return [{ ...base, key: k(d.jobId), detail: d.employer, why: d.why, fill: { each_job: '' } }]
+      if (rule.key === 'paystubs' && d.type === 'final_paystub') return [{ ...base, key: k(d.jobId, 'final'), text: 'Final pay stub (if available)', detail: d.employer, why: d.why, requestRuleKey: ruleKeyOf({ key: null, label: d.label }) }]
+      return []
+    })
+    return [...plain, ...byDate]
   }
   if (c === 'self_employed' && rule.key !== 'tax_returns') {
     return p.jobs.filter((j) => j.selfEmployed).map((j) => ({ ...base, key: k(j.id), detail: j.employerName, why: `Self-employed: ${j.employerName}` }))
@@ -218,13 +241,14 @@ export function allSuggestions(facts: FileFacts, rules: DocRule[]): Suggestion[]
         key: it.key,
         ruleKey: rule.key,
         contactId: it.contactId,
-        body: it.detail ? `${fill(text, it.fill ?? {})}: ${it.detail}` : fill(text, it.fill ?? {}),
+        body: it.detail ? `${fill(it.text ?? text, it.fill ?? {})}: ${it.detail}` : fill(it.text ?? text, it.fill ?? {}),
         why: [...filters, it.why].filter(Boolean).join(' · ') || 'Company rule',
         source,
         party,
         stage,
         kind: rule.kind,
         request: null,
+        ...(it.requestRuleKey !== rule.key ? { requestKey: it.requestRuleKey } : {}),
         order: STAGE_ORDER[stage] * 10_000 + rule.sortOrder,
       })
 
@@ -241,7 +265,27 @@ export function allSuggestions(facts: FileFacts, rules: DocRule[]): Suggestion[]
       continue
     }
     for (const p of facts.people) {
-      for (const it of personItems(rule, p, conditionsOf(p, doc))) push({ ...it, detail: it.detail === p.firstName && !several ? null : it.detail })
+      for (const it of personItems(rule, p, conditionsOf(p, doc), facts.today)) push({ ...it, detail: it.detail === p.firstName && !several ? null : it.detail })
+    }
+  }
+  // Employment history checks (employment.ts): gaps, short history, a recent job change.
+  for (const p of facts.people) {
+    for (const h of historyChecks(p.history, facts.today)) {
+      const body = several ? `${h.body}: ${p.firstName}` : h.body
+      out.push({
+        key: `emp_${h.type}:${p.contactId}:${h.ref}`,
+        ruleKey: `emp_${h.type}`,
+        contactId: p.contactId,
+        body,
+        why: h.why,
+        source: { kind: 'company', label: 'Employment history', citation: null },
+        party: h.type === 'recent_start' ? 'processor_lo' : 'borrower',
+        stage: 'application',
+        kind: h.type === 'recent_start' ? 'other' : 'explanation_letter',
+        request: null,
+        requestKey: ruleKeyOf({ key: null, label: body }),
+        order: STAGE_ORDER.application * 10_000 - 1,
+      })
     }
   }
   return out.sort((a, b) => a.order - b.order).map(({ order: _order, ...s }) => s)
@@ -252,8 +296,8 @@ export function allSuggestions(facts: FileFacts, rules: DocRule[]): Suggestion[]
  * condition, dismissed, or received / reviewed / waived as a document
  * request; plus conditions added from a suggestion that no longer fits.
  */
-export function suggestConditions(facts: FileFacts, rules: DocRule[], existing: Existing): { suggestions: Suggestion[]; flagged: Flagged[] } {
-  const all = allSuggestions(facts, rules)
+export function suggestConditions(facts: FileFacts, rules: DocRule[], existing: Existing, fromDocuments: Suggestion[] = []): { suggestions: Suggestion[]; flagged: Flagged[] } {
+  const all = [...allSuggestions(facts, rules), ...fromDocuments]
   const used = new Set(existing.conditions.map((c) => c.sourceKey).filter(Boolean))
   const dismissed = new Set(existing.dismissed)
   const requestFor = (s: Suggestion) =>
@@ -271,7 +315,7 @@ export function suggestConditions(facts: FileFacts, rules: DocRule[], existing: 
     .filter((c) => c.sourceKey && !live.has(c.sourceKey) && c.status !== 'cleared' && c.status !== 'waived')
     .map((c) => {
       const rule = rules.find((r) => r.key === c.sourceKey!.split(':')[0])
-      const why = !rule ? 'its rule was removed' : !rule.active ? 'its rule is turned off' : rule.shortText
+      const why = c.sourceKey!.startsWith('emp_') ? 'the employment history changed' : c.sourceKey!.startsWith('doc_') ? 'the upload changed or was removed' : !rule ? 'its rule was removed' : !rule.active ? 'its rule is turned off' : rule.shortText
       return { conditionId: c.id, why: `No longer matches the file (${why})` }
     })
   return { suggestions, flagged }
@@ -279,6 +323,7 @@ export function suggestConditions(facts: FileFacts, rules: DocRule[], existing: 
 
 /** The document request key a suggestion matches: the rule, or the rule + income type for award letters. */
 function requestKeyOf(s: Suggestion): string {
+  if (s.requestKey) return s.requestKey
   const parts = s.key.split(':')
   return parts.length === 3 && s.ruleKey === parts[0] && /^[a-z_]+$/.test(parts[2]) && AWARD_INCOMES[parts[2] as OtherIncomeType] ? `${s.ruleKey}_${parts[2]}` : s.ruleKey
 }

@@ -33,6 +33,7 @@ import { MATRIX_FORMAT_PROMPT, MATRIX_SYSTEM_PROMPT, MATRIX_USER_PROMPT, MAX_MAT
 import { SCENARIO_SCHEMA, SCENARIO_SYSTEM_PROMPT, normalizeScenarioRead } from './scenarioRead.ts'
 import { ANSWER_SCHEMA, ANSWER_SYSTEM_PROMPT, MAX_PASSAGES, answerPrompt, normalizeAnswer, type AnswerPassage } from './guidelineAnswer.ts'
 import { MAX_EMAIL_CHARS, UPDATE_SCHEMA, UPDATE_SYSTEM_PROMPT, normalizeProposal, updatePrompt, type UpdateProgram } from './productUpdate.ts'
+import { DOC_READ_SCHEMA, DOC_READ_SYSTEM_PROMPT, DOC_READ_USER_PROMPT, documentFlags, normalizeDocReading, statusFor, type FlagJob } from './documentRead.ts'
 
 /** Drafts use Sonnet (approved by Connor): fast and inexpensive for short messages. */
 const MODEL = 'claude-sonnet-5-5'
@@ -192,6 +193,9 @@ async function draftWithClaude(anthropic: Anthropic, req: FollowUpRequest, file:
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (request.method !== 'POST') return reply(405, { error: 'Use POST.' })
+
+  // The upload-analysis timer (scheduled_document_analysis): no user, the shared webhook key instead.
+  if (new URL(request.url).searchParams.has('key')) return await handleDocumentReadDue(request)
 
   const auth = request.headers.get('Authorization')
   if (!auth) return reply(401, { error: 'Sign in first.' })
@@ -937,4 +941,117 @@ async function handleProductUpdateRead(db: SupabaseClient, body: unknown, userId
   } catch (e) {
     return failRun(db, runId, usage, e)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Read uploads (Stage 3b): the timer asks every minute; up to 3 at a time
+// ---------------------------------------------------------------------------
+
+/** Uploads are read with Sonnet (Connor, 2026-11-12): many short documents, sorting and copying fields. */
+const DOC_READ_MODEL = 'claude-sonnet-5-5'
+const DOC_READ_MAX_BYTES = 10 * 1024 * 1024
+
+interface AnalysisRow {
+  id: string
+  organization_id: string
+  loan_id: string
+  document_id: string
+}
+
+interface FinishValues {
+  status?: string
+  kind?: string
+  confidence?: string
+  fields?: unknown
+  flags?: unknown
+  model?: string | null
+  run?: string | null
+  error?: string | null
+  waitKey?: boolean
+}
+
+async function handleDocumentReadDue(request: Request) {
+  const expected = Deno.env.get('GHL_WEBHOOK_SECRET')
+  const key = new URL(request.url).searchParams.get('key')
+  if (!expected || key !== expected) return reply(401, { error: 'Not allowed.' })
+  const body = await request.json().catch(() => null)
+  if ((body as { task?: unknown } | null)?.task !== 'document_read_due') return reply(400, { error: 'Unknown task.' })
+  const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+  const claimed = await db.rpc('claim_document_analyses', { p_limit: 3 })
+  if (claimed.error) return reply(500, { error: claimed.error.message })
+  const rows = (claimed.data ?? []) as AnalysisRow[]
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
+  const finish = (id: string, v: FinishValues) =>
+    db.rpc('finish_document_analysis', {
+      p_id: id,
+      p_status: v.status ?? null,
+      p_kind: v.kind ?? null,
+      p_confidence: v.confidence ?? null,
+      p_fields: v.fields ?? null,
+      p_flags: v.flags ?? null,
+      p_model: v.model ?? null,
+      p_run: v.run ?? null,
+      p_error: v.error ?? null,
+      p_wait_key: v.waitKey ?? false,
+    })
+  let done = 0
+  for (const a of rows) {
+    if (!apiKey) {
+      await finish(a.id, { error: 'Waiting for the AI key: add ANTHROPIC_API_KEY under Edge Functions → Secrets.', waitKey: true })
+      continue
+    }
+    let runId: string | null = null
+    const usage: Usage = { input: 0, output: 0, model: DOC_READ_MODEL }
+    try {
+      const doc = must(await db.from('loan_documents').select('kind, file_name, storage_path, content_type, size_bytes, contact_id').eq('id', a.document_id).maybeSingle(), 'The document') as DocRow & { contact_id: string | null }
+      const readable = doc.content_type ? READABLE[doc.content_type] : undefined
+      if (!readable || (doc.size_bytes ?? 0) > DOC_READ_MAX_BYTES) {
+        // Nothing to retry: say so and let Connor look at it.
+        const text = readable ? 'Over 10 MB, so it was not read automatically. Check it by hand.' : 'This file type (an iPhone HEIC photo) is not read automatically. Check it by hand.'
+        await finish(a.id, { status: 'needs_review', kind: 'other', confidence: 'low', fields: {}, flags: [{ code: 'low_confidence', text }] })
+        done++
+        continue
+      }
+      // The borrower's jobs on the 1003 (every borrower on the file when the upload isn't tied to one person).
+      const people = doc.contact_id ? [doc.contact_id] : ((await db.from('loan_borrowers').select('contact_id').eq('loan_id', a.loan_id)).data ?? []).map((r) => (r as { contact_id: string }).contact_id)
+      const jobRows = people.length ? ((await db.from('employments').select('id, employer_name, status, start_date, end_date').in('contact_id', people)).data ?? []) : []
+      const jobs: FlagJob[] = (jobRows as { id: string; employer_name: string; status: string; start_date: string | null; end_date: string | null }[]).map((j) => ({
+        id: j.id,
+        employerName: j.employer_name,
+        current: j.status === 'current',
+        startDate: j.start_date,
+        endDate: j.end_date,
+      }))
+
+      const run = await db.from('ai_runs').insert({ organization_id: a.organization_id, loan_id: a.loan_id, task_type: 'document_read', input_ref: { analysisId: a.id, documentId: a.document_id }, model: DOC_READ_MODEL, created_by: null }).select('id').single()
+      if (run.error) throw new Error(`Could not log the run: ${run.error.message}`)
+      runId = run.data.id as string
+      const blob = await db.storage.from('loan-files').download(doc.storage_path)
+      if (blob.error || !blob.data) throw new Error(`Could not open ${doc.file_name}: ${blob.error?.message ?? 'missing file'}`)
+      const data = base64(new Uint8Array(await blob.data.arrayBuffer()))
+      const content = [
+        readable === 'document' ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data }, title: doc.file_name } : { type: 'image', source: { type: 'base64', media_type: doc.content_type, data } },
+        { type: 'text', text: `${DOC_READ_USER_PROMPT} File name: ${doc.file_name}.` },
+      ]
+      const params = { model: DOC_READ_MODEL, max_tokens: 4000, system: DOC_READ_SYSTEM_PROMPT, messages: [{ role: 'user', content }], output_config: { effort: 'low', format: { type: 'json_schema', schema: DOC_READ_SCHEMA } } }
+      const res = await createForJson(new Anthropic({ apiKey }), params, db, runId)
+      usage.input += res.usage.input_tokens
+      usage.output += res.usage.output_tokens
+      usage.model = res.model
+      if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read this document.')
+      const raw = parseJsonReply(replyText(res))
+      if (raw == null) throw new UserError('The assistant returned something unreadable.')
+      const reading = normalizeDocReading(raw)
+      if ('error' in reading) throw new UserError(reading.error)
+      const flags = documentFlags(reading, doc.kind, jobs, todayInDallas())
+      await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+      await finish(a.id, { status: statusFor(reading, flags), kind: reading.kind, confidence: reading.confidence, fields: reading.fields, flags, model: usage.model, run: runId })
+      done++
+    } catch (e) {
+      const message = e instanceof Anthropic.APIError ? `Claude API error (${e.status ?? 'network'}): ${e.message}` : (e as Error).message
+      if (runId) await db.from('ai_runs').update({ status: 'failed', error: message, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+      await finish(a.id, { error: message })
+    }
+  }
+  return reply(200, { claimed: rows.length, done })
 }

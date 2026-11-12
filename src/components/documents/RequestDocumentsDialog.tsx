@@ -10,6 +10,9 @@ import { useShareRecipients } from '@/lib/api/estimateShares'
 import { useDeletePreset, useDocumentCatalog, usePresets, useSavePreset, useSendDocumentRequest } from '@/lib/api/uploadRequests'
 import type { LoanProfile } from '@/lib/api/types'
 import { useAuth } from '@/lib/auth/context'
+import { useApplication } from '@/lib/api/urla'
+import { employmentDocs } from '@/lib/conditions/employment'
+import { todayIso } from '@/lib/dates'
 import { CATEGORY_LABEL, ruleKeyOf, type CatalogCategory, type CatalogItem, type PickedItem } from '@/lib/documents/uploadRequests'
 
 const NONE = 'none'
@@ -27,6 +30,7 @@ export function RequestDocumentsDialog({ loan, conditionId = null, onClose }: { 
   const presets = usePresets()
   const people = useShareRecipients(loan.id)
   const conditions = useConditions(loan.id)
+  const app = useApplication(loan.id)
   const send = useSendDocumentRequest(loan.id)
   const savePreset = useSavePreset(loan.organizationId)
   const deletePreset = useDeletePreset()
@@ -52,6 +56,15 @@ export function RequestDocumentsDialog({ loan, conditionId = null, onClose }: { 
   const shown = q ? items.filter((c) => `${c.label} ${c.instructions}`.toLowerCase().includes(q)) : items
   const groups = (Object.keys(CATEGORY_LABEL) as CatalogCategory[]).map((cat) => ({ cat, items: shown.filter((c) => c.category === cat) })).filter((g) => g.items.length)
   const pickedKeys = useMemo(() => new Set(picked.map(ruleKeyOf)), [picked])
+  // Suggested from employment (Stage 3a): the borrower's jobs and dates on the 1003. Nothing is added until Connor checks it.
+  const jobs = (app.data?.borrowers.find((b) => b.contactId === contactId)?.employments ?? []).map((j) => ({ id: j.id, employerName: j.employerName, selfEmployed: j.isSelfEmployed, current: j.status === 'current', startDate: j.startDate, endDate: j.endDate }))
+  const empDocs = employmentDocs(jobs, todayIso())
+  const stubs = empDocs.filter((d) => d.type === 'paystubs')
+  const fromJobs: (PickedItem & { why: string })[] = [
+    ...(stubs.length ? [{ key: 'paystubs', label: `Pay stubs: ${stubs.map((d) => d.employer).join(', ')}`, instructions: stubs[0].instructions, kind: 'paystub' as const, conditionId, why: stubs.map((d) => d.why).join('; ') }] : []),
+    ...empDocs.filter((d) => d.type !== 'paystubs').map((d) => ({ key: null, label: d.label, instructions: d.instructions, kind: d.type === 'w2' ? ('w2' as const) : ('paystub' as const), conditionId, why: d.why })),
+  ]
+  const togglePicked = (it: PickedItem, on: boolean) => setPicked((p) => (on ? [...p, it] : p.filter((x) => ruleKeyOf(x) !== ruleKeyOf(it))))
   const openConditions = (conditions.data ?? []).filter((c) => c.status !== 'cleared' && c.status !== 'waived')
   const conditionOptions = [{ value: NONE, label: 'No condition' }, ...openConditions.map((c) => ({ value: c.id, label: c.body.length > 60 ? `${c.body.slice(0, 57)}…` : c.body }))]
 
@@ -117,6 +130,22 @@ export function RequestDocumentsDialog({ loan, conditionId = null, onClose }: { 
 
         <div className="grid gap-4 md:grid-cols-2">
           <section className="min-w-0">
+            {fromJobs.length > 0 && (
+              <div className="mb-3 rounded-md border border-primary/20 bg-primary/5 p-2">
+                <p className="text-[0.65rem] font-semibold tracking-wide text-primary uppercase">Suggested from employment</p>
+                <ul className="mt-1 space-y-1">
+                  {fromJobs.map(({ why, ...it }) => (
+                    <li key={ruleKeyOf(it)} className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 text-sm" title={it.instructions}>
+                        {it.label}
+                        <span className="block text-xs text-muted-foreground">{why}</span>
+                      </span>
+                      <ToggleChip label={pickedKeys.has(ruleKeyOf(it)) ? 'Added' : 'Add'} pressed={pickedKeys.has(ruleKeyOf(it))} onChange={(on) => togglePicked(it, on)} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="relative">
               <SearchIcon className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the catalog" aria-label="Search the catalog" className="h-9 w-full rounded-md border pr-3 pl-8 text-sm focus:border-ring focus:outline-none" />
