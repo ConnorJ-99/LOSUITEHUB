@@ -71,3 +71,25 @@ describe('statement months', () => {
     expect(statementGaps([{ start: '2026-08-01', end: '2026-08-31' }, { start: '2026-09-01', end: '2026-09-30' }])).toEqual([])
   })
 })
+
+describe('income fields (Stage 4)', () => {
+  it('pay frequency, ownership and the return form are checked against their lists', () => {
+    const r = normalizeDocReading({ kind: 'paystub', confidence: 'high', fields: [
+      { key: 'pay_frequency', value: 'Bi-Weekly', quote: 'BIWEEKLY' },
+      { key: 'k1_ownership_pct', value: '50%', quote: '50.000000%' },
+      { key: 'return_form', value: '1120s', quote: 'Form 1120-S' },
+      { key: 'base_pay_current', value: '2,307.69', quote: 'Regular 2,307.69' },
+    ] }) as DocumentReading
+    expect(r.fields.pay_frequency?.value).toBe('biweekly')
+    expect(r.fields.k1_ownership_pct?.value).toBe(50)
+    expect(r.fields.return_form?.value).toBe('1120S')
+    expect(r.fields.base_pay_current?.value).toBe(2307.69)
+  })
+  it('keeps up to 10 large deposits; long numbers in a description keep only their last 4', () => {
+    const r = normalizeDocReading({ kind: 'bank_statement', confidence: 'high', fields: [], deposits: [
+      { date: '2026-09-03', amount: '$12,500.00', description: 'MOBILE DEPOSIT REF 99887766554' },
+      { date: 'yesterday', amount: '5', description: 'x' },
+    ] }) as DocumentReading
+    expect(r.deposits).toEqual([{ date: '2026-09-03', amount: 12500, description: 'MOBILE DEPOSIT REF ••6554' }])
+  })
+})

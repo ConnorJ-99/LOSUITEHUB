@@ -16,6 +16,11 @@ export interface IncomeWorksheet {
   pushedMonthly: number | null
   pushedAt: string | null
   createdAt: string
+  /** AI income drafts (Stage 4): 'draft' until pushed to the 1003. Worksheets from before the script read as final and manual. */
+  status: 'draft' | 'final'
+  source: 'manual' | 'ai'
+  sourceDocumentIds: string[]
+  sourceNotes: string[]
 }
 
 interface WorksheetRow {
@@ -31,6 +36,10 @@ interface WorksheetRow {
   pushed_monthly: number | string | null
   pushed_at: string | null
   created_at: string
+  status?: 'draft' | 'final'
+  source?: 'manual' | 'ai'
+  source_document_ids?: string[]
+  source_notes?: string[]
 }
 
 const toWorksheet = (r: WorksheetRow): IncomeWorksheet => ({
@@ -46,6 +55,10 @@ const toWorksheet = (r: WorksheetRow): IncomeWorksheet => ({
   pushedMonthly: num(r.pushed_monthly),
   pushedAt: r.pushed_at,
   createdAt: r.created_at,
+  status: r.status ?? 'final',
+  source: r.source ?? 'manual',
+  sourceDocumentIds: r.source_document_ids ?? [],
+  sourceNotes: r.source_notes ?? [],
 })
 
 /** Every income worksheet on a loan, oldest first. */
@@ -179,3 +192,56 @@ export function usePushWorksheet(loanId: string, organizationId: string) {
   })
 }
 
+
+/** One draft from "Calculate income" (src/lib/income/fromDocuments.ts). */
+export interface NewIncomeDraft {
+  contactId: string
+  kind: WorksheetKind
+  label: string
+  inputs: unknown
+  resultMonthly: number
+  employmentId: string | null
+  sourceDocumentIds: string[]
+  sourceNotes: string[]
+}
+
+/**
+ * Saves "Calculate income" results as AI drafts. A new calculation replaces
+ * the earlier AI drafts for the same borrower, type, job and label; worksheets
+ * Connor typed (or accepted) are never touched.
+ */
+export function useSaveIncomeDrafts(loanId: string, organizationId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (drafts: NewIncomeDraft[]) => {
+      for (const d of drafts) {
+        let old = db().from('income_worksheets').delete().eq('loan_id', loanId).eq('contact_id', d.contactId).eq('kind', d.kind).eq('status', 'draft').eq('source', 'ai').eq('label', d.label)
+        old = d.employmentId ? old.eq('employment_id', d.employmentId) : old.is('employment_id', null)
+        unwrap(await old.select('id'))
+      }
+      unwrap(
+        await db()
+          .from('income_worksheets')
+          .insert(
+            drafts.map((d) => ({
+              organization_id: organizationId,
+              loan_id: loanId,
+              contact_id: d.contactId,
+              kind: d.kind,
+              label: d.label,
+              inputs: d.inputs,
+              result_monthly: d.resultMonthly,
+              employment_id: d.employmentId,
+              property_id: null,
+              status: 'draft',
+              source: 'ai',
+              source_document_ids: d.sourceDocumentIds,
+              source_notes: d.sourceNotes,
+            })),
+          )
+          .select('id'),
+      )
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.worksheets(loanId) }),
+  })
+}

@@ -1045,7 +1045,7 @@ async function handleDocumentReadDue(request: Request) {
       if ('error' in reading) throw new UserError(reading.error)
       const flags = documentFlags(reading, doc.kind, jobs, todayInDallas())
       await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
-      await finish(a.id, { status: statusFor(reading, flags), kind: reading.kind, confidence: reading.confidence, fields: reading.fields, flags, model: usage.model, run: runId })
+      await finish(a.id, { status: statusFor(reading, flags), kind: reading.kind, confidence: reading.confidence, fields: reading.deposits ? { ...reading.fields, deposits: reading.deposits } : reading.fields, flags, model: usage.model, run: runId })
       done++
     } catch (e) {
       const message = e instanceof Anthropic.APIError ? `Claude API error (${e.status ?? 'network'}): ${e.message}` : (e as Error).message

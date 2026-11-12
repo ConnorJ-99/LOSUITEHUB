@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { cn } from 'cn'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
+  CalculatorIcon,
   ChevronDownIcon,
   FileSignatureIcon,
   FileTextIcon,
@@ -226,7 +227,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     { id: 'overview', label: 'Overview', icon: WorkflowIcon },
     { id: 'prequal', label: 'Prequal', icon: UserCheckIcon },
     { id: '1003', label: '1003', icon: FileTextIcon, marker: validation ? (validation.totalMissing ? { type: 'count', value: validation.totalMissing } : { type: 'complete' }) : undefined },
-    // The Income tab is hidden for now (Connor, 2026-11-12); its worksheets and code stay, and ?tab=income still opens it.
+    { id: 'income', label: 'Income', icon: CalculatorIcon },
     ...(isPurchase ? [{ id: 'contract', label: 'Contract', icon: FileSignatureIcon }] : []),
     { id: 'estimates', label: 'Scenarios & Estimate', icon: ReceiptIcon },
     { id: 'documents', label: 'Documents', icon: FolderIcon },

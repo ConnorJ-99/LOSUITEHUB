@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle2Icon, ChevronDownIcon, SendIcon, Trash2Icon } from 'lucide-react'
+import { CheckCircle2Icon, ChevronDownIcon, FileTextIcon, SendIcon, SparklesIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -23,10 +23,22 @@ import {
   type WorksheetData,
 } from '@/lib/income/worksheets'
 import { ownedProperties } from '@/lib/urla/realEstate'
+import { openDocument, useLoanDocuments } from '@/lib/api/documents'
 import { CalcLines, Warnings } from './CalcLines'
 import { WorksheetInputs } from './WorksheetForms'
 
 const NEW_JOB = '__new'
+
+export interface IncomePdfRequest {
+  label: string
+  typeLabel: string
+  where: string | null
+  result: ReturnType<typeof computeWorksheet>
+  notes: string[]
+  sources: string[]
+  draft: boolean
+  pushedOn: string | null
+}
 
 interface Draft {
   label: string
@@ -53,6 +65,7 @@ export function WorksheetCard({
   organizationId,
   open,
   onToggle,
+  onPdf,
 }: {
   worksheet: IncomeWorksheet
   borrower: ApplicationBorrower
@@ -61,12 +74,17 @@ export function WorksheetCard({
   organizationId: string
   open: boolean
   onToggle: () => void
+  /** Saves the one-page Income Analysis PDF (Stage 4). */
+  onPdf?: (v: IncomePdfRequest) => void
 }) {
   const save = useSaveWorksheet(worksheet.loanId)
   const push = usePushWorksheet(worksheet.loanId, organizationId)
   const remove = useDeleteWorksheet(worksheet.loanId)
   const [draft, setDraft] = useState<Draft>(() => toDraft(worksheet))
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const isDraft = worksheet.status === 'draft'
+  const docs = useLoanDocuments(worksheet.loanId)
+  const sources = worksheet.sourceDocumentIds.map((id) => docs.data?.find((d) => d.id === id)).filter((d): d is NonNullable<typeof d> => !!d)
 
   const result = computeWorksheet(draft.data)
   const target = pushTarget(draft.data)
@@ -131,7 +149,15 @@ export function WorksheetCard({
     <li className={cn('rounded-xl border bg-card', dirty && 'ring-2 ring-primary/30')}>
       <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3 text-left">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{draft.label || kindLabel(draft.data.kind)}</p>
+          <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+            <span className="truncate">{draft.label || kindLabel(draft.data.kind)}</span>
+            {isDraft && (
+              <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-money/10 px-1.5 py-0.5 text-[0.7rem] font-medium text-money">
+                <SparklesIcon className="size-3" />
+                AI draft
+              </span>
+            )}
+          </p>
           <p className="truncate text-xs text-muted-foreground">
             {kindLabel(draft.data.kind)}
             {worksheet.pushedAt && ` · pushed ${relativeTime(worksheet.pushedAt)}`}
@@ -181,6 +207,30 @@ export function WorksheetCard({
             )}
           </FormGrid>
 
+          {isDraft && (
+            <div className="rounded-lg border border-money/30 bg-money/5 p-3 text-sm">
+              <p className="font-medium">Calculated from the uploads. Check it, edit anything, then Accept to push it to the 1003.</p>
+              {worksheet.sourceNotes.length > 0 && (
+                <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                  {worksheet.sourceNotes.map((n, i) => (
+                    <li key={i}>{n}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {sources.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-muted-foreground">Sources:</span>
+              {sources.map((d) => (
+                <button key={d.id} type="button" className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-primary hover:underline" onClick={() => void openDocument(d).catch((e: Error) => toast.error(e.message))}>
+                  <FileTextIcon className="size-3" />
+                  {d.fileName}
+                </button>
+              ))}
+            </div>
+          )}
+
           <WorksheetInputs data={draft.data} onChange={(inputs) => setDraft((d) => ({ ...d, data: { ...d.data, inputs } as WorksheetData }))} />
 
           <div className="grid gap-3 lg:grid-cols-2">
@@ -224,7 +274,7 @@ export function WorksheetCard({
                   variant="destructive"
                   onClick={() => remove.mutate(worksheet.id, { onSuccess: () => toast.success('Worksheet deleted'), onError: (e) => toast.error(e.message) })}
                 >
-                  Delete worksheet (the 1003 keeps its figure)
+                  {isDraft ? 'Discard this draft' : 'Delete worksheet (the 1003 keeps its figure)'}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
                   Keep
@@ -233,18 +283,29 @@ export function WorksheetCard({
             ) : (
               <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => setConfirmDelete(true)}>
                 <Trash2Icon />
-                Delete
+                {isDraft ? 'Discard' : 'Delete'}
               </Button>
             )}
             <div className="ml-auto flex gap-2">
+              {onPdf && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  title="Save a one-page Income Analysis PDF of this worksheet to Documents"
+                  onClick={() => onPdf({ label: draft.label || kindLabel(draft.data.kind), typeLabel: kindLabel(draft.data.kind), where: where ?? null, result, notes: worksheet.sourceNotes, sources: sources.map((d) => d.fileName), draft: isDraft, pushedOn: worksheet.pushedAt?.slice(0, 10) ?? null })}
+                >
+                  <FileTextIcon />
+                  PDF
+                </Button>
+              )}
               {dirty && (
                 <Button size="sm" variant="outline" onClick={onSave} disabled={save.isPending}>
                   {save.isPending ? 'Saving…' : 'Save'}
                 </Button>
               )}
-              <Button size="sm" onClick={onPush} disabled={push.isPending || missingTarget || !!blocked || (!differs && !dirty)}>
+              <Button size="sm" onClick={onPush} disabled={push.isPending || missingTarget || !!blocked || (!isDraft && !differs && !dirty)}>
                 <SendIcon />
-                {push.isPending ? 'Pushing…' : 'Push to 1003'}
+                {push.isPending ? 'Pushing…' : isDraft ? 'Accept and push to 1003' : 'Push to 1003'}
               </Button>
             </div>
           </div>

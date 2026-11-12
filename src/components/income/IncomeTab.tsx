@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { CalculatorIcon, PlusIcon } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router'
+import { CalculatorIcon, PlusIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, SummaryBar, ToggleChip } from '@/components/shared'
@@ -13,7 +14,11 @@ import { computeWorksheet, defaultInputs, suggestedLabel, WORKSHEET_KINDS, type 
 import { fullName } from '@/lib/pipeline/helpers'
 import { ownedProperties, propertyNetRental, usesScheduleE } from '@/lib/urla/realEstate'
 import { applicationSummary } from '@/lib/urla/summary'
-import { WorksheetCard } from './WorksheetCard'
+import { WorksheetCard, type IncomePdfRequest } from './WorksheetCard'
+import { useSavePdf } from '@/components/pdf/useSavePdf'
+import { INCOME_ANALYSIS_TEMPLATE, incomeAnalysisView } from '@/lib/documents/incomeAnalysis'
+import { todayIso } from '@/lib/dates'
+import { useCalculateIncome } from './useCalculateIncome'
 
 const SELF_EMPLOYED_KINDS: WorksheetKind[] = ['schedule_c', 's_corp', 'partnership', 'bank_statement']
 
@@ -25,6 +30,27 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
   const create = useCreateWorksheet(loan.id, loan.organizationId)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
+  const calc = useCalculateIncome(loan)
+  const pdf = useSavePdf(loan)
+  // "Calculate income" on an analyzed document lands here with ?calculate=<kind>&contact=<id> (one click, run once).
+  const [params, setParams] = useSearchParams()
+  const asked = useRef(false)
+  const wanted = params.get('calculate') as 'wages' | 'bank_statement' | 'returns' | null
+  const wantedFor = params.get('contact')
+  const firstNameOf = (id: string) => app.data?.borrowers.find((b) => b.contactId === id)?.person.firstName ?? 'the borrower'
+  useEffect(() => {
+    if (!wanted || !wantedFor || asked.current || !calc.available || !app.data) return
+    asked.current = true
+    setSelectedId(wantedFor)
+    void calc.calculate(wantedFor, firstNameOf(wantedFor), wanted)
+    setParams((p) => {
+      const next = new URLSearchParams(p)
+      next.delete('calculate')
+      next.delete('contact')
+      return next
+    }, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, wantedFor, calc.available, app.data])
 
   if (app.isLoading || worksheets.isLoading || properties.isLoading) return <p className="py-12 text-center text-sm text-muted-foreground">Loading income…</p>
   const error = app.error ?? worksheets.error ?? properties.error
@@ -79,8 +105,14 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
 
         <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
           <div className="min-w-0 space-y-3">
-            <Card title="Worksheets" description="Enter figures from pay stubs, W-2s, tax returns or bank statements. Push the result to fill in the 1003.">
+            <Card title="Worksheets" description="Enter figures from pay stubs, W-2s, tax returns or bank statements, or calculate them from the analyzed uploads. Push the result to fill in the 1003.">
               <div className="flex flex-wrap gap-2">
+                {calc.available && (
+                  <Button size="sm" className="bg-money text-white hover:bg-money/90" disabled={calc.busy} onClick={() => void calc.calculate(borrower.contactId, borrower.person.firstName)} title="Fill draft worksheets from this borrower's analyzed pay stubs, W-2s, bank statements and tax returns">
+                    <SparklesIcon />
+                    {calc.busy ? 'Calculating…' : 'Calculate income'}
+                  </Button>
+                )}
                 {WORKSHEET_KINDS.map((k) => (
                   <Button key={k.value} size="sm" variant="outline" onClick={() => add(k.value)} disabled={create.isPending}>
                     <PlusIcon />
@@ -106,6 +138,10 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
                     organizationId={loan.organizationId}
                     open={openId === w.id}
                     onToggle={() => setOpenId((id) => (id === w.id ? null : w.id))}
+                    onPdf={(v: IncomePdfRequest) => {
+                      const view = incomeAnalysisView({ borrowerName: fullName(borrower.person), label: v.label, typeLabel: v.typeLabel, where: v.where, lines: v.result.lines, monthly: v.result.monthly, warnings: v.result.warnings, notes: v.notes, sources: v.sources, draft: v.draft, pushedOn: v.pushedOn, preparedOn: todayIso() })
+                      void pdf.save({ fileName: view.fileName, kind: 'income_analysis', propertyId: null, templateVersion: INCOME_ANALYSIS_TEMPLATE, tooLong: 'Shorten the label or notes.', render: (lib, brand) => lib.incomeAnalysisPdf(view, brand) })
+                    }}
                   />
                 ))}
               </ul>

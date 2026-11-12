@@ -22,7 +22,11 @@ export const KIND_LABEL: Record<ReadKind, string> = {
   mortgage_statement: 'Mortgage statement', insurance_declarations: 'Insurance declarations', lease: 'Lease', other: 'Other',
 }
 
-export type FieldType = 'text' | 'date' | 'money' | 'year' | 'last4'
+export type FieldType = 'text' | 'date' | 'money' | 'year' | 'last4' | 'pct' | 'frequency' | 'form'
+
+export const PAY_FREQUENCIES = ['weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual'] as const
+export type ReadPayFrequency = (typeof PAY_FREQUENCIES)[number]
+export const RETURN_FORMS = ['1040', '1120S', '1065'] as const
 
 export const READ_FIELDS = [
   { key: 'employer_name', label: 'Employer', type: 'text' },
@@ -37,13 +41,34 @@ export const READ_FIELDS = [
   { key: 'ytd_bonus', label: 'YTD bonus', type: 'money' },
   { key: 'ytd_commission', label: 'YTD commission', type: 'money' },
   { key: 'hourly_rate', label: 'Hourly rate', type: 'money' },
+  { key: 'pay_frequency', label: 'Pay frequency', type: 'frequency' },
+  { key: 'base_pay_current', label: 'Base pay this period', type: 'money' },
+  { key: 'hours_current', label: 'Hours this period', type: 'money' },
   { key: 'tax_year', label: 'Tax year', type: 'year' },
   { key: 'w2_wages', label: 'W-2 wages (box 1)', type: 'money' },
+  { key: 'w2_medicare_wages', label: 'W-2 Medicare wages (box 5)', type: 'money' },
   { key: 'institution', label: 'Bank or institution', type: 'text' },
   { key: 'account_last4', label: 'Account (last 4)', type: 'last4' },
   { key: 'statement_period_start', label: 'Statement start', type: 'date' },
   { key: 'statement_period_end', label: 'Statement end', type: 'date' },
   { key: 'ending_balance', label: 'Ending balance', type: 'money' },
+  { key: 'total_deposits', label: 'Total deposits', type: 'money' },
+  { key: 'return_form', label: 'Return form', type: 'form' },
+  { key: 'sch_c_net_profit', label: 'Schedule C net profit (line 31)', type: 'money' },
+  { key: 'sch_c_other_income', label: 'Schedule C other income (line 6)', type: 'money' },
+  { key: 'sch_c_depletion', label: 'Schedule C depletion (line 12)', type: 'money' },
+  { key: 'sch_c_depreciation', label: 'Schedule C depreciation (line 13)', type: 'money' },
+  { key: 'sch_c_meals', label: 'Schedule C meals (line 24b)', type: 'money' },
+  { key: 'sch_c_home_office', label: 'Schedule C business use of home (line 30)', type: 'money' },
+  { key: 'k1_ordinary_income', label: 'K-1 ordinary income (box 1)', type: 'money' },
+  { key: 'k1_rental_income', label: 'K-1 rental income (boxes 2-3)', type: 'money' },
+  { key: 'k1_guaranteed_payments', label: 'K-1 guaranteed payments', type: 'money' },
+  { key: 'k1_ownership_pct', label: 'K-1 ownership %', type: 'pct' },
+  { key: 'biz_depreciation', label: 'Business return depreciation', type: 'money' },
+  { key: 'biz_depletion', label: 'Business return depletion', type: 'money' },
+  { key: 'biz_amortization', label: 'Business return amortization / casualty loss', type: 'money' },
+  { key: 'biz_notes_under_1yr', label: 'Notes payable in under 1 year (Sch. L)', type: 'money' },
+  { key: 'biz_travel_meals', label: 'Non-deductible travel and meals (M-1)', type: 'money' },
   { key: 'id_expiration', label: 'ID expires', type: 'date' },
 ] as const satisfies readonly { key: string; label: string; type: FieldType }[]
 export type ReadFieldKey = (typeof READ_FIELDS)[number]['key']
@@ -54,10 +79,19 @@ export interface ReadField {
   quote: string
 }
 
+/** One deposit on a bank statement (the largest ones only). */
+export interface ReadDeposit {
+  date: string
+  amount: number
+  description: string
+}
+
 export interface DocumentReading {
   kind: ReadKind
   confidence: 'high' | 'medium' | 'low'
   fields: Partial<Record<ReadFieldKey, ReadField>>
+  /** Bank statements: up to 10 of the largest deposits. */
+  deposits?: ReadDeposit[]
 }
 
 export const DOC_READ_SYSTEM_PROMPT = [
@@ -67,6 +101,9 @@ export const DOC_READ_SYSTEM_PROMPT = [
   'For every field give the value and a short quote: the exact words or numbers on the document it came from (40 characters or less).',
   'Dates as YYYY-MM-DD. Money as a plain number (no $ or commas). A year as four digits.',
   'Never copy a Social Security number, a full account number or a date of birth. For an account give only its last 4 digits.',
+  'Pay frequency is one of weekly, biweekly, semi_monthly, monthly, annual. Return form is 1040, 1120S or 1065. Ownership as a percent number (50 = 50%).',
+  'For a bank statement also list up to 10 of the largest deposits (date, amount, the description as printed).',
+  'For a tax return, copy the lines for the most recent year shown; a 1040 with Schedule C uses the Schedule C lines; an 1120S or 1065 with the borrower K-1 uses the K-1 and business-return lines.',
   'Confidence: high = clearly this kind and the fields are legible; medium = probably, or some fields hard to read; low = unsure or mostly unreadable.',
 ].join('\n')
 
@@ -86,6 +123,15 @@ export const DOC_READ_SCHEMA = {
         additionalProperties: false,
         required: ['key', 'value', 'quote'],
         properties: { key: { type: 'string', enum: READ_FIELDS.map((f) => f.key) }, value: { type: 'string' }, quote: { type: 'string' } },
+      },
+    },
+    deposits: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['date', 'amount', 'description'],
+        properties: { date: { type: 'string' }, amount: { type: 'string' }, description: { type: 'string' } },
       },
     },
   },
@@ -116,11 +162,33 @@ export function normalizeDocReading(raw: unknown): DocumentReading | { error: st
     } else if (def.type === 'date') value = ISO.test(text) && !Number.isNaN(Date.parse(`${text}T12:00:00Z`)) ? text : null
     else if (def.type === 'year') value = /^(19|20)\d{2}$/.test(text) ? Number(text) : null
     else if (def.type === 'last4') value = text.replace(/\D/g, '').slice(-4) || null
+    else if (def.type === 'pct') {
+      const pct = Number(text.replace(/[%\s]/g, ''))
+      value = Number.isFinite(pct) && pct >= 0 && pct <= 100 ? pct : null
+    } else if (def.type === 'frequency') {
+      // "Bi-Weekly", "biweekly", "Semi Monthly" → the list's words.
+      const letters = text.toLowerCase().replace(/[^a-z]/g, '')
+      const fq = letters === 'semimonthly' ? 'semi_monthly' : letters
+      value = (PAY_FREQUENCIES as readonly string[]).includes(fq) ? fq : null
+    } else if (def.type === 'form') {
+      const form = text.toUpperCase().replace(/\s/g, '')
+      value = (RETURN_FORMS as readonly string[]).includes(form) ? form : null
+    }
     else value = text.slice(0, 120)
     if (value === null || value === '') continue
     fields[def.key] = { value, quote: def.type === 'last4' ? `••${value}` : quote }
   }
-  return { kind, confidence, fields }
+  const deposits: ReadDeposit[] = []
+  for (const d of Array.isArray(raw.deposits) ? raw.deposits.slice(0, 10) : []) {
+    if (!isObject(d)) continue
+    const date = String(d.date ?? '').trim()
+    const amount = Number(String(d.amount ?? '').replace(/[$,\s]/g, ''))
+    const description = String(d.description ?? '').trim().slice(0, 80)
+    if (!ISO.test(date) || !Number.isFinite(amount) || amount <= 0 || SSN.test(description)) continue
+    // Long numbers in a description (account or reference numbers) keep only their last 4.
+    deposits.push({ date, amount: Math.round(amount * 100) / 100, description: description.replace(/\d{6,}/g, (m) => `••${m.slice(-4)}`) })
+  }
+  return { kind, confidence, fields, ...(deposits.length ? { deposits } : {}) }
 }
 
 // ---------------------------------------------------------------------------
