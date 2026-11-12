@@ -27,6 +27,8 @@ interface LoanRow {
   created_at: string
   prior_loan_id: string | null
   priority: boolean
+  on_hold_at: string | null
+  hold_reason: string | null
   status_detail: string | null
   card_timeline: string | null
   card_loan_amount: unknown
@@ -39,7 +41,7 @@ interface LoanRow {
 
 const LOAN_SELECT = `
   id, purpose, stage, lost_reason, referral_source, stage_changed_at, created_at, prior_loan_id,
-  priority, status_detail, card_timeline:timeline, card_loan_amount:loan_amount, card_purchase_price:purchase_price, card_closing_date:closing_date,
+  priority, on_hold_at, hold_reason, status_detail, card_timeline:timeline, card_loan_amount:loan_amount, card_purchase_price:purchase_price, card_closing_date:closing_date,
   assigned_lo:profiles!loans_assigned_lo_id_fkey ( id, full_name, email ),
   borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, email, phone ) ),
   conditions:loan_conditions ( status )
@@ -138,6 +140,8 @@ function toLoan(row: LoanRow): PipelineLoan {
     createdAt: row.created_at,
     priorLoanId: row.prior_loan_id,
     priority: row.priority,
+    onHoldAt: row.on_hold_at,
+    holdReason: row.hold_reason,
     statusDetail: row.status_detail,
     timeline: row.card_timeline,
     loanAmount: num(row.card_loan_amount),
@@ -496,9 +500,9 @@ export function useSetPriority(loanId: string) {
   })
 }
 
-export type CardChanges = Partial<Pick<PipelineLoan, 'priority' | 'statusDetail' | 'timeline'>>
+export type CardChanges = Partial<Pick<PipelineLoan, 'priority' | 'statusDetail' | 'timeline' | 'onHoldAt' | 'holdReason'>>
 
-/** Saves a pipeline card's star, status detail or timeline; the board updates at once and rolls back if the save fails. */
+/** Saves a pipeline card's star, status detail, timeline or hold; the board updates at once and rolls back if the save fails. */
 export function useUpdateCard() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -507,6 +511,8 @@ export function useUpdateCard() {
         ...(changes.priority !== undefined && { priority: changes.priority }),
         ...(changes.statusDetail !== undefined && { status_detail: changes.statusDetail }),
         ...(changes.timeline !== undefined && { timeline: changes.timeline }),
+        ...(changes.onHoldAt !== undefined && { on_hold_at: changes.onHoldAt }),
+        ...(changes.holdReason !== undefined && { hold_reason: changes.holdReason }),
       }
       unwrap(await db().from('loans').update(row).eq('id', loanId).select('id'))
     },

@@ -27,6 +27,9 @@ export interface PipelineLoan {
   priorLoanId: string | null
   /** The star: shows in Priority Leads. */
   priority: boolean
+  /** On hold (waiting for a known reason): when it was put on hold, and why (picked or typed). Shows in On Hold Leads. */
+  onHoldAt: string | null
+  holdReason: string | null
   /** Where the file is inside its stage (cleared when the stage changes). */
   statusDetail: string | null
   timeline: string | null

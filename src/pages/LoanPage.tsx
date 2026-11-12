@@ -14,6 +14,7 @@ import {
   MailIcon,
   MessagesSquareIcon,
   NotebookPenIcon,
+  PauseCircleIcon,
   PencilIcon,
   ReceiptIcon,
   SearchXIcon,
@@ -40,6 +41,7 @@ import { AriveLink } from '@/components/loanfile/AriveLink'
 import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
 import { WorkflowPanel } from '@/components/loanfile/WorkflowPanel'
+import { HoldDialog } from '@/components/pipeline/HoldDialog'
 import { StageMenu } from '@/components/pipeline/StageMenu'
 import { useStageChanger } from '@/components/pipeline/useStageChanger'
 import { MessagesTab } from '@/components/messages/MessagesTab'
@@ -138,6 +140,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   // Processors work files but don't delete them; the database checks the rest.
   const canDelete = state.status === 'signedIn' && state.user.role !== null && state.user.role !== 'processor'
   const [editing, setEditing] = useState(false)
+  const [holding, setHolding] = useState(false)
   // "Hide details" is remembered per person on this computer.
   const detailsKey = `mps-file-header-details:${state.status === 'signedIn' ? state.user.id : 'anon'}`
   const [detailsOpen, setDetailsOpen] = useState(() => {
@@ -313,6 +316,12 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
               <StarIcon className={loan.priority ? 'fill-amber-400 text-amber-500' : undefined} />
               {loan.priority ? 'Priority' : 'Star'}
             </Button>
+            {loan.stage !== 'closed' && loan.stage !== 'lost' && (
+              <Button size="xs" variant="outline" aria-pressed={loan.onHoldAt !== null} onClick={() => setHolding(true)} title={loan.onHoldAt ? `On hold${loan.holdReason ? `: ${loan.holdReason}` : ''}` : 'Waiting on something? Put the file on hold'} className={loan.onHoldAt ? 'border-amber-300 bg-amber-50 text-amber-900' : undefined}>
+                <PauseCircleIcon />
+                {loan.onHoldAt ? 'On hold' : 'Hold'}
+              </Button>
+            )}
             <Button size="xs" variant="outline" onClick={() => setEditing(true)}>
               <PencilIcon />
               Edit
@@ -412,6 +421,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           }}
         />
       )}
+      {holding && <HoldDialog loan={loan} onClose={() => setHolding(false)} />}
       {editing && <EditLeadDialog loan={loan} ariveLoanNumber={loan.details.ariveLoanNumber} open={editing} onOpenChange={setEditing} />}
       {teamEdit && (
         <TeamMemberDialog

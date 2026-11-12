@@ -120,6 +120,11 @@ export function LoanCard({ loan, showLo, dragging, onStageSelect, onOpen, tasks 
                 {loan.conditions.cleared} of {loan.conditions.total} cleared
               </span>
             )}
+            {loan.onHoldAt && loan.stage !== 'closed' && loan.stage !== 'lost' && (
+              <span className="ml-1 truncate rounded-full bg-amber-50 px-1.5 py-px text-[11px] font-medium text-amber-900" title={loan.holdReason ? `On hold: ${loan.holdReason}` : 'On hold'}>
+                On hold{loan.holdReason ? ` · ${loan.holdReason}` : ''}
+              </span>
+            )}
           </p>
         </div>
       </div>

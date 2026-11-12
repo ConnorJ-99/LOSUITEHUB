@@ -1,5 +1,5 @@
 import { Link } from 'react-router'
-import { ArrowRightIcon, CalendarDaysIcon, CircleXIcon, InboxIcon, KanbanIcon, LandmarkIcon, LeafIcon, PlusIcon, RefreshCwIcon, StarIcon, TrendingUpIcon, TriangleAlertIcon, UsersIcon, WorkflowIcon, type LucideIcon } from 'lucide-react'
+import { ArrowRightIcon, CalendarDaysIcon, CircleXIcon, InboxIcon, KanbanIcon, LandmarkIcon, LeafIcon, PauseCircleIcon, PlusIcon, RefreshCwIcon, StarIcon, TrendingUpIcon, TriangleAlertIcon, UsersIcon, WorkflowIcon, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState } from '@/components/shared'
 import { useNewLead } from '@/components/leads/new-lead-context'
@@ -8,11 +8,13 @@ import { formatCompactCurrency } from '@/lib/format'
 import { formatPhone, fullName } from '@/lib/pipeline/helpers'
 import { calendarClosings } from '@/lib/pipeline/closings'
 import { pipelineTiles, priorityLeads } from '@/lib/pipeline/leadsHome'
+import { onHoldLeads } from '@/lib/pipeline/hold'
 import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
 import { useOpenTasks } from '@/lib/api/tasks'
 import { todayIso } from '@/lib/dates'
 import { cn } from 'cn'
 import { cardAmount, pipelineInfo, PIPELINES, type PipelineId } from '@/lib/pipeline/pipelines'
+import { stageLabel } from '@/lib/pipeline/stages'
 
 const ICON: Record<PipelineId, LucideIcon> = {
   new_leads: InboxIcon,
@@ -25,7 +27,7 @@ const ICON: Record<PipelineId, LucideIcon> = {
   lost: CircleXIcon,
 }
 
-/** Leads home (Pipeline v2): Priority Leads, then a tile for each pipeline with its count and dollar total. */
+/** Leads home (Pipeline v2): Priority Leads and On Hold Leads side by side, then a tile for each pipeline with its count and dollar total. */
 export function LeadsHomePage() {
   const pipeline = usePipeline()
   const openTasks = useOpenTasks()
@@ -33,11 +35,12 @@ export function LeadsHomePage() {
   const { openNewLead } = useNewLead()
   const files = pipeline.data ?? []
   const priority = priorityLeads(files)
+  const onHold = onHoldLeads(files)
   const tiles = new Map(pipelineTiles(files).map((t) => [t.id, t]))
   const closingsThisMonth = calendarClosings(files).filter((c) => c.closingDate.startsWith(today.slice(0, 7)))
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <div className="text-center">
         <h1 className="text-4xl leading-tight">Leads</h1>
         <p className="text-sm text-muted-foreground">Pick the pipeline you want to work.</p>
@@ -64,7 +67,8 @@ export function LeadsHomePage() {
 
       {pipeline.isSuccess && (
         <>
-          <section className="space-y-2">
+          <div className="grid gap-6 md:grid-cols-2">
+          <section className="min-w-0 space-y-2">
             <h2 className="flex items-center gap-1.5 text-sm font-medium">
               <StarIcon className="size-4 fill-amber-400 text-amber-500" />
               Priority Leads
@@ -90,6 +94,36 @@ export function LeadsHomePage() {
               </ul>
             )}
           </section>
+
+          <section className="min-w-0 space-y-2">
+            <h2 className="flex items-center gap-1.5 text-sm font-medium">
+              <PauseCircleIcon className="size-4 text-amber-600" />
+              On Hold Leads
+              <span className="text-muted-foreground tabular-nums">{onHold.length}</span>
+            </h2>
+            {onHold.length === 0 ? (
+              <p className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">Waiting on a lease, rates or seasoning? Use Hold at the top of a loan to keep it here, in its stage.</p>
+            ) : (
+              <ul className="space-y-2">
+                {onHold.map((file) => {
+                  return (
+                    <li key={file.id}>
+                      <Link to={`/loans/${file.id}`} className="flex items-center gap-3 rounded-xl border-l-4 border-l-amber-400 bg-card px-4 py-3 shadow-soft transition-shadow hover:shadow-md">
+                        <PauseCircleIcon className="size-4 shrink-0 text-amber-600" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{fullName(file.borrower)}</span>
+                          <span className="block truncate text-sm text-muted-foreground">{[file.holdReason ?? 'No reason given', file.timeline?.trim()].filter(Boolean).join(' · ')}</span>
+                        </span>
+                        <span className="shrink-0 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-900">{stageLabel(file.stage)}</span>
+                        <ArrowRightIcon className="size-4 shrink-0 text-muted-foreground" />
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </section>
+          </div>
 
           <section className="grid gap-3 sm:grid-cols-2">
             {PIPELINES.map((p) => {
