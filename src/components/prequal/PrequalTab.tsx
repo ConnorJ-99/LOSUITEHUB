@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { PlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -9,11 +9,15 @@ import { useSavePrequal } from '@/lib/api/prequal'
 import { useFeeTemplates } from '@/lib/api/pricing'
 import { prequalFeeEstimate } from '@/lib/estimates/prequal'
 import { useProperties } from '@/lib/api/properties'
+import { useOrganization } from '@/lib/api/settings'
 import type { LoanProfile, Property } from '@/lib/api/types'
 import { useApplication, type Application } from '@/lib/api/urla'
+import { APPROVAL_LIMIT_LABELS, approvalTypeFor, maxApproval, prequalChecks } from '@/lib/calc'
 import { formatCurrency, formatPercent } from '@/lib/format'
+import { approvalFacts, approvalFormFrom, approvalInput, type ApprovalForm } from '@/lib/prequal/maxApproval'
 import { draftFrom, hasChanges, prequalChanges, prequalSummary, type PrequalDraft, type QuickBorrower } from '@/lib/prequal/draft'
-import { BorrowerSection, DebtsSection, HomesSection, LoanSection, SavingsSection } from './PrequalSections'
+import { BorrowerSection, DebtsSection, HomesSection, SavingsSection } from './PrequalSections'
+import { MaxApprovalInputs, MaxApprovalResults } from './MaxApproval'
 import { CallNotes } from './CallNotes'
 import { CreditHistorySection } from './CreditHistorySection'
 import { PrequalResults } from './PrequalResults'
@@ -43,10 +47,33 @@ function PrequalForm({ loan, app, subject, properties, saved }: { loan: LoanProf
 
   const isPurchase = loan.purpose === 'purchase'
   const templates = useFeeTemplates()
-  const summary = prequalSummary(loan, draft, properties, prequalFeeEstimate(loan, templates.data ?? []))
+  const feeEstimate = prequalFeeEstimate(loan, templates.data ?? [])
+  const summary = prequalSummary(loan, draft, properties, feeEstimate)
   const changes = prequalChanges(isPurchase, saved, draft)
   const dirty = hasChanges(changes)
   const live = useLiveReadiness(loan, app, summary, draft)
+  // Max Approval (purchase files): the highest price where every limit passes. No specific home needed.
+  const org = useOrganization()
+  const [approvalForm, setApprovalForm] = useState<ApprovalForm>(() => approvalFormFrom(loan.details))
+  const facts = approvalFacts(draft, summary, org.data)
+  const approvalIn = approvalInput(draft.loan, approvalForm, facts)
+  const approvalKey = JSON.stringify(approvalIn)
+  const approval = useMemo(
+    () =>
+      isPurchase
+        ? maxApproval({
+            ...approvalIn,
+            // Closing costs and prepaids from the company fee list (Smart Fees) at each price, else 3% of the price.
+            costsAt: feeEstimate && ((price, loanAmount) => feeEstimate(price, loanAmount, { mortgageType: draft.loan.mortgageType, noteRate: draft.loan.noteRate, termMonths: draft.loan.termMonths, occupancy: approvalForm.occupancy, upfrontFeePct: draft.loan.upfrontFeePct })),
+          })
+        : null,
+    // Recalculated when the input's contents or the fee list change.
+    [approvalKey, templates.dataUpdatedAt, isPurchase],
+  )
+  const max = approval?.max ?? null
+  const approvalChecks = isPurchase
+    ? prequalChecks({ mortgageType: draft.loan.mortgageType, creditScore: summary.creditScore, ltvPct: max?.ltv ?? null, backDtiPct: max?.dti.back ?? null, maxDtiPct: approvalIn.maxDtiPct, cashNeeded: max?.cashNeeded ?? null, funds: max?.funds ?? null, isPurchase: true })
+    : summary.checks
   const setBorrower = (next: QuickBorrower) => setDraft((d) => ({ ...d, borrowers: d.borrowers.map((b) => (b.contactId === next.contactId ? next : b)) }))
 
   const onSave = () =>
@@ -65,7 +92,15 @@ function PrequalForm({ loan, app, subject, properties, saved }: { loan: LoanProf
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-4">
           <CallNotes loan={loan} app={app} draft={draft} onApply={setDraft} />
-          <LoanSection isPurchase={isPurchase} loan={draft.loan} onChange={(l) => setDraft((d) => ({ ...d, loan: l }))} summary={summary} subject={subject} />
+          {isPurchase && approval && (
+            <>
+              <MaxApprovalInputs loan={draft.loan} onLoanChange={(l) => setDraft((d) => ({ ...d, loan: l }))} form={approvalForm} onChange={setApprovalForm} facts={facts} />
+              {/* On a phone the answer sits right under the inputs; on a computer it's in the right column. */}
+              <div className="lg:hidden">
+                <MaxApprovalResults loan={loan} loanType={approvalTypeFor(draft.loan.mortgageType)} result={approval} />
+              </div>
+            </>
+          )}
           {draft.borrowers.map((b) => (
             <BorrowerSection key={b.contactId} borrower={b} onChange={setBorrower} />
           ))}
@@ -82,25 +117,38 @@ function PrequalForm({ loan, app, subject, properties, saved }: { loan: LoanProf
           <CreditHistorySection loan={loan} app={app} />
         </div>
         <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
+          {isPurchase && approval && (
+            <div className="hidden lg:block">
+              <MaxApprovalResults loan={loan} loanType={approvalTypeFor(draft.loan.mortgageType)} result={approval} />
+            </div>
+          )}
           <ReadinessCard loan={loan} view={live} />
           <PrequalResults
             isPurchase={isPurchase}
             loan={draft.loan}
             summary={summary}
-            onUsePrice={(purchasePrice) => setDraft((d) => ({ ...d, loan: { ...d.loan, purchasePrice } }))}
+            checks={approvalChecks}
             canMarkPrequalified={(loan.stage === 'lead' || loan.stage === 'contacted') && !dirty}
             onMarkPrequalified={onMarkPrequalified}
           />
-          <SendPrequalResults loan={loan} app={app} subject={subject} draft={draft} summary={summary} dirty={dirty} />
+          <SendPrequalResults loan={loan} app={app} subject={subject} draft={draft} summary={summary} dirty={dirty} atMax={isPurchase ? max : undefined} />
         </div>
       </div>
 
       <SummaryBar
         items={[
-          ...(isPurchase ? [{ label: 'Max price', value: formatCurrency(summary.max?.price) }] : []),
-          { label: 'Payment', value: formatCurrency(summary.scenario.payment?.total) },
-          { label: 'DTI', value: summary.dti.back === null ? '—' : `${formatPercent(summary.dti.front, 1)} / ${formatPercent(summary.dti.back, 1)}`, warning: summary.dti.back !== null && summary.dti.back > draft.loan.maxDtiPct },
-          { label: 'LTV', value: formatPercent(summary.scenario.ltv, 2) },
+          ...(isPurchase
+            ? [
+                { label: 'Max approval', value: formatCurrency(max?.price) },
+                { label: 'Limited by', value: approval?.limitedBy ? APPROVAL_LIMIT_LABELS[approval.limitedBy] : '—' },
+                { label: 'Payment', value: formatCurrency(max?.payment.total) },
+                { label: 'DTI', value: max ? `${formatPercent(max.dti.front, 1)} / ${formatPercent(max.dti.back, 1)}` : '—' },
+              ]
+            : [
+                { label: 'Payment', value: formatCurrency(summary.scenario.payment?.total) },
+                { label: 'DTI', value: summary.dti.back === null ? '—' : `${formatPercent(summary.dti.front, 1)} / ${formatPercent(summary.dti.back, 1)}`, warning: summary.dti.back !== null && summary.dti.back > draft.loan.maxDtiPct },
+                { label: 'LTV', value: formatPercent(summary.scenario.ltv, 2) },
+              ]),
         ]}
         action={
           <Button onClick={onSave} disabled={!dirty || save.isPending}>

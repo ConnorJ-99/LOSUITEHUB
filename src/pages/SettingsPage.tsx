@@ -3,7 +3,7 @@ import { ImageIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Select as BaseSelect, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Card, confirmAction, FormGrid, Input, PageHeader, Select } from '@/components/shared'
+import { Card, confirmAction, CurrencyInput, FormGrid, Input, PageHeader, Select } from '@/components/shared'
 import { BRAND_TYPES, useBrandImage, useRemoveBrandImage, useUploadBrandImage } from '@/lib/api/brandFiles'
 import { DocumentRulesCard } from '@/components/documents/DocumentRulesCard'
 import { DocumentCatalogCard } from '@/components/documents/DocumentCatalogCard'
@@ -141,6 +141,8 @@ function CompanyCard({ org, canEdit, userId }: { org: Organization; canEdit: boo
           error={ariveTemplateProblem(form.ariveLoanUrl) ?? undefined}
           hint="Open any loan in Arive, copy the address from your browser, paste it here, and replace the loan number with {number}. Files then get an Open in Arive button."
         />
+        <CurrencyInput label="Conforming loan limit" value={form.conformingLoanLimit ?? null} onChange={(v) => set('conformingLoanLimit')(v)} readOnly={!canEdit} span={2} hint="Your main county, one unit. Max Approval on the Prequal tab stops conventional loans here. Blank = no check." />
+        <CurrencyInput label="FHA loan limit" value={form.fhaLoanLimit ?? null} onChange={(v) => set('fhaLoanLimit')(v)} readOnly={!canEdit} span={2} hint="Your main county, one unit (HUD's FHA limits lookup). Blank = no check." />
       </FormGrid>
       <SaveBar
         dirty={dirty && canEdit}

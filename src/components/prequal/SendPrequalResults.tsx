@@ -7,6 +7,7 @@ import { SendSavedPdf } from '@/components/messages/SendDocumentDialog'
 import { useSavePdf } from '@/components/pdf/useSavePdf'
 import { linkGhlContact, useGhlStatus } from '@/lib/api/ghl'
 import type { LoanProfile, Property } from '@/lib/api/types'
+import type { ApprovalAt } from '@/lib/calc'
 import type { Application } from '@/lib/api/urla'
 import { nowIso, todayIso } from '@/lib/dates'
 import { joinNames, worksheetFileName } from '@/lib/documents/feeWorksheet'
@@ -19,7 +20,7 @@ import type { PrequalDraft, PrequalSummary } from '@/lib/prequal/draft'
  * Prequal Results PDF to Documents, then opens the email for Connor to
  * proofread. Sending it drafts the follow-up text in the Action Queue.
  */
-export function SendPrequalResults({ loan, app, subject, draft, summary, dirty }: { loan: LoanProfile; app: Application; subject: Property | null; draft: PrequalDraft; summary: PrequalSummary; dirty: boolean }) {
+export function SendPrequalResults({ loan, app, subject, draft, summary, dirty, atMax }: { loan: LoanProfile; app: Application; subject: Property | null; draft: PrequalDraft; summary: PrequalSummary; dirty: boolean; /** Purchases: the Max Approval figures, which the PDF shows. */ atMax?: ApprovalAt | null }) {
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const pdf = useSavePdf(loan, setSendingId)
@@ -32,14 +33,27 @@ export function SendPrequalResults({ loan, app, subject, draft, summary, dirty }
     isPurchase: loan.purpose === 'purchase',
     mortgageType: draft.loan.mortgageType,
     termMonths: draft.loan.termMonths,
-    purchasePrice: draft.loan.purchasePrice,
-    loanAmount: summary.loanAmount,
-    maxPrice: summary.max?.price ?? null,
-    payment: summary.scenario.payment ?? null,
-    downPayment: summary.cash?.downPayment ?? null,
-    closingCosts: summary.cash?.closingCosts ?? null,
-    closingCostsEstimated: summary.cash?.closingCostsEstimated ?? false,
-    cashNeeded: summary.cashNeeded ?? summary.cash?.total ?? null,
+    ...(atMax !== undefined
+      ? {
+          purchasePrice: atMax?.price ?? null,
+          loanAmount: atMax?.loanAmount ?? null,
+          maxPrice: atMax?.price ?? null,
+          payment: atMax?.payment ?? null,
+          downPayment: atMax?.downPayment ?? null,
+          closingCosts: atMax?.costs ?? null,
+          closingCostsEstimated: true,
+          cashNeeded: atMax?.cashToClose ?? null,
+        }
+      : {
+          purchasePrice: draft.loan.purchasePrice,
+          loanAmount: summary.loanAmount,
+          maxPrice: summary.max?.price ?? null,
+          payment: summary.scenario.payment ?? null,
+          downPayment: summary.cash?.downPayment ?? null,
+          closingCosts: summary.cash?.closingCosts ?? null,
+          closingCostsEstimated: summary.cash?.closingCostsEstimated ?? false,
+          cashNeeded: summary.cashNeeded ?? summary.cash?.total ?? null,
+        }),
     preparedOn: todayIso(),
   }
   const problems = prequalResultsProblems(input)

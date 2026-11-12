@@ -76,7 +76,7 @@ export function keyFigures(loan: LoanProfile, summary: ApplicationSummary | null
     { label: isSecond ? 'CLTV' : 'LTV / CLTV', value: ltv, tab: 'overview' },
     { label: 'Credit', value: creditScore === null ? '—' : String(creditScore), note: tier?.label, tone: tier?.tone, tab: 'prequal' },
     { label: 'Rate', value: d.noteRate === null ? '—' : formatPercent(d.noteRate, 3), tab: 'estimates' },
-    { label: 'DTI front / back', value: dti, tab: 'income' },
+    { label: 'DTI front / back', value: dti, tab: 'prequal' },
     { label: 'Cash to close', value: cashToClose === null ? '—' : formatCurrency(Math.abs(cashToClose)), title: cashToClose === null ? 'Select an estimate on Scenarios & Estimate' : cashToClose < 0 ? 'Cash back to the borrower (Selected estimate)' : 'From the Selected estimate', tab: 'estimates' },
     { label: 'Est. closing', value: d.closingDate ? usDate(d.closingDate) : '—', tab: loan.purpose === 'purchase' ? 'contract' : 'overview' },
     { label: 'Property', value: address ?? 'TBD', title: address ?? 'No subject property yet', tab: 'properties' },

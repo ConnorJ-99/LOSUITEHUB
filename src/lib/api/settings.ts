@@ -15,6 +15,11 @@ export interface Organization {
   logoPath: string | null
   /** "Open in Arive": an Arive loan address with {number} where the loan number goes (null = no link). */
   ariveLoanUrl?: string | null
+  /** The home county's one-unit loan limits for Max Approval (null = not set or the script hasn't run). */
+  conformingLoanLimit?: number | null
+  fhaLoanLimit?: number | null
+  /** Default homeowner's insurance, percent of the price a year (Smart Fees script). */
+  defaultHoiPct?: number | null
 }
 
 export interface Profile {
@@ -42,6 +47,10 @@ interface OrgRow {
   logo_path: string | null
   /** Present once the Arive link script has run (selected with *, so nothing breaks before). */
   arive_loan_url?: string | null
+  /** Present once the loan limits script has run. */
+  conforming_loan_limit?: number | string | null
+  fha_loan_limit?: number | string | null
+  default_hoi_pct?: number | string | null
 }
 
 interface ProfileRow {
@@ -66,6 +75,8 @@ const toProfile = (r: ProfileRow): Profile => ({
   personalCell: r.personal_cell,
 })
 
+const num = (v: number | string | null | undefined) => (v == null ? null : Number(v))
+
 /** The signed-in user's organization (company name, NMLS, address). */
 export function useOrganization() {
   const { state } = useAuth()
@@ -77,7 +88,7 @@ export function useOrganization() {
       const r = unwrap<OrgRow | null>(
         await db().from('organizations').select('*').eq('id', orgId!).maybeSingle(),
       )
-      return r ? { id: r.id, name: r.name, nmls: r.nmls, addressLine: r.address_line, city: r.city, state: r.state, zip: r.zip, phone: r.phone, logoPath: r.logo_path, ariveLoanUrl: r.arive_loan_url ?? null } : null
+      return r ? { id: r.id, name: r.name, nmls: r.nmls, addressLine: r.address_line, city: r.city, state: r.state, zip: r.zip, phone: r.phone, logoPath: r.logo_path, ariveLoanUrl: r.arive_loan_url ?? null, conformingLoanLimit: num(r.conforming_loan_limit), fhaLoanLimit: num(r.fha_loan_limit), defaultHoiPct: num(r.default_hoi_pct) } : null
     },
   })
 }
@@ -99,6 +110,9 @@ export function useUpdateOrganization() {
             phone: o.phone?.trim() || null,
             // Sent only when it changed, so saving company details works before the Arive link script has run.
             ...((o.ariveLoanUrl?.trim() || null) !== (queryClient.getQueryData<Organization | null>(keys.organization)?.ariveLoanUrl ?? null) ? { arive_loan_url: o.ariveLoanUrl?.trim() || null } : {}),
+            // Same for the loan limits (the loan limits script).
+            ...((o.conformingLoanLimit ?? null) !== (queryClient.getQueryData<Organization | null>(keys.organization)?.conformingLoanLimit ?? null) ? { conforming_loan_limit: o.conformingLoanLimit ?? null } : {}),
+            ...((o.fhaLoanLimit ?? null) !== (queryClient.getQueryData<Organization | null>(keys.organization)?.fhaLoanLimit ?? null) ? { fha_loan_limit: o.fhaLoanLimit ?? null } : {}),
           })
           .eq('id', id)
           .select('id'),

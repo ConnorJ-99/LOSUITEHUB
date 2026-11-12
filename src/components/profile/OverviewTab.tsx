@@ -15,7 +15,7 @@ import { useEstimates } from '@/lib/api/estimates'
 import type { SavedFigures } from '@/lib/estimates/estimate'
 import { useProperties, useSaveHomeFigures, type HomeFigures } from '@/lib/api/properties'
 import type { Lien, LoanDetails, LoanProfile, Property } from '@/lib/api/types'
-import { computeScenario, dscrTransaction, lenderComp, loanRevenue, planFor, texasHomeEquityFlags, type DscrTransaction, type ScenarioResult } from '@/lib/calc'
+import { approvalFunds, computeScenario, concessionLimit, dscrTransaction, lenderComp, loanRevenue, planFor, texasHomeEquityFlags, type DscrTransaction, type ScenarioResult } from '@/lib/calc'
 import { useCompPlans } from '@/lib/api/compPlans'
 import { formatIsoDate, relativeTime, todayIso } from '@/lib/dates'
 import { formatCurrency, formatPercent } from '@/lib/format'
@@ -30,6 +30,7 @@ import { ReadinessCard, useSavedReadiness } from '@/components/prequal/Readiness
 import { TexasFlags } from './TexasFlags'
 import { ActionQueueCard } from '@/components/queue/ActionQueueCard'
 import { loanScenarioInput } from '@/lib/urla/summary'
+import { useApplication, useDeleteRow, useSaveRow } from '@/lib/api/urla'
 
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -256,6 +257,15 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
   const [dscrPick, setDscrPick] = useState<DscrTransaction | null>(null)
   const set = <K extends keyof EditableDetails>(key: K) => (value: EditableDetails[K]) => setForm((f) => ({ ...f, [key]: value }))
 
+  // Gift funds are the 1003's cash gift assets (one place); Overview edits the amount when there's at most one.
+  const app = useApplication(loan.id)
+  const saveAsset = useSaveRow(loan.id, loan.organizationId, 'assets')
+  const deleteAsset = useDeleteRow(loan.id, 'assets')
+  const giftRows = (app.data?.assets ?? []).filter((a) => a.assetType === 'gift_cash' || a.assetType === 'grant')
+  const savedGift = app.data ? approvalFunds(app.data.assets).gift : null
+  const [giftEdit, setGiftEdit] = useState<number | null | undefined>(undefined)
+  const giftValue = giftEdit !== undefined ? giftEdit : savedGift
+  const giftDirty = giftEdit !== undefined && (giftEdit ?? 0) !== (savedGift ?? 0)
   const saveHome = useSaveHomeFigures(loan.id, loan.organizationId)
   const updateLead = useUpdateLead()
   // The home's value and 1st lien, edited here but saved on the property (so every tab shows the same figures).
@@ -293,20 +303,35 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
   const changes = Object.fromEntries(
     Object.entries(form).filter(([key, value]) => value !== saved[key as keyof EditableDetails]),
   ) as Partial<EditableDetails>
-  const dirty = Object.keys(changes).length > 0 || homeDirty
-  const saving = updateDetails.isPending || saveHome.isPending
+  const dirty = Object.keys(changes).length > 0 || homeDirty || giftDirty
+  const saving = updateDetails.isPending || saveHome.isPending || saveAsset.isPending || deleteAsset.isPending
 
   const save = async () => {
     try {
       if (Object.keys(changes).length) await updateDetails.mutateAsync(changes)
       if (homeDirty && savedSubject) await saveHome.mutateAsync({ propertyId: savedSubject.id, firstLienId: savedFirstLien?.id ?? null, figures: homeChanges })
+      if (giftDirty) await saveGift(giftEdit ?? null)
       setHome({})
+      setGiftEdit(undefined)
       toast.success('Loan details saved')
       // A new closing date on a file in process: offer the borrower and realtor update texts.
       if ('closingDate' in changes && changes.closingDate && ['under_contract', 'processing', 'clear_to_close'].includes(loan.stage)) void offerMilestoneUpdate(loan.id, 'closing_date_changed')
     } catch (error) {
       toast.error(`Could not save: ${(error as Error).message}`)
     }
+  }
+
+  /** Writes the gift to the 1003: updates the one cash gift, adds one for the primary borrower, or removes it when cleared. */
+  const saveGift = async (amount: number | null) => {
+    const row = giftRows[0]
+    if (!amount) {
+      if (row) await deleteAsset.mutateAsync(row.id)
+      return
+    }
+    if (row) return saveAsset.mutateAsync({ id: row.id, contactId: row.contactId, amount })
+    const primary = app.data?.borrowers.find((b) => b.role === 'primary') ?? app.data?.borrowers[0]
+    if (!primary) throw new Error('Add a borrower before adding gift funds.')
+    await saveAsset.mutateAsync({ contactId: primary.contactId, isJoint: false, assetType: 'gift_cash', amount, giftSource: null, giftDeposited: null, useAs: 'down_payment' })
   }
 
   /** A cash-out on a home whose 1st mortgage stays is a 2nd lien: the HELOAN layout shows the 1st lien, the new 2nd and CLTV. */
@@ -344,6 +369,12 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
   const b = loan.borrower
   const termValue = form.termMonths ? (String(form.termMonths) as (typeof TERM_OPTIONS)[number]['value']) : null
   const items = summaryItems(loan, form, result, subject, texasCapBreached, est)
+  // Seller concessions against the loan type's limit (FHA 6%, VA 4%, conventional by LTV, 2% investment).
+  const concessionCap = concessionLimit(form.mortgageType, form.occupancy, form.purchasePrice, subject?.estimatedValue ?? null, form.loanAmount)
+  const overConcessions = !!concessionCap && !concessionCap.approximate && (form.sellerCredits ?? 0) > concessionCap.maxAmount
+  const concessionHint = concessionCap ? `Max ${formatPercent(concessionCap.maxPct)} (${formatCurrency(concessionCap.maxAmount)})${concessionCap.approximate ? ' + normal closing costs' : ''}` : 'Same as the Contract tab and 1003'
+  const giftHint =
+    giftRows.length > 1 ? `${giftRows.length} gifts on the 1003: edit them there` : form.occupancy === 'investment' ? 'Not allowed on investment homes (most programs)' : 'Cash gift on the 1003 (counts toward the down payment)'
 
   return (
     <>
@@ -364,6 +395,8 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
                   <CurrencyInput label="Down payment" value={result.downPayment?.amount ?? null} readOnly hint="Calculated" span={2} />
                   <PercentInput label="Down payment %" value={result.downPayment?.percent ?? null} readOnly maxDecimals={2} hint="Calculated" span={2} />
                   <CurrencyInput label="Est. PITI" value={est?.pitia ?? result.payment?.total ?? null} readOnly hint={est ? 'From the selected estimate' : 'Taxes, insurance, HOA from the subject property'} span={2} />
+                  <CurrencyInput label="Gift funds" value={giftValue} onChange={setGiftEdit} readOnly={giftRows.length > 1 || !app.data} hint={giftHint} span={2} />
+                  <CurrencyInput label="Seller concessions" value={form.sellerCredits} onChange={set('sellerCredits')} hint={overConcessions ? undefined : concessionHint} error={overConcessions ? `Over the ${concessionHint.toLowerCase()}` : undefined} span={2} />
                 </>
               )}
 
@@ -604,7 +637,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
         action={
           <div className="flex items-center gap-2">
             {dirty && (
-              <Button variant="ghost" onClick={() => (setForm(saved), setHome({}), setDscrPick(null))}>
+              <Button variant="ghost" onClick={() => (setForm(saved), setHome({}), setGiftEdit(undefined), setDscrPick(null))}>
                 Discard
               </Button>
             )}

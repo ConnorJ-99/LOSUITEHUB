@@ -3,12 +3,11 @@ import { PlusIcon, Trash2Icon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CurrencyInput, FormGrid, Input, NumberInput, PercentInput, Select, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { SubHeading } from '@/components/urla/parts'
-import type { MortgageType, Property } from '@/lib/api/types'
-import { formatCurrency, formatPercent } from '@/lib/format'
-import { changeLoanType, propertyMonthly, propertyProceeds, type PrequalLoan, type PrequalSummary, type PropertyPlan, type QuickAsset, type QuickBorrower, type QuickDebt, type QuickProperty } from '@/lib/prequal/draft'
+import { formatCurrency } from '@/lib/format'
+import { propertyMonthly, propertyProceeds, type PropertyPlan, type QuickAsset, type QuickBorrower, type QuickDebt, type QuickProperty } from '@/lib/prequal/draft'
 import { ASSET_OPTIONS, ASSET_USE_OPTIONS, LIABILITY_OPTIONS, OTHER_INCOME_OPTIONS, type AssetType, type LiabilityType } from '@/lib/urla/options'
 import { DEPLETION_MONTHS, depletionEligiblePct, round } from '@/lib/calc'
-import { DEFAULT_DTI_LABELS, LOAN_TYPES, newKey, TERMS } from './options'
+import { newKey } from './options'
 
 /** A row of fields with a remove button, used for jobs, income, debts and savings. */
 function Row({ children, onRemove, removeLabel }: { children: React.ReactNode; onRemove: () => void; removeLabel: string }) {
@@ -28,123 +27,6 @@ function choices<T extends string>(all: readonly { value: T; label: string }[], 
   return values.map((v) => all.find((o) => o.value === v)!).filter(Boolean)
 }
 
-export function LoanSection({
-  isPurchase,
-  loan,
-  onChange,
-  summary,
-  subject,
-}: {
-  isPurchase: boolean
-  loan: PrequalLoan
-  onChange: (next: PrequalLoan) => void
-  summary: PrequalSummary
-  subject: Property | null
-}) {
-  const set = <K extends keyof PrequalLoan>(key: K) => (value: PrequalLoan[K]) => onChange({ ...loan, [key]: value })
-  const type = loan.mortgageType ?? 'conventional'
-  const mi = summary.scenario.mi
-  const hasUpfront = type === 'fha' || type === 'va' || type === 'usda_rural' || loan.upfrontFeePct !== null
-  return (
-    <Card title="The loan" description={isPurchase ? 'What they want to buy and how' : 'Home value and current mortgage come from the Overview and Properties tabs'}>
-      <div className="space-y-4">
-        <ToggleChipGroup>
-          {LOAN_TYPES.map((t) => (
-            <ToggleChip key={t.value} label={t.label} pressed={type === t.value} onChange={() => onChange(changeLoanType(loan, t.value as MortgageType))} />
-          ))}
-        </ToggleChipGroup>
-        <FormGrid>
-          {isPurchase ? (
-            <>
-              <CurrencyInput label="Purchase price" value={loan.purchasePrice} onChange={set('purchasePrice')} span={2} />
-              <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
-                <div className="flex items-end gap-2">
-                  <div className="min-w-0 flex-1">
-                    {loan.downPaymentMode === 'percent' ? (
-                      <PercentInput label="Down payment" value={loan.downPaymentPct} onChange={set('downPaymentPct')} maxDecimals={2} />
-                    ) : (
-                      <CurrencyInput label="Down payment" value={loan.downPaymentAmount} onChange={set('downPaymentAmount')} />
-                    )}
-                  </div>
-                  <ToggleChipGroup className="mb-1 flex-nowrap">
-                    <ToggleChip label="%" pressed={loan.downPaymentMode === 'percent'} onChange={() => onChange({ ...loan, downPaymentMode: 'percent', downPaymentPct: summary.scenario.downPayment?.percent ?? loan.downPaymentPct })} />
-                    <ToggleChip label="$" pressed={loan.downPaymentMode === 'amount'} onChange={() => onChange({ ...loan, downPaymentMode: 'amount', downPaymentAmount: summary.scenario.downPayment?.amount ?? loan.downPaymentAmount })} />
-                  </ToggleChipGroup>
-                </div>
-                {summary.useAllDownPayment !== null && summary.useAllDownPayment !== summary.scenario.downPayment?.amount && (
-                  <button
-                    type="button"
-                    className="self-start text-xs font-medium text-primary hover:underline"
-                    onClick={() => onChange({ ...loan, downPaymentMode: 'amount', downPaymentAmount: summary.useAllDownPayment })}
-                  >
-                    Use all available: {formatCurrency(summary.useAllDownPayment)} down
-                  </button>
-                )}
-              </div>
-              <CurrencyInput label="Loan amount" value={summary.loanAmount} readOnly span={1} hint={summary.scenario.ltv !== null ? `${formatPercent(summary.scenario.ltv, 2)} LTV` : undefined} />
-            </>
-          ) : (
-            <CurrencyInput label="Loan amount" value={loan.loanAmount} onChange={set('loanAmount')} span={2} hint={summary.scenario.ltv !== null ? `${formatPercent(summary.scenario.ltv, 2)} LTV` : undefined} />
-          )}
-          <PercentInput label="Interest rate" value={loan.noteRate} onChange={set('noteRate')} span={1} />
-        </FormGrid>
-        <ToggleChipGroup>
-          {TERMS.map((t) => (
-            <ToggleChip key={t.months} label={t.label} pressed={loan.termMonths === t.months} onChange={() => onChange({ ...loan, termMonths: t.months })} />
-          ))}
-        </ToggleChipGroup>
-
-        <SubHeading>Taxes, insurance and HOA</SubHeading>
-        <FormGrid>
-          {subject?.annualTaxes != null ? (
-            <CurrencyInput label="Taxes / year" value={subject.annualTaxes} readOnly hint="From the subject property" span={2} />
-          ) : (
-            <PercentInput label="Property tax rate" value={loan.estimatedTaxRatePct} onChange={set('estimatedTaxRatePct')} maxDecimals={3} hint="DFW is about 2.2% of price" span={2} />
-          )}
-          {subject?.annualInsurance != null ? (
-            <CurrencyInput label="Insurance / year" value={subject.annualInsurance} readOnly hint="From the subject property" span={2} />
-          ) : (
-            <CurrencyInput label="Insurance / year" value={loan.estimatedAnnualInsurance} onChange={set('estimatedAnnualInsurance')} span={2} hint="Estimate" />
-          )}
-          {subject?.monthlyHoa != null ? (
-            <CurrencyInput label="HOA / month" value={subject.monthlyHoa} readOnly hint="From the subject property" span={2} />
-          ) : (
-            <CurrencyInput label="HOA / month" value={loan.estimatedMonthlyHoa} onChange={set('estimatedMonthlyHoa')} span={2} />
-          )}
-        </FormGrid>
-
-        <SubHeading>Mortgage insurance and limits</SubHeading>
-        <FormGrid>
-          <PercentInput
-            label="MI rate / year"
-            value={loan.miRatePct}
-            onChange={set('miRatePct')}
-            maxDecimals={3}
-            placeholder={mi ? String(mi.annualRatePct) : undefined}
-            hint={loan.miRatePct === null ? `Default ${formatPercent(mi?.annualRatePct ?? 0)} for this loan` : 'Clear to use the default'}
-            span={2}
-          />
-          {hasUpfront && (
-            <PercentInput
-              label={type === 'va' ? 'VA funding fee' : 'Upfront fee (financed)'}
-              value={loan.upfrontFeePct}
-              onChange={set('upfrontFeePct')}
-              maxDecimals={3}
-              placeholder={mi ? String(mi.upfrontFeePct) : undefined}
-              hint={loan.upfrontFeePct === null ? `Default ${formatPercent(mi?.upfrontFeePct ?? 0)}` : 'Clear to use the default'}
-              span={2}
-            />
-          )}
-          <PercentInput label="Max DTI" value={loan.maxDtiPct} onChange={(v) => onChange({ ...loan, maxDtiPct: v ?? 0 })} maxDecimals={2} hint={DEFAULT_DTI_LABELS} span={2} />
-        </FormGrid>
-        {type === 'va' && (
-          <ToggleChip label="Exempt from the funding fee (disability)" pressed={loan.upfrontFeePct === 0} onChange={(on) => onChange({ ...loan, upfrontFeePct: on ? 0 : null })} />
-        )}
-      </div>
-    </Card>
-  )
-}
-
 export function BorrowerSection({ borrower, onChange }: { borrower: QuickBorrower; onChange: (next: QuickBorrower) => void }) {
   const setJob = (key: string, changes: Partial<QuickBorrower['jobs'][number]>) =>
     onChange({ ...borrower, jobs: borrower.jobs.map((j) => (j.key === key ? { ...j, ...changes } : j)) })
@@ -153,7 +35,7 @@ export function BorrowerSection({ borrower, onChange }: { borrower: QuickBorrowe
   const addJob = (selfEmployed: boolean) =>
     onChange({ ...borrower, jobs: [...borrower.jobs, { key: newKey(), id: null, employerName: '', selfEmployed, monthly: null, otherPay: 0, startDate: null }] })
   return (
-    <Card title={`${borrower.firstName || 'Borrower'}${borrower.role === 'co_borrower' ? ' (co-borrower)' : ''}`} description="Monthly gross income. Hourly, overtime or tax-return income: use the Income tab worksheets.">
+    <Card title={`${borrower.firstName || 'Borrower'}${borrower.role === 'co_borrower' ? ' (co-borrower)' : ''}`} description="Monthly gross income.">
       <div className="space-y-4">
         <FormGrid>
           <NumberInput label="Credit score (estimate)" value={borrower.creditScore} onChange={(creditScore) => onChange({ ...borrower, creditScore })} maxDecimals={0} span={2} />
