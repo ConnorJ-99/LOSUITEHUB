@@ -22,6 +22,7 @@ import { cardAmount, pipelineInfo, stageLabelFor } from '@/lib/pipeline/pipeline
 import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
 import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 import { WebLeadsCard } from '@/components/queue/WebLeadsCard'
+import { PortalRequestsCard } from '@/components/portal/PortalRequestsCard'
 import { PriorityListCard } from '@/components/queue/PriorityList'
 import { NewMessagesCard } from '@/components/messages/NewMessages'
 import { ScheduledCard } from '@/components/messages/ScheduledCard'
@@ -245,6 +246,7 @@ export function TodayPage() {
           {tasks.isSuccess && <PriorityListCard tasks={tasks.data} />}
           <NewMessagesCard />
           <ScheduledCard />
+          <PortalRequestsCard />
           <WebLeadsCard />
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>

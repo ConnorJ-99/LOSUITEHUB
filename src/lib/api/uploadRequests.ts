@@ -227,9 +227,10 @@ export function useUploadLinks(loanId: string) {
     queryKey: linksKey(loanId),
     retry: false,
     queryFn: async (): Promise<UploadLink[]> => {
-      const r = await db().from('document_upload_links').select('id, contact_id, created_at, expires_at, revoked_at, due_on, first_opened_at, last_opened_at').eq('loan_id', loanId).order('created_at', { ascending: false })
+      // '*' so this works before and after the borrower portal script; portal links have their own card (Overview).
+      const r = await db().from('document_upload_links').select('*').eq('loan_id', loanId).order('created_at', { ascending: false })
       if (r.error) return []
-      return (r.data as Record<string, string | null>[]).map((l) => ({
+      return (r.data as Record<string, string | null>[]).filter((l) => l.kind !== 'portal').map((l) => ({
         id: l.id!,
         contactId: l.contact_id!,
         createdAt: l.created_at!,

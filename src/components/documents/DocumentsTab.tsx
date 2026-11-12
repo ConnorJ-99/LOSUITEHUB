@@ -21,6 +21,7 @@ import { useApplication } from '@/lib/api/urla'
 import { formatIsoDate } from '@/lib/dates'
 import { SendDocumentDialog } from '@/components/messages/SendDocumentDialog'
 import { isSendableKind } from '@/lib/messaging/documentMessages'
+import { PublishToggle } from '@/components/portal/PublishToggle'
 import { RequestChecklist } from './RequestChecklist'
 
 const KIND_OPTIONS = DOCUMENT_KIND_GROUPS.flatMap((g) => g.kinds.map(([value, label]) => ({ value: value as DocumentKind, label })))
@@ -46,6 +47,7 @@ function DocRow({ doc, people, loan, home }: { doc: LoanDocument; people: Person
           {sizeLabel(doc.sizeBytes)} · {formatIsoDate(doc.createdAt.slice(0, 10))}
           {home && ` · ${home}`}
         </p>
+        <PublishToggle loan={loan} documentId={doc.id} kind={doc.kind} className="mt-1 ml-6" />
       </div>
       <Select label="What it is" value={doc.kind} options={KIND_OPTIONS} onChange={(kind) => update.mutate({ id: doc.id, kind }, { onError: fail })} />
       {people.length > 0 ? (

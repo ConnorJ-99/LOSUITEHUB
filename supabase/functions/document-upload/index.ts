@@ -12,9 +12,16 @@
 //               item on this link (PDF or photo, up to 10 MB)
 //   uploaded    records the upload on the Documents tab, tagged with the item,
 //               and marks the item received
+// A portal link (kind 'portal', the borrower portal) also has:
+//   view        + the status step and its message, published letters and
+//               estimates by home, and home requests; its items are every
+//               request for that borrower on the file, not just one link's
+//   pdf         a one-minute link to a published letter or estimate PDF
+//   home_request "Request numbers" for a home (submit_portal_request())
 // Never sends a message. Never returns anything else about the loan.
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0'
+import { groupByHome, homeRequestProblem, portalStep, stepMessage, type HomeRequestInput, type PortalDoc, type PortalMilestone, type PortalStage, type PortalView, type RequestStatus } from './portal.ts'
 import { NOT_VERIFIED, SESSION_HOURS, canUpload, emailMatches, expiredText, fileProblem, isLocked, linkState, safeFileName, sessionValid, type UploadItem, type UploadLo } from './rules.ts'
 
 const CORS = {
@@ -31,6 +38,7 @@ interface LinkRow {
   organization_id: string
   loan_id: string
   contact_id: string
+  kind: 'request' | 'portal'
   expires_at: string
   revoked_at: string | null
   first_opened_at: string | null
@@ -49,7 +57,7 @@ async function loadLink(db: SupabaseClient, token: unknown): Promise<LinkRow | n
   if (typeof token !== 'string' || !TOKEN.test(token)) return null
   const r = await db
     .from('document_upload_links')
-    .select('id, organization_id, loan_id, contact_id, expires_at, revoked_at, first_opened_at, session_hash, session_expires_at')
+    .select('id, organization_id, loan_id, contact_id, kind, expires_at, revoked_at, first_opened_at, session_hash, session_expires_at')
     .eq('token_hash', await sha256(token.toLowerCase()))
     .maybeSingle()
   if (r.error) throw new Error(r.error.message)
@@ -97,10 +105,40 @@ interface ItemRow {
   document_id: string | null
 }
 
+/** A request link's own items; a portal link's: every request for its borrower on the file. */
 async function itemsOf(db: SupabaseClient, l: LinkRow): Promise<ItemRow[]> {
-  const r = await db.from('document_requests').select('id, label, instructions, status, reject_reason, due_on, kind, document_id').eq('link_id', l.id).neq('status', 'waived').order('requested_at')
+  const q = db.from('document_requests').select('id, label, instructions, status, reject_reason, due_on, kind, document_id').neq('status', 'waived').order('requested_at')
+  const r = await (l.kind === 'portal' ? q.eq('loan_id', l.loan_id).eq('contact_id', l.contact_id) : q.eq('link_id', l.id))
   if (r.error) throw new Error(r.error.message)
   return r.data as ItemRow[]
+}
+
+const PUBLISHABLE = ['preapproval_letter', 'fee_worksheet', 'loan_comparison']
+
+/** The portal's extra sections: status step, published letters/estimates by home, home requests. */
+async function portalView(db: SupabaseClient, l: LinkRow): Promise<PortalView> {
+  const [loan, milestones, person, settings, docs, homes, requests] = await Promise.all([
+    db.from('loans').select('stage, purpose').eq('id', l.loan_id).single(),
+    db.from('loan_milestones').select('milestone').eq('loan_id', l.loan_id),
+    db.from('contacts').select('first_name').eq('id', l.contact_id).single(),
+    db.from('messaging_settings').select('portal_stage_messages').eq('organization_id', l.organization_id).maybeSingle(),
+    db.from('loan_documents').select('id, kind, file_name, property_id, published_at').eq('loan_id', l.loan_id).not('published_at', 'is', null).in('kind', PUBLISHABLE).order('published_at', { ascending: false }),
+    db.from('properties').select('id, address_line, city, list_price').eq('loan_id', l.loan_id),
+    db.from('portal_property_requests').select('id, property_id, address_line, price, status, wants_letter, wants_estimate, created_at').eq('loan_id', l.loan_id).eq('contact_id', l.contact_id),
+  ])
+  const ln = loan.data as { stage: PortalStage; purpose: string }
+  const step = portalStep(ln.stage, ((milestones.data ?? []) as { milestone: PortalMilestone }[]).map((m) => m.milestone))
+  const custom = (settings.data as { portal_stage_messages: Record<string, unknown> } | null)?.portal_stage_messages ?? null
+  const published: PortalDoc[] = ((docs.data ?? []) as { id: string; kind: PortalDoc['kind']; file_name: string; property_id: string | null; published_at: string }[]).map((d) => ({ id: d.id, kind: d.kind, name: d.file_name, propertyId: d.property_id, publishedAt: d.published_at }))
+  const homeRows = ((homes.data ?? []) as { id: string; address_line: string; city: string | null; list_price: number | null }[]).map((h) => ({ id: h.id, address: h.city ? `${h.address_line}, ${h.city}` : h.address_line, price: h.list_price == null ? null : Number(h.list_price) }))
+  const reqRows = ((requests.data ?? []) as { id: string; property_id: string | null; address_line: string; price: number; status: RequestStatus; wants_letter: boolean; wants_estimate: boolean; created_at: string }[]).map((r) => ({ id: r.id, propertyId: r.property_id, address: r.address_line, price: Number(r.price), status: r.status, wantsLetter: r.wants_letter, wantsEstimate: r.wants_estimate, createdAt: r.created_at }))
+  return {
+    borrowerFirstName: (person.data as { first_name: string } | null)?.first_name ?? '',
+    step,
+    stepMessage: stepMessage(step, custom),
+    homes: groupByHome(homeRows, reqRows, published),
+    isPurchase: ln.purpose === 'purchase',
+  }
 }
 
 Deno.serve(async (request) => {
@@ -117,7 +155,7 @@ Deno.serve(async (request) => {
         await event(db, l, 'expired')
         return reply(200, { state: 'expired', lo, message: expiredText(lo.name) })
       }
-      return reply(200, { state: 'ask_email', lo })
+      return reply(200, { state: 'ask_email', lo, kind: l.kind })
     }
 
     if (body.action === 'email') {
@@ -165,7 +203,63 @@ Deno.serve(async (request) => {
         dueOn: i.due_on,
         files: files.filter((f) => f.document_request_id === i.id).map((f) => ({ name: f.file_name, uploadedAt: f.created_at })),
       }))
-      return reply(200, { state: 'open', items: out, lo: await loCard(db, l) })
+      const lo = await loCard(db, l)
+      if (l.kind === 'portal') return reply(200, { state: 'open', kind: 'portal', items: out, lo, portal: await portalView(db, l) })
+      return reply(200, { state: 'open', kind: 'request', items: out, lo })
+    }
+
+    if (body.action === 'pdf') {
+      const l = await withSession(db, body)
+      if (l instanceof Response) return l
+      if (l.kind !== 'portal' || typeof body.documentId !== 'string' || !UUID.test(body.documentId)) return reply(400, { error: 'That document is not available.' })
+      const doc = await db.from('loan_documents').select('storage_path').eq('id', body.documentId).eq('loan_id', l.loan_id).not('published_at', 'is', null).in('kind', PUBLISHABLE).maybeSingle()
+      const path = (doc.data as { storage_path: string } | null)?.storage_path
+      if (!path) return reply(404, { error: 'That document is not available.' })
+      const signed = await db.storage.from('loan-files').createSignedUrl(path, 60)
+      if (signed.error || !signed.data) return reply(500, { error: 'The PDF could not open. Try again.' })
+      await event(db, l, 'pdf')
+      return reply(200, { url: signed.data.signedUrl })
+    }
+
+    if (body.action === 'home_request') {
+      const l = await withSession(db, body)
+      if (l instanceof Response) return l
+      if (l.kind !== 'portal') return reply(400, { error: 'Ask your loan officer for your portal link.' })
+      const input = (body.request ?? {}) as Partial<HomeRequestInput>
+      const req: HomeRequestInput = {
+        address: String(input.address ?? '').slice(0, 200),
+        city: String(input.city ?? '').slice(0, 100),
+        state: String(input.state ?? '').toUpperCase(),
+        zip: String(input.zip ?? ''),
+        price: typeof input.price === 'number' && Number.isFinite(input.price) ? input.price : null,
+        downMode: input.downMode === 'amount' ? 'amount' : 'percent',
+        down: typeof input.down === 'number' && Number.isFinite(input.down) ? input.down : null,
+        wantsLetter: input.wantsLetter === true,
+        wantsEstimate: input.wantsEstimate === true,
+        notes: String(input.notes ?? ''),
+      }
+      const problem = homeRequestProblem(req)
+      if (problem) return reply(400, { error: problem })
+      // Five requests an hour per link is plenty for a real borrower.
+      const hourAgo = new Date(Date.now() - 3600_000).toISOString()
+      const recent = await db.from('document_link_events').select('id', { count: 'exact', head: true }).eq('link_id', l.id).eq('kind', 'home_request').gte('created_at', hourAgo)
+      if ((recent.count ?? 0) >= 5) return reply(429, { error: 'That is a lot of requests at once. Please wait a bit, or contact your loan officer.' })
+      const r = await db.rpc('submit_portal_request', {
+        p_link: l.id,
+        p_address: req.address,
+        p_city: req.city,
+        p_state: req.state || 'TX',
+        p_zip: req.zip,
+        p_price: req.price,
+        p_down_amount: req.downMode === 'amount' ? req.down : null,
+        p_down_pct: req.downMode === 'percent' ? req.down : null,
+        p_wants_letter: req.wantsLetter,
+        p_wants_estimate: req.wantsEstimate,
+        p_notes: req.notes,
+      })
+      if (r.error) return reply(400, { error: r.error.message })
+      await event(db, l, 'home_request')
+      return reply(200, { ok: true })
     }
 
     if (body.action === 'upload_url' || body.action === 'uploaded') {

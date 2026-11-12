@@ -21,6 +21,7 @@ import { ariveTemplateProblem } from '@/lib/arive'
 import { CompensationCard } from '@/components/settings/CompensationCard'
 import { ReviewsCard } from '@/components/settings/ReviewsCard'
 import { roleLabels, useAuth, type CurrentUser, type OrgRole } from '@/lib/auth/context'
+import { PortalSettingsCard } from '@/components/settings/PortalSettingsCard'
 
 function SaveBar({ dirty, saving, onSave, onDiscard }: { dirty: boolean; saving: boolean; onSave: () => void; onDiscard: () => void }) {
   if (!dirty) return null
@@ -307,6 +308,7 @@ export function SettingsPage() {
         <ReviewsCard canEdit={canEditCompany} />
         <RefiScenariosCard canEdit={canEditCompany} />
         {me && <TeamCard members={members.data ?? []} me={me} />}
+        <PortalSettingsCard canEdit={canEditCompany} organizationId={me?.organizationId ?? null} />
         {canEditCompany && <GhlCard members={members.data ?? []} />}
         <SendingCard canEdit={canEditCompany} />
         <NotificationSettingsCard />

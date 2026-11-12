@@ -1,6 +1,7 @@
 // The public upload page talks only to the document-upload Edge Function
 // (UI pass Part 3). No sign-in: the link's token, then a 24-hour session
 // after the borrower confirms their email.
+import type { PortalView } from '../../../supabase/functions/document-upload/portal'
 import type { UploadItem, UploadLo } from '../../../supabase/functions/document-upload/rules'
 import { db } from './client'
 
@@ -16,6 +17,11 @@ export interface UploadReply {
     path?: string
     token?: string
     ok?: boolean
+    /** 'portal' = the borrower portal; 'request' = a one-off document request. */
+    kind?: 'portal' | 'request'
+    portal?: PortalView
+    /** A one-minute PDF link (portal). */
+    url?: string
   }
 }
 

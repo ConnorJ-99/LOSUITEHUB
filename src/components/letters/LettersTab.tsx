@@ -35,6 +35,7 @@ import {
   type SavedLetter,
 } from '@/lib/documents/preapproval'
 import { formatCurrency } from '@/lib/format'
+import { PublishToggle } from '@/components/portal/PublishToggle'
 
 const AMORTIZATION_OPTIONS = [
   { value: 'fixed', label: 'Fixed' },
@@ -227,6 +228,7 @@ function LetterRow({ loan, letter: l, documentName, onOpen }: { loan: LoanProfil
           <span className="font-mono">#{l.referenceNumber}</span> · issued {formatIsoDate(l.issuedOn)} · {expired ? <span className="text-destructive">expired {formatIsoDate(l.expiresOn)}</span> : `expires ${formatIsoDate(l.expiresOn)}`}
         </p>
       </div>
+      {documentName && l.documentId && <PublishToggle loan={loan} documentId={l.documentId} kind="preapproval_letter" />}
       {documentName ? (
         <Button size="sm" variant="ghost" onClick={onOpen}>
           <FileTextIcon />

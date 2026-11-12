@@ -250,7 +250,7 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
 
   let body: React.ReactNode
   if (view === 'match') body = <MatchLenders loan={loan} data={data} onClose={() => show(null)} onCreate={(ids, s) => setParam({ view: 'build', programs: ids.join(','), ...matchedDeal(s) })} />
-  else if (view === 'build') body = <BuildEstimates loan={loan} data={data} onClose={() => setParam({ view: null, programs: null, price: null, down: null })} onCreated={(ids) => (setChecked(new Set(ids)), setParam({ view: 'list', estimate: ids[0] ?? null, programs: null, price: null, down: null }))} />
+  else if (view === 'build') body = <BuildEstimates loan={loan} data={data} onClose={() => setParam({ view: null, programs: null, price: null, down: null, property: null })} onCreated={(ids) => (setChecked(new Set(ids)), setParam({ view: 'list', estimate: ids[0] ?? null, programs: null, price: null, down: null, property: null }))} />
   else if (view === 'compare')
     body = (
       <CompareEstimates

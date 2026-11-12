@@ -4,6 +4,9 @@
 // hours on this device). It shows only the requested items with the loan
 // officer's instructions; each takes PDFs or photos (several per item, the
 // phone camera works) and shows Received or what needs attention.
+// A portal link (the borrower portal) adds where the loan stands, a progress
+// bar, published letters and estimates by home, and home requests
+// (PublicPortal.tsx); its items are every request for that borrower.
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router'
 import { AlertCircleIcon, CameraIcon, CheckCircle2Icon, Loader2Icon, MailIcon, MessageSquareIcon } from 'lucide-react'
@@ -11,9 +14,16 @@ import logo from '@/assets/mps-logo.png'
 import { callDocumentUpload, putSignedUpload, saveUploadSession, savedUploadSession } from '@/lib/api/documentUpload'
 import { formatPhone } from '@/lib/pipeline/helpers'
 import { isSupabaseConfigured } from '@/lib/supabase'
+import { borrowerDocStatus, type PortalView } from '../../supabase/functions/document-upload/portal'
 import { ALLOWED_TYPES, fileProblem, stillNeeded, type UploadItem, type UploadLo } from '../../supabase/functions/document-upload/rules'
+import { DocProgress, LettersAndHomes, PortalHeader } from './PublicPortal'
 
-type Screen = { kind: 'loading' } | { kind: 'missing' } | { kind: 'expired'; lo: UploadLo | null; message: string } | { kind: 'ask_email'; lo: UploadLo | null } | { kind: 'open'; lo: UploadLo | null; items: UploadItem[] }
+type Screen =
+  | { kind: 'loading' }
+  | { kind: 'missing' }
+  | { kind: 'expired'; lo: UploadLo | null; message: string }
+  | { kind: 'ask_email'; lo: UploadLo | null; portal: boolean }
+  | { kind: 'open'; lo: UploadLo | null; items: UploadItem[]; portal: PortalView | null }
 
 const TOKEN = /^[0-9a-f]{64}$/i
 
@@ -24,13 +34,13 @@ export function PublicUploadPage() {
 
   const expired = (lo: UploadLo | null, message?: string) => setScreen({ kind: 'expired', lo, message: message ?? `This link has expired. Contact ${lo?.name ?? 'your loan officer'} for a new one.` })
 
-  const view = async (s: string, lo: UploadLo | null) => {
+  const view = async (s: string, lo: UploadLo | null, portal: boolean) => {
     const r = await callDocumentUpload({ action: 'view', token, session: s })
-    if (r.status === 200 && r.body.items) return setScreen({ kind: 'open', lo: r.body.lo ?? lo, items: r.body.items })
+    if (r.status === 200 && r.body.items) return setScreen({ kind: 'open', lo: r.body.lo ?? lo, items: r.body.items, portal: r.body.portal ?? null })
     if (r.status === 410) return expired(lo)
     saveUploadSession(token, null)
     setSession(null)
-    setScreen({ kind: 'ask_email', lo })
+    setScreen({ kind: 'ask_email', lo, portal })
   }
 
   useEffect(() => {
@@ -41,11 +51,13 @@ export function PublicUploadPage() {
       if (gone) return
       if (r.status !== 200) return setScreen({ kind: 'missing' })
       const lo = r.body.lo ?? null
+      const portal = r.body.kind === 'portal'
+      if (portal) document.title = 'Your loan · MPS Mortgage'
       if (r.body.state === 'expired') return expired(lo, r.body.message)
       const s = savedUploadSession(token)
       setSession(s)
-      if (s) await view(s, lo)
-      else setScreen({ kind: 'ask_email', lo })
+      if (s) await view(s, lo, portal)
+      else setScreen({ kind: 'ask_email', lo, portal })
     })
     return () => {
       gone = true
@@ -54,7 +66,7 @@ export function PublicUploadPage() {
   }, [token])
 
   const lo = screen.kind === 'loading' || screen.kind === 'missing' ? null : screen.lo
-  const refresh = () => session && screen.kind === 'open' && void view(session, screen.lo)
+  const refresh = () => session && screen.kind === 'open' && void view(session, screen.lo, !!screen.portal)
 
   return (
     <div className="min-h-screen bg-[#F4F7FB] text-foreground">
@@ -75,15 +87,18 @@ export function PublicUploadPage() {
         {screen.kind === 'ask_email' && (
           <EmailBox
             token={token}
+            portal={screen.portal}
             onOpen={(s) => {
               saveUploadSession(token, s)
               setSession(s)
-              void view(s, screen.lo)
+              void view(s, screen.lo, screen.portal)
             }}
             onExpired={() => expired(screen.lo)}
           />
         )}
-        {screen.kind === 'open' && session && <Items token={token} session={session} items={screen.items} onChanged={refresh} onExpired={() => expired(screen.lo)} />}
+        {screen.kind === 'open' && session && screen.portal && <PortalHeader view={screen.portal} />}
+        {screen.kind === 'open' && session && <Items token={token} session={session} items={screen.items} portal={!!screen.portal} onChanged={refresh} onExpired={() => expired(screen.lo)} />}
+        {screen.kind === 'open' && session && screen.portal && <LettersAndHomes view={screen.portal} token={token} session={session} onChanged={refresh} onExpired={() => expired(screen.lo)} />}
         {lo && <LoCard lo={lo} />}
       </main>
     </div>
@@ -99,7 +114,7 @@ function Notice({ title, text }: { title: string; text: string }) {
   )
 }
 
-function EmailBox({ token, onOpen, onExpired }: { token: string; onOpen: (session: string) => void; onExpired: () => void }) {
+function EmailBox({ token, portal, onOpen, onExpired }: { token: string; portal: boolean; onOpen: (session: string) => void; onExpired: () => void }) {
   const [email, setEmail] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -116,7 +131,7 @@ function EmailBox({ token, onOpen, onExpired }: { token: string; onOpen: (sessio
   }
   return (
     <form onSubmit={(e) => void submit(e)} className="rounded-xl border bg-white p-6 shadow-soft">
-      <h1 className="text-lg font-bold tracking-tight">Upload your documents</h1>
+      <h1 className="text-lg font-bold tracking-tight">{portal ? 'Your loan portal' : 'Upload your documents'}</h1>
       <p className="mt-1 text-sm text-muted-foreground">To keep your information private, type the email address your loan officer has for you.</p>
       <label className="mt-4 block text-sm font-medium" htmlFor="upload-email">
         Email
@@ -132,22 +147,24 @@ function EmailBox({ token, onOpen, onExpired }: { token: string; onOpen: (sessio
       />
       {error && <p className="mt-1.5 text-sm text-destructive">{error}</p>}
       <button type="submit" disabled={busy || !email.trim()} className="mt-4 h-12 w-full rounded-lg bg-primary text-base font-semibold text-white disabled:opacity-60">
-        {busy ? 'Checking…' : 'Open my document list'}
+        {busy ? 'Checking…' : portal ? 'Open my portal' : 'Open my document list'}
       </button>
     </form>
   )
 }
 
-function Items({ token, session, items, onChanged, onExpired }: { token: string; session: string; items: UploadItem[]; onChanged: () => void; onExpired: () => void }) {
+function Items({ token, session, items, portal, onChanged, onExpired }: { token: string; session: string; items: UploadItem[]; portal: boolean; onChanged: () => void; onExpired: () => void }) {
   const left = items.filter((i) => stillNeeded(i.status)).length
+  const Title = portal ? 'h2' : 'h1'
   return (
     <section className="space-y-3">
       <div>
-        <h1 className="text-xl font-bold tracking-tight">Upload your documents</h1>
+        <Title className={`${portal ? 'text-lg' : 'text-xl'} font-bold tracking-tight`}>{portal ? 'My documents' : 'Upload your documents'}</Title>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          {left ? `${left} item${left === 1 ? '' : 's'} still needed.` : "That's everything for now. Thank you!"} PDFs or photos, up to 10 MB each. You can add more than one file per item.
+          {portal && items.length === 0 ? 'Nothing is needed from you right now.' : left ? `${left} item${left === 1 ? '' : 's'} still needed.` : "That's everything for now. Thank you!"} {items.length > 0 && 'PDFs or photos, up to 10 MB each. You can add more than one file per item.'}
         </p>
       </div>
+      {portal && <DocProgress items={items} />}
       {items.map((i) => (
         <ItemCard key={i.id} token={token} session={session} item={i} onChanged={onChanged} onExpired={onExpired} />
       ))}
@@ -204,15 +221,16 @@ function ItemCard({ token, session, item, onChanged, onExpired }: { token: strin
         {(done || received) && (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
             <CheckCircle2Icon className="size-3.5" />
-            {done ? 'Accepted' : 'Received'}
+            {borrowerDocStatus(item.status)}
           </span>
         )}
         {attention && (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
             <AlertCircleIcon className="size-3.5" />
-            Needs attention
+            {borrowerDocStatus(item.status)}
           </span>
         )}
+        {item.status === 'requested' && <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{borrowerDocStatus(item.status)}</span>}
       </div>
       {attention && item.rejectReason && <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">{item.rejectReason}</p>}
       {item.files.length > 0 && (

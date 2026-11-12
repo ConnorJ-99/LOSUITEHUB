@@ -149,6 +149,17 @@ export function matchContext(s: Scenario, m: MatchResult, loanType: string | nul
   return [MATRIX_PURPOSES.label[s.purpose], loanType, s.fico != null ? `${s.fico} FICO` : null, ratio, s.state, n(m.fits.length, 'program fits', 'programs fit'), n(m.nearMisses.length, 'near miss', 'near misses')].filter(Boolean).join(' · ')
 }
 
+/** Only the Hot programs (the ones Connor wants to look at first); counts stay honest because the context line uses the result given. */
+export function onlyHot(m: MatchResult, hot: Set<string>): MatchResult {
+  const keep = (rows: MatchRow[]) => rows.filter((r) => hot.has(r.result.program.id))
+  return { ...m, fits: keep(m.fits), nearMisses: keep(m.nearMisses), excluded: keep(m.excluded) }
+}
+
+/** Hot programs first, keeping each group's order otherwise (Build estimates' list). */
+export function hotFirst<T extends { programId: string }>(list: T[], hot: Set<string>): T[] {
+  return [...list.filter((p) => hot.has(p.programId)), ...list.filter((p) => !hot.has(p.programId))]
+}
+
 /** Product types that have at least one fit or near miss, for the filter chips. */
 export function matchFamilies(m: MatchResult): ProductFamily[] {
   const seen = new Set([...m.fits, ...m.nearMisses].map((r) => r.result.program.family))

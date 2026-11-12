@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { PlusIcon, SparklesIcon, XIcon } from 'lucide-react'
+import { PlusIcon, SparklesIcon, StarIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, CurrencyInput, DateInput, SearchInput, Select } from '@/components/shared'
 import { TERM_OPTIONS } from '@/components/profile/options'
 import { newProgramOption, useProgramList } from '@/lib/api/estimates'
+import { useHotPrograms } from '@/lib/api/hotPrograms'
+import { hotFirst } from '@/lib/products/match'
 import { useProgramOptions } from '@/lib/api/loanPricing'
 import type { LoanProfile } from '@/lib/api/types'
 import { parseNumber, formatCurrency, formatPercent } from '@/lib/format'
@@ -25,7 +27,7 @@ interface Pick {
   optionId: string | null
 }
 
-type Filter = 'all' | 'file' | ProductFamily
+type Filter = 'all' | 'file' | 'hot' | ProductFamily
 
 let rowSeq = 0
 const nextKey = () => `row-${++rowSeq}`
@@ -34,6 +36,8 @@ const nextKey = () => `row-${++rowSeq}`
 export function BuildEstimates({ loan, data, onClose, onCreated }: { loan: LoanProfile; data: EstimateData; onClose: () => void; onCreated: (ids: string[]) => void }) {
   const options = useProgramOptions(loan.id)
   const catalog = useProgramList()
+  const hot = useHotPrograms()
+  const hotIds = hot.data?.ids ?? new Set<string>()
   const [params] = useSearchParams()
   const isPurchase = loan.purpose === 'purchase'
   const d = loan.details
@@ -48,7 +52,8 @@ export function BuildEstimates({ loan, data, onClose, onCreated }: { loan: LoanP
     closingDate: d.closingDate ?? d.estimatedFundingDate,
     sellerCredits: d.sellerCredits,
     earnestMoney: null,
-    propertyId: d.subjectPropertyId,
+    // A borrower's home request (?property=) prices that home; otherwise the subject property.
+    propertyId: params.get('property') || d.subjectPropertyId,
   })
   const [rows, setRows] = useState<BuildRow[]>([])
   const [creating, setCreating] = useState(false)
@@ -62,9 +67,13 @@ export function BuildEstimates({ loan, data, onClose, onCreated }: { loan: LoanP
     .filter((p) => p.active && p.lien === 'first' && p.lenderStatus !== 'inactive' && !onFile.some((f) => f.programId === p.id))
     .map((p) => ({ programId: p.id, programName: p.name, family: p.family, lenderId: p.lenderId, lenderName: p.lenderName, optionId: null }))
   const q = search.trim().toLowerCase()
-  const list = (filter === 'file' ? onFile : [...onFile, ...fromCatalog])
-    .filter((p) => filter === 'all' || filter === 'file' || p.family === filter)
-    .filter((p) => !q || `${p.programName} ${p.lenderName}`.toLowerCase().includes(q))
+  // Hot programs first (and a Hot filter), then the rest in the usual order.
+  const list = hotFirst(
+    (filter === 'file' ? onFile : [...onFile, ...fromCatalog])
+      .filter((p) => filter === 'all' || filter === 'file' || (filter === 'hot' ? hotIds.has(p.programId) : p.family === filter))
+      .filter((p) => !q || `${p.programName} ${p.lenderName}`.toLowerCase().includes(q)),
+    hotIds,
+  )
 
   const subject = data.properties.find((p) => p.id === shared.propertyId) ?? null
   const base = { ...scenarioFrom(loan, subject, '', data.properties), ...ESTIMATE_DEFAULTS }
@@ -139,6 +148,7 @@ export function BuildEstimates({ loan, data, onClose, onCreated }: { loan: LoanP
   const FILTERS: [Filter, string][] = [
     ['all', 'All'],
     ['file', `On this file (${onFile.length})`],
+    ...(hotIds.size ? [['hot', `Hot (${hotIds.size})`] as [Filter, string]] : []),
     ['fha', 'FHA'],
     ['conventional', 'Conv'],
     ['va', 'VA'],
@@ -179,7 +189,10 @@ export function BuildEstimates({ loan, data, onClose, onCreated }: { loan: LoanP
                   <label className={cn('flex cursor-pointer items-start gap-2.5 px-3 py-2', on && 'bg-primary/5')}>
                     <input type="checkbox" className="mt-1 size-4 accent-primary" checked={on} onChange={(e) => toggle(p, e.target.checked)} />
                     <span>
-                      <span className="block text-sm font-semibold">{p.programName}</span>
+                      <span className="flex items-center gap-1 text-sm font-semibold">
+                        {hotIds.has(p.programId) && <StarIcon className="size-3.5 shrink-0 fill-money text-money" aria-label="Hot program" />}
+                        {p.programName}
+                      </span>
                       <span className="block text-xs text-muted-foreground">
                         {p.lenderName} · {PRODUCT_FAMILIES.label[p.family]}
                         {p.optionId && ' · on this file'}

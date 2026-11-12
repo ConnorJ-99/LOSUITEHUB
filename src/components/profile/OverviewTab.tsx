@@ -26,6 +26,7 @@ import { TasksCard } from './TasksCard'
 import { WebFormsCard } from './WebFormsCard'
 import { ProposedUpdatesCard } from '@/components/pages/ProposedUpdatesCard'
 import { SendFormCard } from '@/components/pages/SendFormCard'
+import { PortalCard } from '@/components/portal/PortalCard'
 import { ReadinessCard, useSavedReadiness } from '@/components/prequal/Readiness'
 import { TexasFlags } from './TexasFlags'
 import { ActionQueueCard } from '@/components/queue/ActionQueueCard'
@@ -571,6 +572,8 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
           </Card>
 
           <ProposedUpdatesCard loanId={loan.id} />
+
+          <PortalCard loan={loan} />
 
           <SendFormCard loan={loan} />
 

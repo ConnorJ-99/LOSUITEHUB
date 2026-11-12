@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gradeFor, matchContext, matchFamilies, matchLenders, matchScenario, shortLines } from './match'
+import { gradeFor, matchContext, matchFamilies, hotFirst, matchLenders, matchScenario, onlyHot, shortLines } from './match'
 import { cell, conventionalCatalog, conventionalPurchase, lender, program, rule, scenario } from './testCatalog'
 import type { Catalog } from './types'
 
@@ -89,6 +89,17 @@ describe('match lenders', () => {
     const alpha = r.fits.find((x) => x.result.program.name === 'Conv 30 Fixed')!
     expect(alpha.lines).toContainEqual({ tone: 'verify', text: 'Verify: Max DTI 50%' })
     expect(alpha.score).toBe(97)
+  })
+})
+
+describe('hot programs', () => {
+  it('only Hot programs, in every group', () => {
+    const m = onlyHot(matchLenders(file, catalog, false), new Set(['Bravo TPO · Conv Fixed', 'Delta Lending · FHA 30']))
+    expect([m.fits, m.nearMisses, m.excluded].map((g) => g.map((r) => r.result.program.name))).toEqual([['Conv Fixed'], [], ['FHA 30']])
+  })
+  it('hot first in a list, order kept otherwise', () => {
+    const list = ['a', 'b', 'c', 'd'].map((programId) => ({ programId }))
+    expect(hotFirst(list, new Set(['c', 'a'])).map((p) => p.programId)).toEqual(['a', 'c', 'b', 'd'])
   })
 })
 
