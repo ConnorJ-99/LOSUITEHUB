@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { ArchiveIcon, ArrowLeftRightIcon, CheckIcon, ChevronDownIcon, CopyIcon, ListIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, Share2Icon, SlidersHorizontalIcon, SparklesIcon } from 'lucide-react'
+import { ArchiveIcon, ArrowLeftRightIcon, CheckIcon, ChevronDownIcon, CopyIcon, ListIcon, ListChecksIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, Share2Icon, SlidersHorizontalIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,9 @@ import { ESTIMATE_DEFAULTS, estimateName, estimateStatus, type Estimate } from '
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { scenarioFrom } from '@/lib/pricing/scenario'
 import { BuildEstimates } from './BuildEstimates'
+import { MatchLenders } from './MatchLenders'
+import { downPayment } from '@/lib/products/scenarioForm'
+import type { Scenario } from '@/lib/products/types'
 import { ChangeForAllDialog } from './ChangeForAllDialog'
 import { CompareEstimates } from './CompareEstimates'
 import { EstimateEditor, type SaveState } from './EstimateEditor'
@@ -26,7 +29,7 @@ import { useSelectEstimate } from './useSelectEstimate'
 import { useEstimatePdf } from './useEstimatePdf'
 import { SendSavedPdf } from '@/components/messages/SendDocumentDialog'
 
-type View = 'estimate' | 'list' | 'build' | 'compare'
+type View = 'estimate' | 'list' | 'build' | 'compare' | 'match'
 
 /** Scenarios & Estimate: every estimate on the file, one open at a time, and the one Selected for the file. */
 export function EstimatesTab({ loan }: { loan: LoanProfile }) {
@@ -129,6 +132,12 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
   const header = (
     <div className="ml-auto flex flex-wrap items-center gap-1.5">
       {view === 'estimate' && open && !readOnly && <SaveIndicator state={saveState} />}
+      {!readOnly && (
+        <Button size="xs" variant="outline" onClick={() => show('match')} title="Check every program in your lender catalog against this file">
+          <ListChecksIcon />
+          Match lenders
+        </Button>
+      )}
       {!readOnly && (
         <Button size="xs" className="bg-money text-white hover:bg-money/90" onClick={() => show('build')}>
           <SparklesIcon />
@@ -240,7 +249,8 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
   )
 
   let body: React.ReactNode
-  if (view === 'build') body = <BuildEstimates loan={loan} data={data} onClose={() => show(null)} onCreated={(ids) => (setChecked(new Set(ids)), setParam({ view: 'list', estimate: ids[0] ?? null }))} />
+  if (view === 'match') body = <MatchLenders loan={loan} data={data} onClose={() => show(null)} onCreate={(ids, s) => setParam({ view: 'build', programs: ids.join(','), ...matchedDeal(s) })} />
+  else if (view === 'build') body = <BuildEstimates loan={loan} data={data} onClose={() => setParam({ view: null, programs: null, price: null, down: null })} onCreated={(ids) => (setChecked(new Set(ids)), setParam({ view: 'list', estimate: ids[0] ?? null, programs: null, price: null, down: null }))} />
   else if (view === 'compare')
     body = (
       <CompareEstimates
@@ -299,11 +309,11 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <h2 className="text-base font-bold tracking-tight">Scenarios & Estimate</h2>
-        {view !== 'build' && view !== 'compare' && chips}
+        {view !== 'build' && view !== 'compare' && view !== 'match' && chips}
         {header}
       </div>
       {body}
-      {view !== 'build' && <SharedEstimatesCard loanId={loan.id} readOnly={readOnly} />}
+      {view !== 'build' && view !== 'match' && <SharedEstimatesCard loanId={loan.id} readOnly={readOnly} />}
       <SendSavedPdf loan={loan} docId={pdf.sendingId} onClose={pdf.closeSend} />
       {selecting && <SelectDialog estimate={selecting} current={selectedEstimate} isPurchase={isPurchase} onSelect={selectEstimate} onClose={() => setSelecting(null)} />}
       {renaming && <RenameDialog estimate={renaming} onSave={(name) => run(() => updateEstimate(renaming.id, { name }), 'Renamed')} onClose={() => setRenaming(null)} />}
@@ -320,6 +330,12 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
       )}
     </div>
   )
+}
+
+/** A purchase's price and down payment from Match lenders' parameters, for Build estimates (?price=&down=). */
+function matchedDeal(s: Scenario): Record<string, string | null> {
+  const down = downPayment(s)
+  return down && s.purchasePrice ? { price: String(s.purchasePrice), down: String(down.pct) } : { price: null, down: null }
 }
 
 function SaveIndicator({ state }: { state: SaveState }) {

@@ -7,6 +7,7 @@ import type { CreditEvent } from '@/lib/api/creditEvents'
 import type { LoanProfile, MortgageType, Property } from '@/lib/api/types'
 import type { Application } from '@/lib/api/urla'
 import { formatCurrency, formatPercent } from '@/lib/format'
+import { draftFrom, prequalSummary } from '@/lib/prequal/draft'
 import { applicationSummary } from '@/lib/urla/summary'
 import { purchasePriceOf, ratios } from './engine'
 import { citizenshipFor, DOC_TYPES, docTypeFor, FEATURES, LIENS, lienFor, MATRIX_PROPERTY_TYPES, MATRIX_PURPOSES, matrixPropertyTypeFor, matrixPurposeFor, OCCUPANCIES, PRODUCT_FAMILIES, type MatrixPropertyType, type ProductFamily } from './taxonomy'
@@ -68,6 +69,13 @@ function mortgageLates(events: CreditEvent[], months: number, today: string): nu
   return lates.filter((e) => monthsBetween(e.eventDate!, today) < months).length
 }
 
+/** Years in the longest current self-employment on the file (whole months / 12); null when no one is self-employed or a start date is missing. */
+export function selfEmployedYears(app: Application, today: string): number | null {
+  const jobs = app.borrowers.flatMap((b) => b.employments).filter((e) => e.isSelfEmployed && e.status === 'current')
+  if (jobs.length === 0 || jobs.some((e) => !e.startDate)) return null
+  return round(Math.max(...jobs.map((e) => monthsBetween(e.startDate!, today))) / 12, 2)
+}
+
 export interface FileInput {
   loan: LoanProfile
   app: Application
@@ -114,6 +122,9 @@ export function scenarioFromFile({ loan, app, properties, creditEvents, today }:
     mortgageLates24: mortgageLates(creditEvents, 24, today),
     bkSeasoningMonths: seasoning(creditEvents, ['bankruptcy_ch7', 'bankruptcy_ch13'], today),
     fcSeasoningMonths: seasoning(creditEvents, ['foreclosure', 'short_sale', 'deed_in_lieu'], today),
+    // The Prequal tab's own reserves figure (money left after closing, in months of the new payment).
+    reservesMonths: prequalSummary(loan, draftFrom(loan, app, properties, false), properties).reserves?.months ?? null,
+    selfEmployedYears: selfEmployedYears(app, today),
     firstTimeBuyer: loan.purpose === 'purchase' && app.borrowers.some((b) => b.declarations.ownedPropertyPast3Years === false),
     homestead: subject?.isHomestead ?? (d.occupancy === 'primary' && loan.purpose !== 'purchase'),
     ...(other ? { otherCollateralValue: other.estimatedValue } : {}),

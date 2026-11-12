@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { application, details as baseDetails, loan as baseLoan, property } from '@/lib/mismo/testFixture'
-import { blankScenario, downPayment, scenarioChips, scenarioFromFile, scenarioLabel, typeChips, withDownAmount, withDownPct, withPrice } from './scenarioForm'
+import { blankScenario, downPayment, scenarioChips, scenarioFromFile, scenarioLabel, selfEmployedYears, typeChips, withDownAmount, withDownPct, withPrice } from './scenarioForm'
 import { round } from '@/lib/calc'
 import { ratios } from './engine'
 import { conventionalPurchase, dscrSecond } from './testCatalog'
@@ -46,6 +46,16 @@ describe('pre-filling from a borrower file', () => {
     const withLien = { ...home, liens: [{ id: 'l', propertyId: 'p1', position: 'first' as const, lender: null, balance: 282000, noteRate: 3, monthlyPayment: 1500, isHeloc: false, originatedOn: null, isTexasCashOut: false, toBePaidOff: false, creditLimit: null, mortgageType: null }], isHomestead: true }
     const s = scenarioFromFile({ loan: file('heloan', { incomeDocType: 'bank_statement', purchasePrice: null, loanAmount: 75000 }), app: application, properties: [withLien], creditEvents: [], today })
     expect(s).toMatchObject({ lien: 'ces', family: 'non_qm', docType: 'bank_statement_12', purpose: 'cash_out', firstLienBalance: 282000, loanAmount: 75000, purchasePrice: null, homestead: true })
+  })
+  it('self-employed years come from the current self-employed job; a missing start date stays unknown', () => {
+    expect(selfEmployedYears(application, today)).toBeNull()
+    const withStart = { ...application, borrowers: application.borrowers.map((b) => ({ ...b, employments: b.employments.map((e) => (e.isSelfEmployed ? { ...e, startDate: '2024-04-26' } : e)) })) }
+    expect(selfEmployedYears(withStart, today)).toBe(2.5)
+    expect(scenarioFromFile({ loan: file('purchase'), app: withStart, properties: [home], creditEvents: [], today }).selfEmployedYears).toBe(2.5)
+  })
+  it('reserves are the Prequal tab\'s figure: none when no assets are entered', () => {
+    const s = scenarioFromFile({ loan: file('purchase'), app: { ...application, assets: [] }, properties: [home], creditEvents: [], today })
+    expect(s.reservesMonths).toBeNull()
   })
   it('credit events become seasoning and mortgage lates; a missing date is "unknown"', () => {
     const ev = (eventType: 'bankruptcy_ch7' | 'late_payment' | 'foreclosure', eventDate: string | null, isMortgage = false) => ({ id: eventType + eventDate, contactId: 'c', eventType, eventDate, daysLate: 30, isMortgage, amount: null, notes: null })

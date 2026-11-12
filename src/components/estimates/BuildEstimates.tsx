@@ -39,8 +39,11 @@ export function BuildEstimates({ loan, data, onClose, onCreated }: { loan: LoanP
   const d = loan.details
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
+  // Match lenders can hand over the price and down payment % it matched (?price=&down=).
+  const matchedPrice = isPurchase ? Number(params.get('price')) || null : null
+  const matchedDown = isPurchase && params.get('down') != null && Number.isFinite(Number(params.get('down'))) ? Number(params.get('down')) : null
   const [shared, setShared] = useState<SharedDeal>({
-    purchasePrice: isPurchase ? d.purchasePrice : null,
+    purchasePrice: isPurchase ? (matchedPrice ?? d.purchasePrice) : null,
     propertyValue: null,
     closingDate: d.closingDate ?? d.estimatedFundingDate,
     sellerCredits: d.sellerCredits,
@@ -80,7 +83,7 @@ export function BuildEstimates({ loan, data, onClose, onCreated }: { loan: LoanP
     label: '',
     ratePct: d.noteRate,
     pointsPct: 0,
-    downPct: isPurchase ? defaultDownPct(p.family) : null,
+    downPct: isPurchase ? (matchedDown ?? defaultDownPct(p.family)) : null,
     loanAmount: isPurchase ? null : d.loanAmount,
     termMonths: d.termMonths ?? 360,
   })
