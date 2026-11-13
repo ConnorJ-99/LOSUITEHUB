@@ -23,6 +23,16 @@ describe('cleaning the reply', () => {
     expect(r.fields.employee_name).toBeUndefined()
     expect(r.fields.account_last4).toEqual({ value: '6789', quote: '••6789' })
   })
+  it('keeps the page a quote is on (a whole number from 1); a bad page is left off', () => {
+    const r = normalizeDocReading({ kind: 'paystub', confidence: 'high', fields: [
+      { key: 'ytd_gross', value: '41250', quote: 'YTD 41,250.00', page: 2 },
+      { key: 'pay_date', value: '2026-11-01', quote: '11/01/2026', page: 0 },
+      { key: 'employer_name', value: 'EXCEL INC', quote: 'EXCEL INC', page: '1' },
+    ] }) as DocumentReading
+    expect(r.fields.ytd_gross).toEqual({ value: 41250, quote: 'YTD 41,250.00', page: 2 })
+    expect(r.fields.pay_date).toEqual({ value: '2026-11-01', quote: '11/01/2026' })
+    expect(r.fields.employer_name?.page).toBe(1)
+  })
   it('an unknown kind or a bad date is refused or dropped', () => {
     expect(normalizeDocReading({ kind: 'passport', confidence: 'high', fields: [] })).toEqual({ error: 'The reading named a document type MPS HQ does not know.' })
     expect((normalizeDocReading({ kind: 'w2', confidence: 'high', fields: [{ key: 'tax_year', value: '25', quote: '25' }] }) as DocumentReading).fields).toEqual({})

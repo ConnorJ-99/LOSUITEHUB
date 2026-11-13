@@ -6,6 +6,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { DocFlag, ReadField, ReadFieldKey } from '../../../supabase/functions/assistant/documentRead'
 import type { DocumentKind } from './documents'
+import { invokeAssistant } from './assistant'
 import { db, keys, unwrap } from './client'
 
 export type AnalysisStatus = 'queued' | 'analyzing' | 'ready' | 'needs_review' | 'failed'
@@ -120,4 +121,16 @@ export function useAddEmployerFromUpload(loanId: string) {
     },
     [keys.application(loanId)],
   )
+}
+
+/**
+ * "Analyze" on the Income tab: reads one document now (the assistant
+ * function, task document_read_now) instead of waiting for the timer. A
+ * document with no analysis yet gets one.
+ */
+export function useAnalyzeNow(loanId: string) {
+  return useAnalysisMutation(loanId, async (documentId: string) => {
+    const r = await invokeAssistant<{ status: AnalysisStatus; error: string | null }>({ task: 'document_read_now', documentId }, 'The document could not be read.')
+    if (r.error) throw new Error(r.error)
+  })
 }

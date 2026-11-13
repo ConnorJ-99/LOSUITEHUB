@@ -125,12 +125,12 @@ export function WorksheetCard({
 
   const onSave = () =>
     save.mutate(
-      { id: worksheet.id, ...savePayload() },
+      { id: worksheet.id, ...savePayload(), previous: worksheet },
       { onSuccess: () => toast.success('Worksheet saved'), onError: (e) => toast.error(e.message) },
     )
   const onPush = () =>
     push.mutate(
-      { id: worksheet.id, contactId: borrower.contactId, draft: savePayload(), target, value, newEmployerName: employment ? undefined : draft.newEmployerName },
+      { id: worksheet.id, contactId: borrower.contactId, draft: savePayload(), target, value, newEmployerName: employment ? undefined : draft.newEmployerName, previous: worksheet },
       {
         onSuccess: ({ employmentId }) => {
           toast.success(`${formatCurrency(value)}/mo pushed to the 1003`)

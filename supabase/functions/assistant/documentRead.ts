@@ -77,6 +77,8 @@ export interface ReadField {
   value: string | number
   /** The words on the document it came from. */
   quote: string
+  /** The page the quote is on (1-based; 1 for a photo). Absent on readings made before Stage 4d (Re-run analysis fills it in). */
+  page?: number
 }
 
 /** One deposit on a bank statement (the largest ones only). */
@@ -98,7 +100,7 @@ export const DOC_READ_SYSTEM_PROMPT = [
   'You read one mortgage document a borrower uploaded (a PDF or a photo) for a loan officer.',
   'Say what kind of document it is (one of the listed kinds) and how sure you are, then copy out the listed fields that appear on it.',
   'Copy only what is printed. Never guess, compute or fill in a value that is not on the document. Leave a field out when it is not there.',
-  'For every field give the value and a short quote: the exact words or numbers on the document it came from (40 characters or less).',
+  'For every field give the value, a short quote (the exact words or numbers on the document it came from, 40 characters or less) and the page number the quote is on (the first page is 1; a photo is page 1).',
   'Dates as YYYY-MM-DD. Money as a plain number (no $ or commas). A year as four digits.',
   'Never copy a Social Security number, a full account number or a date of birth. For an account give only its last 4 digits.',
   'Pay frequency is one of weekly, biweekly, semi_monthly, monthly, annual. Return form is 1040, 1120S or 1065. Ownership as a percent number (50 = 50%).',
@@ -121,8 +123,8 @@ export const DOC_READ_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['key', 'value', 'quote'],
-        properties: { key: { type: 'string', enum: READ_FIELDS.map((f) => f.key) }, value: { type: 'string' }, quote: { type: 'string' } },
+        required: ['key', 'value', 'quote', 'page'],
+        properties: { key: { type: 'string', enum: READ_FIELDS.map((f) => f.key) }, value: { type: 'string' }, quote: { type: 'string' }, page: { type: 'integer' } },
       },
     },
     deposits: {
@@ -176,7 +178,8 @@ export function normalizeDocReading(raw: unknown): DocumentReading | { error: st
     }
     else value = text.slice(0, 120)
     if (value === null || value === '') continue
-    fields[def.key] = { value, quote: def.type === 'last4' ? `••${value}` : quote }
+    const page = Number(f.page)
+    fields[def.key] = { value, quote: def.type === 'last4' ? `••${value}` : quote, ...(Number.isInteger(page) && page >= 1 && page <= 1000 ? { page } : {}) }
   }
   const deposits: ReadDeposit[] = []
   for (const d of Array.isArray(raw.deposits) ? raw.deposits.slice(0, 10) : []) {

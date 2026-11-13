@@ -87,3 +87,36 @@ describe('which income a document feeds', () => {
     expect(['paystub', 'w2', 'bank_statement', 'tax_return', 'photo_id'].map(incomeKindOf)).toEqual(['wages', 'wages', 'bank_statement', 'returns', null])
   })
 })
+
+describe('where each figure came from (Stage 4d)', () => {
+  const p = (v: string | number, quote: string, page = 1) => ({ value: v, quote, page })
+  it('a salary stub: the per-period base and the pay frequency, with quote and page', () => {
+    const d = incomeDrafts({ docs: [stub({ ytd_base: f(45000), ytd_overtime: f(0), base_pay_current: p(2000, 'Regular 2,000.00'), pay_frequency: p('biweekly', 'Bi-Weekly') })], jobs: [excel], today })
+    expect(d[0].inputSources).toEqual({
+      amount: { documentId: 'stub1', field: 'base_pay_current', value: 2000, quote: 'Regular 2,000.00', page: 1 },
+      frequency: { documentId: 'stub1', field: 'pay_frequency', value: 'biweekly', quote: 'Bi-Weekly', page: 1 },
+    })
+  })
+  it('an hourly stub: the rate × hours, said how', () => {
+    const d = incomeDrafts({ docs: [stub({ base_pay_current: undefined, hourly_rate: p(80, 'Rate 80.00', 2), hours_current: f(30), ytd_base: f(90000), ytd_overtime: f(0) })], jobs: [excel], today })
+    expect(d[0].data.inputs).toEqual({ frequency: 'biweekly', amount: 2400 })
+    expect(d[0].inputSources.amount).toEqual({ documentId: 'stub1', field: 'hourly_rate', value: 2400, quote: 'Rate 80.00', page: 2, derived: '$80 an hour × 30 hours this period' })
+  })
+  it('the YTD average when it is lower: points at YTD base, says how it was worked out', () => {
+    const d = incomeDrafts({ docs: [stub({ ytd_base: p(41500, 'YTD Regular 41,500.00') }), w2(2025, 52000)], jobs: [excel], today })
+    expect(d[0].inputSources).toEqual({ amount: { documentId: 'stub1', field: 'ytd_base', value: 4150, quote: 'YTD Regular 41,500.00', page: 1, derived: '$41,500 ÷ 10 months through Oct 31, 2026' } })
+  })
+  it('a variable draft: the YTD amount and the months from the pay date', () => {
+    const d = incomeDrafts({ docs: [stub({ ytd_overtime: p(3500, 'OT YTD 3,500.00') })], jobs: [excel], today })
+    expect(d[1].inputSources).toEqual({
+      ytdAmount: { documentId: 'stub1', field: 'ytd_overtime', value: 3500, quote: 'OT YTD 3,500.00', page: 1 },
+      ytdMonths: { documentId: 'stub1', field: 'pay_date', value: 10, quote: '2026-10-31', derived: 'months through Oct 31, 2026' },
+    })
+  })
+  it('a Schedule C: each year’s lines from that year’s return', () => {
+    const ret = (year: number, profit: number): IncomeDoc => ({ documentId: `r${year}`, fileName: `${year}.pdf`, kind: 'tax_return', fields: { tax_year: f(year), return_form: f('1040'), sch_c_net_profit: p(profit, `Line 31 ${profit}`, 4) } })
+    const [d] = incomeDrafts({ docs: [ret(2025, 80000), ret(2024, 70000)], jobs: [], today, only: 'returns' })
+    expect(Object.keys(d.inputSources).sort()).toEqual(['older.netProfit', 'recent.netProfit', 'recentYear'])
+    expect(d.inputSources['older.netProfit']).toMatchObject({ documentId: 'r2024', value: 70000, page: 4 })
+  })
+})

@@ -37,7 +37,7 @@ export function useCalculateIncome(loan: LoanProfile) {
     const drafts = incomeDrafts({ docs: incomeDocs, jobs, today: todayIso(), only })
     if (drafts.length === 0) return 0
     await save.mutateAsync(
-      drafts.map((d) => ({ contactId, kind: d.data.kind, label: d.label, inputs: d.data.inputs, resultMonthly: computeWorksheet(d.data).monthly, employmentId: d.employmentId, sourceDocumentIds: d.sourceDocumentIds, sourceNotes: d.notes })),
+      drafts.map((d) => ({ contactId, kind: d.data.kind, label: d.label, inputs: d.data.inputs, resultMonthly: computeWorksheet(d.data).monthly, employmentId: d.employmentId, sourceDocumentIds: d.sourceDocumentIds, sourceNotes: d.notes, inputSources: d.inputSources })),
     )
     return drafts.length
   }

@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { useState } from 'react'
 import { CalculatorIcon, PlusIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -19,6 +18,7 @@ import { useSavePdf } from '@/components/pdf/useSavePdf'
 import { INCOME_ANALYSIS_TEMPLATE, incomeAnalysisView } from '@/lib/documents/incomeAnalysis'
 import { todayIso } from '@/lib/dates'
 import { useCalculateIncome } from './useCalculateIncome'
+import { IncomeDocuments } from './IncomeDocuments'
 import { FEATURES } from '@/lib/features'
 
 const SELF_EMPLOYED_KINDS: WorksheetKind[] = ['schedule_c', 's_corp', 'partnership', 'bank_statement']
@@ -33,25 +33,6 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
   const [openId, setOpenId] = useState<string | null>(null)
   const calc = useCalculateIncome(loan)
   const pdf = useSavePdf(loan)
-  // "Calculate income" on an analyzed document lands here with ?calculate=<kind>&contact=<id> (one click, run once).
-  const [params, setParams] = useSearchParams()
-  const asked = useRef(false)
-  const wanted = params.get('calculate') as 'wages' | 'bank_statement' | 'returns' | null
-  const wantedFor = params.get('contact')
-  const firstNameOf = (id: string) => app.data?.borrowers.find((b) => b.contactId === id)?.person.firstName ?? 'the borrower'
-  useEffect(() => {
-    if (!FEATURES.incomeReview || !wanted || !wantedFor || asked.current || !calc.available || !app.data) return
-    asked.current = true
-    setSelectedId(wantedFor)
-    void calc.calculate(wantedFor, firstNameOf(wantedFor), wanted)
-    setParams((p) => {
-      const next = new URLSearchParams(p)
-      next.delete('calculate')
-      next.delete('contact')
-      return next
-    }, { replace: true })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wanted, wantedFor, calc.available, app.data])
 
   if (app.isLoading || worksheets.isLoading || properties.isLoading) return <p className="py-12 text-center text-sm text-muted-foreground">Loading income…</p>
   const error = app.error ?? worksheets.error ?? properties.error
@@ -106,6 +87,7 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
 
         <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
           <div className="min-w-0 space-y-3">
+            {FEATURES.incomeReview && <IncomeDocuments loan={loan} contactId={borrower.contactId} onlyBorrower={borrowers.length === 1} />}
             <Card title="Worksheets" description="Enter figures from pay stubs, W-2s, tax returns or bank statements, or calculate them from the analyzed uploads. Push the result to fill in the 1003.">
               <div className="flex flex-wrap gap-2">
                 {FEATURES.incomeReview && calc.available && (

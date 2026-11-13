@@ -92,6 +92,7 @@ export function useUploadDocument(loanId: string, organizationId: string) {
         await db().storage.from(LOAN_FILES_BUCKET).remove([path])
         throw new Error(row.error.message)
       }
+      return (row.data as { id: string }[])[0]?.id ?? null
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.documents(loanId) }),
   })

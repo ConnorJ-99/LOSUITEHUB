@@ -1,10 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { aiEdits } from '@/lib/income/edits'
+import type { InputSources } from '@/lib/income/fromDocuments'
 import type { EmploymentIncomeField, PushTarget, WorksheetKind } from '@/lib/income/worksheets'
 import { db, keys, num, unwrap } from './client'
 
 /** One saved income worksheet. `inputs` is normalized with normalizeInputs() before use. */
 export interface IncomeWorksheet {
   id: string
+  organizationId: string
   loanId: string
   contactId: string
   kind: WorksheetKind
@@ -21,10 +24,13 @@ export interface IncomeWorksheet {
   source: 'manual' | 'ai'
   sourceDocumentIds: string[]
   sourceNotes: string[]
+  /** Stage 4d: where each AI-filled input came from ({} when typed by hand, or before the income review script). */
+  inputSources: InputSources
 }
 
 interface WorksheetRow {
   id: string
+  organization_id: string
   loan_id: string
   contact_id: string
   kind: WorksheetKind
@@ -40,10 +46,12 @@ interface WorksheetRow {
   source?: 'manual' | 'ai'
   source_document_ids?: string[]
   source_notes?: string[]
+  input_sources?: InputSources
 }
 
 const toWorksheet = (r: WorksheetRow): IncomeWorksheet => ({
   id: r.id,
+  organizationId: r.organization_id,
   loanId: r.loan_id,
   contactId: r.contact_id,
   kind: r.kind,
@@ -59,7 +67,26 @@ const toWorksheet = (r: WorksheetRow): IncomeWorksheet => ({
   source: r.source ?? 'manual',
   sourceDocumentIds: r.source_document_ids ?? [],
   sourceNotes: r.source_notes ?? [],
+  inputSources: r.input_sources ?? {},
 })
+
+const missingTable = (message: string) => /income_worksheet_edits|input_sources|schema cache|does not exist/.test(message)
+
+/**
+ * Logs each change to a figure the AI filled in (Stage 4d-1): compares the
+ * worksheet as last saved with what's being saved. Before the income review
+ * script has run there's nowhere to log, and the save still goes through.
+ */
+async function logAiEdits(previous: IncomeWorksheet | undefined, newInputs: unknown) {
+  if (!previous || previous.source !== 'ai') return
+  const edits = aiEdits(previous.inputSources, previous.inputs, newInputs)
+  if (!edits.length) return
+  const r = await db()
+    .from('income_worksheet_edits')
+    .insert(edits.map((e) => ({ organization_id: previous.organizationId, worksheet_id: previous.id, input: e.input, ai_value: e.aiValue, ai_quote: e.aiQuote, new_value: e.newValue })))
+    .select('id')
+  if (r.error && !missingTable(r.error.message)) throw new Error(`Saved, but the change log failed: ${r.error.message}`)
+}
 
 /** Every income worksheet on a loan, oldest first. */
 export function useWorksheets(loanId: string) {
@@ -109,7 +136,11 @@ export function useCreateWorksheet(loanId: string, organizationId: string) {
 export function useSaveWorksheet(loanId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...draft }: WorksheetDraft & { id: string }) => updateWorksheet(id, draftRow(draft)),
+    /** `previous` = the worksheet as last saved, for the AI edit log. */
+    mutationFn: async ({ id, previous, ...draft }: WorksheetDraft & { id: string; previous?: IncomeWorksheet }) => {
+      await updateWorksheet(id, draftRow(draft))
+      await logAiEdits(previous, draft.inputs)
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.worksheets(loanId) }),
   })
 }
@@ -151,7 +182,7 @@ export interface PushInput {
 export function usePushWorksheet(loanId: string, organizationId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, contactId, draft, target, value, newEmployerName }: PushInput) => {
+    mutationFn: async ({ id, contactId, draft, target, value, newEmployerName, previous }: PushInput & { previous?: IncomeWorksheet }) => {
       let { employmentId } = draft
       const selfEmployed = target.to === 'employment' && target.field === 'selfEmployedIncome'
       if (target.to === 'employment' && !employmentId && newEmployerName?.trim()) {
@@ -164,6 +195,7 @@ export function usePushWorksheet(loanId: string, organizationId: string) {
         ).id
       }
       await updateWorksheet(id, draftRow({ ...draft, employmentId }))
+      await logAiEdits(previous, draft.inputs)
 
       if (target.to === 'employment') {
         if (!employmentId) throw new Error('Choose the job this income belongs to.')
@@ -203,6 +235,8 @@ export interface NewIncomeDraft {
   employmentId: string | null
   sourceDocumentIds: string[]
   sourceNotes: string[]
+  /** Stage 4d: where each input came from. */
+  inputSources: InputSources
 }
 
 /**
@@ -219,28 +253,27 @@ export function useSaveIncomeDrafts(loanId: string, organizationId: string) {
         old = d.employmentId ? old.eq('employment_id', d.employmentId) : old.is('employment_id', null)
         unwrap(await old.select('id'))
       }
-      unwrap(
-        await db()
-          .from('income_worksheets')
-          .insert(
-            drafts.map((d) => ({
-              organization_id: organizationId,
-              loan_id: loanId,
-              contact_id: d.contactId,
-              kind: d.kind,
-              label: d.label,
-              inputs: d.inputs,
-              result_monthly: d.resultMonthly,
-              employment_id: d.employmentId,
-              property_id: null,
-              status: 'draft',
-              source: 'ai',
-              source_document_ids: d.sourceDocumentIds,
-              source_notes: d.sourceNotes,
-            })),
-          )
-          .select('id'),
-      )
+      const rows = (withSources: boolean) =>
+        drafts.map((d) => ({
+          organization_id: organizationId,
+          loan_id: loanId,
+          contact_id: d.contactId,
+          kind: d.kind,
+          label: d.label,
+          inputs: d.inputs,
+          result_monthly: d.resultMonthly,
+          employment_id: d.employmentId,
+          property_id: null,
+          status: 'draft',
+          source: 'ai',
+          source_document_ids: d.sourceDocumentIds,
+          source_notes: d.sourceNotes,
+          ...(withSources ? { input_sources: d.inputSources } : {}),
+        }))
+      const first = await db().from('income_worksheets').insert(rows(true)).select('id')
+      // Before the income review script there's no input_sources column: save the drafts without it.
+      if (first.error && missingTable(first.error.message)) unwrap(await db().from('income_worksheets').insert(rows(false)).select('id'))
+      else unwrap(first)
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.worksheets(loanId) }),
   })

@@ -12,6 +12,12 @@
 //   large deposits listed to exclude, the expense factor given (default 50%).
 // Tax returns: Schedule C (1040), 1120S or 1065 + K-1, the two most recent
 //   years into the matching self-employed worksheet.
+//
+// Stage 4d: every input the draft fills keeps its source (inputSources): the
+// document, the field it was read from, the value put in the input, the quote
+// and the page. An input worked out from a field (a YTD average, months from
+// the pay date, a sum of statements) says how in `derived`. Keys are the
+// input's path inside `inputs` ("amount", "recent.netProfit").
 
 import { round } from '@/lib/calc'
 import { PERIODS_PER_YEAR } from '@/lib/calc/income/wages'
@@ -38,13 +44,42 @@ export interface IncomeJob {
   endDate: string | null
 }
 
+/** Where one input's value came from (saved in income_worksheets.input_sources). */
+export interface InputSource {
+  documentId: string
+  /** The field read from the document. */
+  field: ReadFieldKey
+  /** The value the draft put in the input (the AI's figure for the edit log). */
+  value: number | string | null
+  quote: string
+  /** The page the quote is on (absent on readings made before Stage 4d). */
+  page?: number
+  /** How the input was worked out from the field, when it isn't the field as read. */
+  derived?: string
+  /** Stage 4d-2: ticked as checked. */
+  checkedBy?: string
+  checkedAt?: string
+}
+
+export type InputSources = Record<string, InputSource>
+
 export interface IncomeDraft {
   data: WorksheetData
   label: string
   employmentId: string | null
   sourceDocumentIds: string[]
   notes: string[]
+  inputSources: InputSources
 }
+
+/** The source of an input from one field of a document (null when the field wasn't read). */
+function sourceOf(doc: IncomeDoc, field: ReadFieldKey, value: number | string | null, derived?: string): InputSource | null {
+  const r = doc.fields[field]
+  if (!r || value == null) return null
+  return { documentId: doc.documentId, field, value, quote: r.quote, ...(r.page ? { page: r.page } : {}), ...(derived ? { derived } : {}) }
+}
+
+const sourcesFrom = (entries: [string, InputSource | null][]): InputSources => Object.fromEntries(entries.filter((e): e is [string, InputSource] => e[1] != null))
 
 const num = (f: ReadField | undefined) => (f && typeof f.value === 'number' ? f.value : null)
 const str = (f: ReadField | undefined) => (f && typeof f.value === 'string' ? f.value : null)
@@ -99,11 +134,17 @@ function wageDrafts(job: IncomeJob, docs: IncomeDoc[], today: string): IncomeDra
   const ytdMonthly = ytdBase != null && ytdMonths > 0 ? round(ytdBase / ytdMonths) : null
   if (stated != null || ytdMonthly != null) {
     let inputs: { frequency: SalaryFrequency; amount: number | null }
+    let inputSources: InputSources
     if (stated != null && (ytdMonthly == null || stated <= ytdMonthly)) {
       inputs = { frequency: frequency!, amount: perPeriod }
+      inputSources = sourcesFrom([
+        ['amount', num(f.base_pay_current) != null ? sourceOf(stub, 'base_pay_current', perPeriod) : sourceOf(stub, 'hourly_rate', perPeriod, `$${num(f.hourly_rate)} an hour × ${num(f.hours_current)} hours this period`)],
+        ['frequency', sourceOf(stub, 'pay_frequency', frequency)],
+      ])
       notes.push(ytdMonthly != null ? `Stated base ${money(stated)}/mo is at or below the YTD average ${money(ytdMonthly)}/mo, so the stated rate is used` : `Stated base ${money(perPeriod!)} ${frequency!.replace('_', '-')}`)
     } else {
       inputs = { frequency: 'monthly', amount: ytdMonthly }
+      inputSources = sourcesFrom([['amount', sourceOf(stub, num(f.ytd_base) != null ? 'ytd_base' : 'ytd_gross', ytdMonthly, `${money(ytdBase!)} ÷ ${ytdMonths} months through ${shortDate(paid)}`)]])
       notes.push(stated != null ? `YTD base average ${money(ytdMonthly!)}/mo (${money(ytdBase!)} over ${ytdMonths} months) is lower than the stated ${money(stated)}/mo, so the YTD average is used` : `YTD base ${money(ytdBase!)} over ${ytdMonths} months (no pay rate on the stub)`)
     }
     // Pace vs the latest W-2: a falling income needs a look.
@@ -116,7 +157,7 @@ function wageDrafts(job: IncomeJob, docs: IncomeDoc[], today: string): IncomeDra
       notes.push(`${num(lastW2.fields.tax_year)} W-2: ${money(w2)}; this year's pace: ${money(pace)}`)
       if (change < -0.05) notes.push(`This year's pace is ${Math.round(-change * 100)}% below the ${num(lastW2.fields.tax_year)} W-2: the underwriter will ask why`)
     } else if (w2s.length === 0) notes.push('No W-2 analyzed yet for this job')
-    out.push({ data: { kind: 'salary', inputs }, label: suggestedLabel('salary', job, null), employmentId: job.id, sourceDocumentIds: sources, notes })
+    out.push({ data: { kind: 'salary', inputs }, label: suggestedLabel('salary', job, null), employmentId: job.id, sourceDocumentIds: sources, notes, inputSources })
   }
 
   const VARIABLE: [VariableType, ReadFieldKey][] = [
@@ -133,6 +174,10 @@ function wageDrafts(job: IncomeJob, docs: IncomeDoc[], today: string): IncomeDra
       employmentId: job.id,
       sourceDocumentIds: [stub.documentId],
       notes: [`YTD ${type} ${money(ytd)} through ${shortDate(paid)}`, `Add the prior years' ${type} from a WVOE or the December pay stubs: a W-2 doesn't split it out, and under 12 months of history usually can't be used`],
+      inputSources: sourcesFrom([
+        ['ytdAmount', sourceOf(stub, key, ytd)],
+        ['ytdMonths', sourceOf(stub, str(f.pay_date) ? 'pay_date' : 'pay_period_end', ytdMonths, `months through ${shortDate(paid)}`)],
+      ]),
     })
   }
   return out
@@ -158,6 +203,7 @@ function bankStatementDraft(docs: IncomeDoc[], expenseRatioPct: number | null, s
     employmentId: selfEmployedJob?.id ?? null,
     sourceDocumentIds: statements.map((d) => d.documentId),
     notes,
+    inputSources: sourcesFrom([['totalDeposits', sourceOf(statements[0], 'total_deposits', total, statements.length > 1 ? `the sum of ${statements.length} statements' total deposits (this is the first)` : undefined)]]),
   }
 }
 
@@ -171,15 +217,25 @@ function returnDrafts(docs: IncomeDoc[], selfEmployedJob: IncomeJob | null): Inc
     const years = [...byYear.keys()].sort((a, b) => b - a).slice(0, 2)
     if (years.length === 0) continue
     const [recentYear, olderYear] = years
-    const recent = byYear.get(recentYear)!.fields
-    const older = olderYear ? byYear.get(olderYear)!.fields : null
+    const recentDoc = byYear.get(recentYear)!
+    const olderDoc = olderYear ? byYear.get(olderYear)! : null
+    const recent = recentDoc.fields
+    const older = olderDoc?.fields ?? null
+    // Each year's inputs point at the line they were read from.
+    const yearSources = (map: [string, ReadFieldKey][]) =>
+      sourcesFrom([
+        ['recentYear', sourceOf(recentDoc, 'tax_year', recentYear)],
+        ...map.map(([input, field]): [string, InputSource | null] => [`recent.${input}`, sourceOf(recentDoc, field, num(recentDoc.fields[field]))]),
+        ...(olderDoc ? map.map(([input, field]): [string, InputSource | null] => [`older.${input}`, sourceOf(olderDoc, field, num(olderDoc.fields[field]))]) : []),
+      ])
     const notes = [`Tax years ${years.slice().reverse().join(' and ')}`]
     if (years.length < 2) notes.push('Only one year of returns analyzed: the two-year rule needs both years')
     const sources = years.map((y) => byYear.get(y)!.documentId)
     if (form === '1040') {
       const year = (f: ReadFields | null): ScheduleCYear => ({ ...defaultInputs('schedule_c').recent, ...(f ? { netProfit: num(f.sch_c_net_profit), nonrecurringIncome: num(f.sch_c_other_income), depletion: num(f.sch_c_depletion), depreciation: num(f.sch_c_depreciation), nonDeductibleMeals: num(f.sch_c_meals), businessUseOfHome: num(f.sch_c_home_office) } : {}) })
       if (recent.sch_c_net_profit == null) continue
-      out.push({ data: { kind: 'schedule_c', inputs: { recentYear, recent: year(recent), older: year(older) } }, label: suggestedLabel('schedule_c', selfEmployedJob, null), employmentId: selfEmployedJob?.id ?? null, sourceDocumentIds: sources, notes })
+      const inputSources = yearSources([['netProfit', 'sch_c_net_profit'], ['nonrecurringIncome', 'sch_c_other_income'], ['depletion', 'sch_c_depletion'], ['depreciation', 'sch_c_depreciation'], ['nonDeductibleMeals', 'sch_c_meals'], ['businessUseOfHome', 'sch_c_home_office']])
+      out.push({ data: { kind: 'schedule_c', inputs: { recentYear, recent: year(recent), older: year(older) } }, label: suggestedLabel('schedule_c', selfEmployedJob, null), employmentId: selfEmployedJob?.id ?? null, sourceDocumentIds: sources, notes, inputSources })
     } else {
       const corp = (f: ReadFields | null): SCorpYear => ({
         ...defaultInputs('s_corp').recent,
@@ -188,10 +244,11 @@ function returnDrafts(docs: IncomeDoc[], selfEmployedJob: IncomeJob | null): Inc
           : {}),
       })
       if (recent.k1_ordinary_income == null) continue
-      if (form === '1120S') out.push({ data: { kind: 's_corp', inputs: { recentYear, recent: corp(recent), older: corp(older) } }, label: suggestedLabel('s_corp', selfEmployedJob, null), employmentId: selfEmployedJob?.id ?? null, sourceDocumentIds: sources, notes })
+      const corpMap: [string, ReadFieldKey][] = [['k1OrdinaryIncome', 'k1_ordinary_income'], ['k1RentalIncome', 'k1_rental_income'], ['depreciation', 'biz_depreciation'], ['depletion', 'biz_depletion'], ['amortizationCasualty', 'biz_amortization'], ['notesPayableUnder1Yr', 'biz_notes_under_1yr'], ['nonDeductibleTravelMeals', 'biz_travel_meals'], ['ownershipPct', 'k1_ownership_pct']]
+      if (form === '1120S') out.push({ data: { kind: 's_corp', inputs: { recentYear, recent: corp(recent), older: corp(older) } }, label: suggestedLabel('s_corp', selfEmployedJob, null), employmentId: selfEmployedJob?.id ?? null, sourceDocumentIds: sources, notes, inputSources: yearSources(corpMap) })
       else {
         const part = (f: ReadFields | null): PartnershipYear => ({ ...corp(f), k1GuaranteedPayments: f ? num(f.k1_guaranteed_payments) : null })
-        out.push({ data: { kind: 'partnership', inputs: { recentYear, recent: part(recent), older: part(older) } }, label: suggestedLabel('partnership', selfEmployedJob, null), employmentId: selfEmployedJob?.id ?? null, sourceDocumentIds: sources, notes })
+        out.push({ data: { kind: 'partnership', inputs: { recentYear, recent: part(recent), older: part(older) } }, label: suggestedLabel('partnership', selfEmployedJob, null), employmentId: selfEmployedJob?.id ?? null, sourceDocumentIds: sources, notes, inputSources: yearSources([...corpMap, ['k1GuaranteedPayments', 'k1_guaranteed_payments']]) })
       }
     }
   }

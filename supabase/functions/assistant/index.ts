@@ -223,6 +223,7 @@ Deno.serve(async (request) => {
     if (task === 'scenario_read') return await handleScenarioRead(db, body, userId, apiKey)
     if (task === 'guideline_answer') return await handleGuidelineAnswer(db, body, userId, apiKey)
     if (task === 'product_update_read') return await handleProductUpdateRead(db, body, userId, apiKey)
+    if (task === 'document_read_now') return await handleDocumentReadNow(db, body, apiKey)
     return await handleFollowUp(db, body, userId, apiKey)
   } catch (e) {
     return reply(500, { error: (e as Error).message })
@@ -981,6 +982,17 @@ async function handleDocumentReadDue(request: Request) {
   if (claimed.error) return reply(500, { error: claimed.error.message })
   const rows = (claimed.data ?? []) as AnalysisRow[]
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
+  let done = 0
+  for (const a of rows) if (await readOneAnalysis(db, a, apiKey)) done++
+  return reply(200, { claimed: rows.length, done })
+}
+
+/**
+ * Reads one claimed analysis (status 'analyzing') and records the result or
+ * the error. Shared by the timer and "Analyze" on the Income tab. Returns
+ * true when it finished with a result.
+ */
+async function readOneAnalysis(db: SupabaseClient, a: AnalysisRow, apiKey: string | undefined): Promise<boolean> {
   const finish = (id: string, v: FinishValues) =>
     db.rpc('finish_document_analysis', {
       p_id: id,
@@ -994,11 +1006,10 @@ async function handleDocumentReadDue(request: Request) {
       p_error: v.error ?? null,
       p_wait_key: v.waitKey ?? false,
     })
-  let done = 0
-  for (const a of rows) {
+  {
     if (!apiKey) {
       await finish(a.id, { error: 'Waiting for the AI key: add ANTHROPIC_API_KEY under Edge Functions → Secrets.', waitKey: true })
-      continue
+      return false
     }
     let runId: string | null = null
     const usage: Usage = { input: 0, output: 0, model: DOC_READ_MODEL }
@@ -1009,8 +1020,7 @@ async function handleDocumentReadDue(request: Request) {
         // Nothing to retry: say so and let Connor look at it.
         const text = readable ? 'Over 10 MB, so it was not read automatically. Check it by hand.' : 'This file type (an iPhone HEIC photo) is not read automatically. Check it by hand.'
         await finish(a.id, { status: 'needs_review', kind: 'other', confidence: 'low', fields: {}, flags: [{ code: 'low_confidence', text }] })
-        done++
-        continue
+        return true
       }
       // The borrower's jobs on the 1003 (every borrower on the file when the upload isn't tied to one person).
       const people = doc.contact_id ? [doc.contact_id] : ((await db.from('loan_borrowers').select('contact_id').eq('loan_id', a.loan_id)).data ?? []).map((r) => (r as { contact_id: string }).contact_id)
@@ -1046,12 +1056,43 @@ async function handleDocumentReadDue(request: Request) {
       const flags = documentFlags(reading, doc.kind, jobs, todayInDallas())
       await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
       await finish(a.id, { status: statusFor(reading, flags), kind: reading.kind, confidence: reading.confidence, fields: reading.deposits ? { ...reading.fields, deposits: reading.deposits } : reading.fields, flags, model: usage.model, run: runId })
-      done++
+      return true
     } catch (e) {
       const message = e instanceof Anthropic.APIError ? `Claude API error (${e.status ?? 'network'}): ${e.message}` : (e as Error).message
       if (runId) await db.from('ai_runs').update({ status: 'failed', error: message, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
       await finish(a.id, { error: message })
+      return false
     }
   }
-  return reply(200, { claimed: rows.length, done })
+}
+
+/**
+ * "Analyze" on the Income tab (Stage 4d): reads one document now instead of
+ * waiting for the timer. The signed-in person must be able to see the
+ * document (their own RLS); the reading itself runs with the service role,
+ * like the timer. A document with no analysis yet gets one.
+ */
+async function handleDocumentReadNow(userDb: SupabaseClient, body: unknown, apiKey: string) {
+  const documentId = (body as { documentId?: unknown } | null)?.documentId
+  if (typeof documentId !== 'string') return reply(400, { error: 'Pick a document.' })
+  const seen = await userDb.from('loan_documents').select('id, organization_id, loan_id').eq('id', documentId).maybeSingle()
+  if (seen.error || !seen.data) return reply(404, { error: 'That document was not found on a file you can see.' })
+  const doc = seen.data as { id: string; organization_id: string; loan_id: string }
+  const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+  const ins = await db.from('document_analyses').upsert({ organization_id: doc.organization_id, loan_id: doc.loan_id, document_id: doc.id }, { onConflict: 'document_id', ignoreDuplicates: true })
+  if (ins.error) return reply(500, { error: ins.error.message })
+  // Claim it (not one already being read).
+  const claimed = await db
+    .from('document_analyses')
+    .update({ status: 'analyzing', started_at: new Date().toISOString(), last_error: null })
+    .eq('document_id', doc.id)
+    .neq('status', 'analyzing')
+    .select('id, organization_id, loan_id, document_id')
+    .maybeSingle()
+  if (claimed.error) return reply(500, { error: claimed.error.message })
+  if (!claimed.data) return reply(409, { error: 'That document is already being read. Give it a minute.' })
+  await readOneAnalysis(db, claimed.data as AnalysisRow, apiKey)
+  const after = await db.from('document_analyses').select('status, last_error').eq('document_id', doc.id).single()
+  const r = after.data as { status: string; last_error: string | null } | null
+  return reply(200, { status: r?.status ?? 'queued', error: r?.status === 'ready' || r?.status === 'needs_review' ? null : (r?.last_error ?? null) })
 }

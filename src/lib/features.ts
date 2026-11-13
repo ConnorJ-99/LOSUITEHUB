@@ -4,12 +4,13 @@
 
 export const FEATURES = {
   /**
-   * AI income review (Stage 4, put away 2026-11-13): the Income tab in the
-   * file menu, and "Calculate income" on the Income tab and on analyzed
-   * uploads. Off = hidden; ?tab=income still opens the tab, and saved
-   * worksheets and Push to 1003 keep working.
+   * AI income review (Stage 4, put away 2026-11-13, back on 2026-11-13 for
+   * Stage 4d): the Income tab in the file menu, with Income documents (upload,
+   * pull from the file's documents, Analyze) and "Calculate income". Off =
+   * hidden; ?tab=income still opens the tab, and saved worksheets and Push to
+   * 1003 keep working.
    */
-  incomeReview: false,
+  incomeReview: true,
   /**
    * AI review of uploaded documents (Stage 3b/3c, put away 2026-11-13): the
    * status, "Needs review", flags and "What it read" under each upload, Today's
