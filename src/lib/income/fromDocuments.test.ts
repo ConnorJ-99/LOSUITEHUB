@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { incomeDrafts, incomeKindOf, monthsThrough, type IncomeDoc, type IncomeJob } from './fromDocuments'
+import { incomeDrafts, incomeKindOf, monthsThrough, unmatchedEmployers, type IncomeDoc, type IncomeJob } from './fromDocuments'
 import { computeWorksheet } from './worksheets'
 
 const today = '2026-11-12'
@@ -43,9 +43,10 @@ describe('W-2 job', () => {
     const d = incomeDrafts({ docs: [stub(), w2(2025, 70000)], jobs: [excel], today })
     expect(d[0].notes).toContain("This year's pace is 23% below the 2025 W-2: the underwriter will ask why")
   })
-  it("documents from another employer, or a job that isn't current, don't count", () => {
+  it("documents from another employer, or a job that isn't current, don't count, and are named", () => {
     const old: IncomeJob = { ...excel, id: 'old', employerName: 'Old Co', current: false }
     expect(incomeDrafts({ docs: [stub({ employer_name: f('Old Co') })], jobs: [excel, old], today })).toEqual([])
+    expect(unmatchedEmployers([stub({ employer_name: f('Old Co') }), stub({ employer_name: f('Truco Services, Inc.') }), stub()], [excel, old])).toEqual(['Old Co', 'Truco Services, Inc.'])
   })
 })
 

@@ -71,3 +71,8 @@ export async function drawFirstPage(url: string, canvas: HTMLCanvasElement, cssW
   canvas.style.width = `${cssWidth}px`
   await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise
 }
+
+/** Opens a PDF for showing it on screen (the Income tab's document review). Call destroy() when done. */
+export function openPdf(data: ArrayBuffer) {
+  return getDocument({ data: new Uint8Array(data) }).promise
+}

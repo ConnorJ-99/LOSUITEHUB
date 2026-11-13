@@ -50,6 +50,12 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
   const subjectId = loan.details.subjectPropertyId
   const rentals = ownedProperties(properties.data).filter((p) => p.id !== subjectId && p.reoDisposition === 'retain')
 
+  /** Saves the one-page Income Analysis PDF for a worksheet. */
+  const savePdf = (v: IncomePdfRequest) => {
+    const view = incomeAnalysisView({ borrowerName: fullName(borrower.person), label: v.label, typeLabel: v.typeLabel, where: v.where, lines: v.result.lines, monthly: v.result.monthly, warnings: v.result.warnings, notes: v.notes, sources: v.sources, draft: v.draft, pushedOn: v.pushedOn, preparedOn: todayIso() })
+    void pdf.save({ fileName: view.fileName, kind: 'income_analysis', propertyId: null, templateVersion: INCOME_ANALYSIS_TEMPLATE, tooLong: 'Shorten the label or notes.', render: (lib, brand) => lib.incomeAnalysisPdf(view, brand) })
+  }
+
   /** Starts a worksheet, pointed at the most likely job or property, and opens it. */
   const add = (kind: WorksheetKind) => {
     const selfEmployed = SELF_EMPLOYED_KINDS.includes(kind)
@@ -87,7 +93,18 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
 
         <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
           <div className="min-w-0 space-y-3">
-            {FEATURES.incomeReview && <IncomeDocuments loan={loan} contactId={borrower.contactId} onlyBorrower={borrowers.length === 1} />}
+            {FEATURES.incomeReview && (
+              <IncomeDocuments
+                loan={loan}
+                borrower={borrower}
+                onlyBorrower={borrowers.length === 1}
+                worksheets={mine}
+                properties={properties.data ?? []}
+                calculating={calc.busy}
+                onCalculate={(only) => void calc.calculate(borrower.contactId, borrower.person.firstName, only)}
+                onPdf={savePdf}
+              />
+            )}
             <Card title="Worksheets" description="Enter figures from pay stubs, W-2s, tax returns or bank statements, or calculate them from the analyzed uploads. Push the result to fill in the 1003.">
               <div className="flex flex-wrap gap-2">
                 {FEATURES.incomeReview && calc.available && (
@@ -121,10 +138,7 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
                     organizationId={loan.organizationId}
                     open={openId === w.id}
                     onToggle={() => setOpenId((id) => (id === w.id ? null : w.id))}
-                    onPdf={(v: IncomePdfRequest) => {
-                      const view = incomeAnalysisView({ borrowerName: fullName(borrower.person), label: v.label, typeLabel: v.typeLabel, where: v.where, lines: v.result.lines, monthly: v.result.monthly, warnings: v.result.warnings, notes: v.notes, sources: v.sources, draft: v.draft, pushedOn: v.pushedOn, preparedOn: todayIso() })
-                      void pdf.save({ fileName: view.fileName, kind: 'income_analysis', propertyId: null, templateVersion: INCOME_ANALYSIS_TEMPLATE, tooLong: 'Shorten the label or notes.', render: (lib, brand) => lib.incomeAnalysisPdf(view, brand) })
-                    }}
+                    onPdf={savePdf}
                   />
                 ))}
               </ul>

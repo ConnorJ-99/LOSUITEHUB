@@ -173,3 +173,10 @@ export async function openDocument(doc: LoanDocument) {
   if (tab) tab.location.href = data.signedUrl
   else window.location.href = data.signedUrl
 }
+
+/** The file itself, for viewing it inside MPS HQ (the Income tab's review). */
+export async function downloadDocument(doc: Pick<LoanDocument, 'storagePath'>): Promise<Blob> {
+  const { data, error } = await db().storage.from(LOAN_FILES_BUCKET).download(doc.storagePath)
+  if (error || !data) throw new Error(error?.message ?? 'Could not open the file.')
+  return data
+}

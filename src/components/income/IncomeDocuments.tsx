@@ -2,7 +2,8 @@
 // W-2s, bank statements and tax returns, each read by the assistant with
 // "Analyze" (now, not waiting for the timer). Add one by uploading it here or
 // by pulling a document already on the file (which sets its type and whose it
-// is). "Calculate income" then drafts worksheets from what was read.
+// is). Clicking a document (or finishing Analyze) opens the review: the
+// document beside what was read, Calculate, and the drafts made from it.
 import { useRef, useState } from 'react'
 import { AlertCircleIcon, CheckCircle2Icon, FileTextIcon, Loader2Icon, PlusIcon, ScanTextIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
@@ -11,7 +12,11 @@ import { Card, Select } from '@/components/shared'
 import { useAnalyses, useAnalyzeNow, type Analysis } from '@/lib/api/analyses'
 import { useAiStatus } from '@/lib/api/assistant'
 import { ACCEPTED_TYPES, DOCUMENT_KIND_LABEL, useLoanDocuments, useUpdateDocument, useUploadDocument, type DocumentKind, type LoanDocument } from '@/lib/api/documents'
-import type { LoanProfile } from '@/lib/api/types'
+import type { IncomeWorksheet } from '@/lib/api/income'
+import type { LoanProfile, Property } from '@/lib/api/types'
+import type { ApplicationBorrower } from '@/lib/api/urla'
+import { DocumentReview } from './DocumentReview'
+import type { IncomePdfRequest } from './WorksheetCard'
 
 /** The document types income is calculated from. */
 const INCOME_DOC_KINDS: DocumentKind[] = ['paystub', 'w2', 'bank_statement', 'tax_return', 'business_return']
@@ -33,7 +38,28 @@ function StatusLine({ a, busy }: { a: Analysis | undefined; busy: boolean }) {
   )
 }
 
-export function IncomeDocuments({ loan, contactId, onlyBorrower }: { loan: LoanProfile; contactId: string; onlyBorrower: boolean }) {
+export function IncomeDocuments({
+  loan,
+  borrower,
+  onlyBorrower,
+  worksheets,
+  properties,
+  calculating,
+  onCalculate,
+  onPdf,
+}: {
+  loan: LoanProfile
+  borrower: ApplicationBorrower
+  onlyBorrower: boolean
+  /** This borrower's worksheets (the review shows the drafts made from the document). */
+  worksheets: IncomeWorksheet[]
+  properties: Property[]
+  calculating: boolean
+  onCalculate: (only: 'wages' | 'bank_statement' | 'returns') => void
+  onPdf: (v: IncomePdfRequest) => void
+}) {
+  const contactId = borrower.contactId
+  const [reviewId, setReviewId] = useState<string | null>(null)
   const docs = useLoanDocuments(loan.id)
   const analyses = useAnalyses(loan.id)
   const ai = useAiStatus()
@@ -57,7 +83,10 @@ export function IncomeDocuments({ loan, contactId, onlyBorrower }: { loan: LoanP
   const read = (doc: LoanDocument) => {
     setReading((s) => new Set(s).add(doc.id))
     analyze.mutate(doc.id, {
-      onSuccess: () => toast.success(`${doc.fileName} was read`),
+      onSuccess: () => {
+        toast.success(`${doc.fileName} was read`)
+        setReviewId(doc.id)
+      },
       onError: fail,
       onSettled: () =>
         setReading((s) => {
@@ -118,13 +147,13 @@ export function IncomeDocuments({ loan, contactId, onlyBorrower }: { loan: LoanP
             return (
               <li key={d.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm first:pt-0 last:pb-0">
                 <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{d.fileName}</p>
+                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setReviewId(d.id)} title="Open it beside what was read">
+                  <p className="truncate font-medium text-primary hover:underline">{d.fileName}</p>
                   <p className="text-xs">
                     <span className="text-muted-foreground">{DOCUMENT_KIND_LABEL[d.kind]} · </span>
                     <StatusLine a={a} busy={busy} />
                   </p>
-                </div>
+                </button>
                 {analyses.data !== null && aiReady && (
                   <Button size="xs" variant="outline" disabled={busy || a?.status === 'analyzing'} onClick={() => read(d)}>
                     <ScanTextIcon />
@@ -164,6 +193,29 @@ export function IncomeDocuments({ loan, contactId, onlyBorrower }: { loan: LoanP
           </Button>
         </div>
       )}
+      {(() => {
+        const doc = reviewId ? all.find((d) => d.id === reviewId) : null
+        if (!doc) return null
+        return (
+          <DocumentReview
+            loanId={loan.id}
+            doc={doc}
+            analysis={analyses.data?.get(doc.id)}
+            borrower={borrower}
+            worksheets={worksheets}
+            properties={properties}
+            subjectPropertyId={loan.details.subjectPropertyId}
+            organizationId={loan.organizationId}
+            canAnalyze={analyses.data !== null && aiReady}
+            analyzing={reading.has(doc.id)}
+            onAnalyze={() => read(doc)}
+            calculating={calculating}
+            onCalculate={onCalculate}
+            onPdf={onPdf}
+            onClose={() => setReviewId(null)}
+          />
+        )
+      })()}
     </Card>
   )
 }

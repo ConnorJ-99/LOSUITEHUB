@@ -111,6 +111,25 @@ function docsByJob(docs: IncomeDoc[], jobs: IncomeJob[]): Map<string, IncomeDoc[
   return out
 }
 
+/**
+ * Employers named on pay stubs and W-2s that aren't a current W-2 job on the
+ * 1003. Their documents are left out of Calculate income (a different
+ * employer is something to look at), so the screen says which and offers to
+ * add the job.
+ */
+export function unmatchedEmployers(docs: IncomeDoc[], jobs: IncomeJob[]): string[] {
+  const wageJobs = jobs.filter((j) => j.current && !j.selfEmployed)
+  const flagJobs = jobs.map((j) => ({ id: j.id, employerName: j.employerName, current: j.current, startDate: j.startDate, endDate: j.endDate }))
+  const out: string[] = []
+  for (const d of docs.filter((x) => x.kind === 'paystub' || x.kind === 'w2')) {
+    const employer = str(d.fields.employer_name)
+    if (!employer) continue
+    const job = matchJob(employer, flagJobs)
+    if ((!job || !wageJobs.some((w) => w.id === job.id)) && !out.includes(employer)) out.push(employer)
+  }
+  return out
+}
+
 function wageDrafts(job: IncomeJob, docs: IncomeDoc[], today: string): IncomeDraft[] {
   const stubs = docs.filter((d) => d.kind === 'paystub' && payDateOf(d)).sort((a, b) => payDateOf(b)!.localeCompare(payDateOf(a)!))
   const w2s = docs.filter((d) => d.kind === 'w2' && num(d.fields.tax_year)).sort((a, b) => num(b.fields.tax_year)! - num(a.fields.tax_year)!)

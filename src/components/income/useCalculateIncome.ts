@@ -8,7 +8,7 @@ import { useSaveIncomeDrafts } from '@/lib/api/income'
 import type { LoanProfile } from '@/lib/api/types'
 import { useApplication } from '@/lib/api/urla'
 import { todayIso } from '@/lib/dates'
-import { incomeDrafts, type IncomeDoc } from '@/lib/income/fromDocuments'
+import { incomeDrafts, unmatchedEmployers, type IncomeDoc } from '@/lib/income/fromDocuments'
 import { computeWorksheet } from '@/lib/income/worksheets'
 
 export function useCalculateIncome(loan: LoanProfile) {
@@ -19,10 +19,10 @@ export function useCalculateIncome(loan: LoanProfile) {
   /** False before the upload analysis script has run (then there's nothing to calculate from). */
   const available = analyses.data !== null && analyses.data !== undefined
 
-  const run = async (contactId: string, only?: 'wages' | 'bank_statement' | 'returns'): Promise<number> => {
+  const run = async (contactId: string, only?: 'wages' | 'bank_statement' | 'returns'): Promise<{ count: number; unmatched: string[] }> => {
     const borrowers = app.data?.borrowers ?? []
     const borrower = borrowers.find((b) => b.contactId === contactId)
-    if (!borrower || !analyses.data || !docs.data) return 0
+    if (!borrower || !analyses.data || !docs.data) return { count: 0, unmatched: [] }
     const incomeDocs: IncomeDoc[] = []
     for (const a of analyses.data.values()) {
       if (a.status !== 'ready' && a.status !== 'needs_review') continue
@@ -35,19 +35,22 @@ export function useCalculateIncome(loan: LoanProfile) {
     }
     const jobs = borrower.employments.map((e) => ({ id: e.id, employerName: e.employerName, current: e.status === 'current', selfEmployed: e.isSelfEmployed, startDate: e.startDate, endDate: e.endDate }))
     const drafts = incomeDrafts({ docs: incomeDocs, jobs, today: todayIso(), only })
-    if (drafts.length === 0) return 0
+    const unmatched = !only || only === 'wages' ? unmatchedEmployers(incomeDocs, jobs) : []
+    if (drafts.length === 0) return { count: 0, unmatched }
     await save.mutateAsync(
       drafts.map((d) => ({ contactId, kind: d.data.kind, label: d.label, inputs: d.data.inputs, resultMonthly: computeWorksheet(d.data).monthly, employmentId: d.employmentId, sourceDocumentIds: d.sourceDocumentIds, sourceNotes: d.notes, inputSources: d.inputSources })),
     )
-    return drafts.length
+    return { count: drafts.length, unmatched }
   }
 
   const calculate = (contactId: string, firstName: string, only?: 'wages' | 'bank_statement' | 'returns') =>
     run(contactId, only).then(
-      (n) =>
-        n
-          ? toast.success(`${n} draft worksheet${n === 1 ? '' : 's'} for ${firstName}. Check each one, then Accept to push it to the 1003.`)
-          : toast.info(`Nothing to calculate for ${firstName} yet: no analyzed pay stubs, W-2s, bank statements or tax returns${only ? ' of that kind' : ''}.`),
+      ({ count: n, unmatched }) => {
+        const left = unmatched.length ? ` Left out: ${unmatched.join(', ')} (not a current job on ${firstName}'s 1003; add the job, then calculate again).` : ''
+        if (n) toast.success(`${n} draft worksheet${n === 1 ? '' : 's'} for ${firstName}. Check each one, then Accept to push it to the 1003.${left}`)
+        else if (left) toast.warning(`Nothing calculated for ${firstName}.${left}`)
+        else toast.info(`Nothing to calculate for ${firstName} yet: no analyzed pay stubs, W-2s, bank statements or tax returns${only ? ' of that kind' : ''}.`)
+      },
       (e: Error) => toast.error(e.message),
     )
 
