@@ -11,9 +11,9 @@ import { db, keys, unwrap } from '@/lib/api/client'
 import { useCreditEvents } from '@/lib/api/creditEvents'
 import { addProgramOptions } from '@/lib/api/loanPricing'
 import { saveLoanDetails } from '@/lib/api/loans'
-import { useHotPrograms, useSetHot } from '@/lib/api/hotPrograms'
+import { useHotPrograms } from '@/lib/api/hotPrograms'
+import { hotKeyFor, hotKeyLabel, isHotFor } from '@/lib/products/hot'
 import { useCatalog } from '@/lib/api/products'
-import { useAuth } from '@/lib/auth/context'
 import type { LoanProfile } from '@/lib/api/types'
 import { todayIso } from '@/lib/dates'
 import { MORTGAGE_TYPE_FOR_FAMILY } from '@/lib/estimates/estimate'
@@ -47,10 +47,7 @@ export function MatchLenders({ loan, data, onClose, onCreate }: { loan: LoanProf
   const [showExcluded, setShowExcluded] = useState(false)
   const [setting, setSetting] = useState<string | null>(null)
   const hot = useHotPrograms()
-  const setHot = useSetHot()
   const [showAll, setShowAll] = useState(false)
-  const { state } = useAuth()
-  const canStar = state.status === 'signedIn' && (state.user.role === 'owner' || state.user.role === 'admin')
   // Parameters: start from the file; edits here never change the file. `ran` is what the results show.
   const [draft, setDraft] = useState<Scenario | null>(null)
   const [ran, setRan] = useState<Scenario | null>(null)
@@ -145,10 +142,14 @@ export function MatchLenders({ loan, data, onClose, onCreate }: { loan: LoanProf
     )
 
   const loanType = scenario.family !== 'any' ? PRODUCT_FAMILIES.label[scenario.family] : (MORTGAGE_TYPE_OPTIONS.find((o) => o.value === loan.details.mortgageType)?.label ?? null)
-  // Hot programs only, unless none are starred yet or Connor asks for all of them.
-  const hotIds = hot.data?.ids ?? new Set<string>()
-  const hotOnly = !showAll && hotIds.size > 0
-  const shown = hotOnly ? onlyHot(match, hotIds) : match
+  // Hot programs only (Hot for this scenario's qualifying type, set on the Lenders page), unless none are or Connor asks for all.
+  const hotFor = hot.data?.hotFor ?? new Map<string, string[]>()
+  // Agency scenarios match by family; with family Any, Non-QM programs match by income documentation.
+  const scenarioHotLabel = scenario.family !== 'any' && scenario.family !== 'non_qm' ? hotKeyLabel(scenario.family) : hotKeyLabel(hotKeyFor({ family: 'non_qm' }, scenario))
+  const hotHere = onlyHot(match, hotFor, scenario)
+  const hotCount = hotHere.fits.length + hotHere.nearMisses.length + hotHere.excluded.length
+  const hotOnly = !showAll && hotCount > 0
+  const shown = hotOnly ? hotHere : match
   const families = matchFamilies(shown)
   const inFamily = (r: MatchRow) => family === 'all' || r.result.program.family === family
   const fits = shown.fits.filter(inFamily)
@@ -189,7 +190,7 @@ export function MatchLenders({ loan, data, onClose, onCreate }: { loan: LoanProf
     }
   }
 
-  const rowProps = { hotIds, hotReady: !!hot.data?.ready, canStar, onStar: (id: string, on: boolean) => setHot.mutate({ programId: id, hot: on }, { onError: (e) => toast.error(e.message) }), checked, onToggle: toggle, onSetProgram: setAsFileProgram, settingId: setting, fileProgramId: loan.details.programId, canBuild: lienFirst }
+  const rowProps = { isHot: (r: MatchRow) => isHotFor(r.result.program, hotFor.get(r.result.program.id), scenario), checked, onToggle: toggle, onSetProgram: setAsFileProgram, settingId: setting, fileProgramId: loan.details.programId, canBuild: lienFirst }
 
   return (
     <div className="space-y-4">
@@ -198,13 +199,13 @@ export function MatchLenders({ loan, data, onClose, onCreate }: { loan: LoanProf
       {editing && changed && <p className="text-sm text-amber-700">The results below are from the last match. Press Search programs to match these parameters.</p>}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
         <p className="mr-auto text-sm font-medium tabular-nums">{matchContext(scenario, shown, loanType)}</p>
-        {hot.data?.ready && (hotIds.size > 0 ? (
-          <Button size="sm" variant="outline" onClick={() => setShowAll((v) => !v)} title={hotOnly ? 'Hot programs only. Show every program in the catalog.' : 'Show only your Hot programs'}>
+        {hot.data?.ready && (hotCount > 0 ? (
+          <Button size="sm" variant="outline" onClick={() => setShowAll((v) => !v)} title={hotOnly ? 'Your Hot programs for this type only. Show every program in the catalog.' : 'Show only your Hot programs for this type'}>
             <StarIcon className={hotOnly ? 'fill-money text-money' : ''} />
-            {hotOnly ? `Hot only (${hotIds.size}) · Show all programs` : 'Show Hot only'}
+            {hotOnly ? `Hot for ${scenarioHotLabel} (${hotCount}) · Show all programs` : 'Show Hot only'}
           </Button>
         ) : (
-          <span className="text-xs text-muted-foreground">{canStar ? 'Star programs to make them Hot; then only those show here.' : 'No Hot programs yet.'}</span>
+          <span className="text-xs text-muted-foreground">No Hot programs for {scenarioHotLabel} yet. Mark them on the Lenders page (a lender → Products → Hot for).</span>
         ))}
         <Button size="sm" className="bg-money text-white hover:bg-money/90" disabled={checkedIds.length === 0 || !lienFirst} title={lienFirst ? undefined : 'Estimates are for 1st liens'} onClick={() => onCreate(checkedIds, scenario)}>
           <SparklesIcon />
@@ -248,10 +249,8 @@ export function MatchLenders({ loan, data, onClose, onCreate }: { loan: LoanProf
 }
 
 interface ListProps {
-  hotIds: Set<string>
-  hotReady: boolean
-  canStar: boolean
-  onStar: (programId: string, hot: boolean) => void
+  /** Hot for this scenario's qualifying type (a read-only star). */
+  isHot: (r: MatchRow) => boolean
   rows: MatchRow[]
   checked: Set<string>
   onToggle: (id: string, on: boolean) => void
@@ -262,14 +261,14 @@ interface ListProps {
   excluded?: boolean
 }
 
-function MatchList({ hotIds, hotReady, canStar, onStar, rows, checked, onToggle, onSetProgram, settingId, fileProgramId, canBuild, excluded }: ListProps) {
+function MatchList({ isHot: hotRow, rows, checked, onToggle, onSetProgram, settingId, fileProgramId, canBuild, excluded }: ListProps) {
   return (
     <ul className="divide-y">
       {rows.map((r) => {
         const p = r.result.program
         const on = checked.has(p.id)
         const isFileProgram = fileProgramId === p.id
-        const isHot = hotIds.has(p.id)
+        const isHot = hotRow(r)
         return (
           <li key={p.id} className={cn('flex items-start gap-3 px-3 py-2.5', on && 'bg-primary/5')}>
             {!excluded && canBuild ? (
@@ -277,15 +276,7 @@ function MatchList({ hotIds, hotReady, canStar, onStar, rows, checked, onToggle,
             ) : (
               <span className="w-4 shrink-0" />
             )}
-            {hotReady && (canStar ? (
-              <button type="button" onClick={() => onStar(p.id, !isHot)} aria-pressed={isHot} aria-label={isHot ? `Remove ${p.name} from Hot programs` : `Make ${p.name} a Hot program`} title={isHot ? 'Hot program (click to remove)' : 'Make this a Hot program'} className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground hover:text-money">
-                <StarIcon className={cn('size-4', isHot && 'fill-money text-money')} />
-              </button>
-            ) : isHot ? (
-              <StarIcon className="mt-1 size-4 shrink-0 fill-money text-money" aria-label="Hot program" />
-            ) : (
-              <span className="w-5 shrink-0" />
-            ))}
+            {isHot ? <StarIcon className="mt-1 size-4 shrink-0 fill-money text-money" aria-label="Hot program" /> : <span className="w-4 shrink-0" />}
             <span className={cn('mt-0.5 inline-flex h-6 min-w-14 shrink-0 items-center justify-center rounded-md border px-1.5 text-xs font-semibold tabular-nums', r.grade ? GRADE_CLASS[r.grade] : 'border-border text-muted-foreground')}>{r.grade ? `${r.grade} · ${r.score}` : '—'}</span>
             <div className="min-w-0 flex-1">
               <p className="text-sm leading-tight font-semibold">

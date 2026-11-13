@@ -5,6 +5,7 @@
 
 import { formatPercent } from '@/lib/format'
 import { search } from './engine'
+import { isHotFor, type HotKey } from './hot'
 import { LENDER_STATUSES, MATRIX_PURPOSES, PRODUCT_FAMILIES, type ProductFamily } from './taxonomy'
 import type { Catalog, ProgramResult, Scenario } from './types'
 
@@ -149,9 +150,9 @@ export function matchContext(s: Scenario, m: MatchResult, loanType: string | nul
   return [MATRIX_PURPOSES.label[s.purpose], loanType, s.fico != null ? `${s.fico} FICO` : null, ratio, s.state, n(m.fits.length, 'program fits', 'programs fit'), n(m.nearMisses.length, 'near miss', 'near misses')].filter(Boolean).join(' · ')
 }
 
-/** Only the Hot programs (the ones Connor wants to look at first); counts stay honest because the context line uses the result given. */
-export function onlyHot(m: MatchResult, hot: Set<string>): MatchResult {
-  const keep = (rows: MatchRow[]) => rows.filter((r) => hot.has(r.result.program.id))
+/** Only the programs Hot for this scenario's qualifying type (hot.ts); the context line counts what's shown. */
+export function onlyHot(m: MatchResult, hotFor: Map<string, HotKey[]>, s: Scenario): MatchResult {
+  const keep = (rows: MatchRow[]) => rows.filter((r) => isHotFor(r.result.program, hotFor.get(r.result.program.id), s))
   return { ...m, fits: keep(m.fits), nearMisses: keep(m.nearMisses), excluded: keep(m.excluded) }
 }
 

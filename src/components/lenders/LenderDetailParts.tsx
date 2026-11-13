@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { ArrowDownIcon, ArrowUpIcon, ExternalLinkIcon, PlusIcon, UploadIcon } from 'lucide-react'
+import { ArrowDownIcon, ArrowUpIcon, ExternalLinkIcon, PlusIcon, StarIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,8 @@ import type { CatalogLender, ProgramResult } from '@/lib/products/types'
 import { stageLabel, type PipelineStage } from '@/lib/pipeline/stages'
 import { ProgramDialog } from './ProgramDialog'
 import { RuleForm } from './MatrixGridEditor'
+import { useHotPrograms, useSetHotFor } from '@/lib/api/hotPrograms'
+import { hotKeyLabel, hotKeysOf } from '@/lib/products/hot'
 
 const STATUS_CLASS: Record<Lender['status'], string> = {
   approved: 'bg-emerald-50 text-emerald-700',
@@ -114,6 +116,11 @@ export function ProductsTab({ rows, retired, catalogLender, lenderPrograms, veri
   const [viewing, setViewing] = useState<ProgramResult | null>(null)
   const [editing, setEditing] = useState<LenderProgram | null>(null)
   const setActive = useSetProgramActive(lenderId)
+  // Hot for (Connor, 2026-11-13): the qualifying types Connor uses this program for; Match lenders shows those first.
+  const hot = useHotPrograms()
+  const setHotFor = useSetHotFor()
+  const flipHot = (programId: string, current: string[], key: string, on: boolean) =>
+    setHotFor.mutate({ programId, hotFor: on ? [...current, key] : current.filter((k) => k !== key) }, { onError: (e) => toast.error(e.message) })
   const removeProgram = useDeleteProgram(lenderId)
   const all = showRetired ? [...rows, ...retired] : rows
   const shown = all.filter((r) => !tag || r.tags.includes(tag))
@@ -139,6 +146,11 @@ export function ProductsTab({ rows, retired, catalogLender, lenderPrograms, veri
             <tr>
               <th className="px-3 py-2 text-left font-medium">Program</th>
               <th className="px-3 py-2 text-left font-medium">Type</th>
+              {hot.data?.ready && (
+                <th className="px-3 py-2 text-left font-medium" title="The qualifying types you use this program for. Match lenders shows Hot programs first.">
+                  Hot for
+                </th>
+              )}
               <th className="px-3 py-2 text-left font-medium">Lien</th>
               <th className="px-3 py-2 text-right font-medium">Min FICO</th>
               <th className="px-3 py-2 text-right font-medium">Max LTV/CLTV</th>
@@ -151,7 +163,7 @@ export function ProductsTab({ rows, retired, catalogLender, lenderPrograms, veri
           {groupProducts(shown).map((g) => (
             <tbody key={g.group} className="divide-y">
               <tr className="bg-muted/40">
-                <td colSpan={9} className="px-3 py-1.5 text-xs font-semibold tracking-wide text-primary uppercase">
+                <td colSpan={hot.data?.ready ? 10 : 9} className="px-3 py-1.5 text-xs font-semibold tracking-wide text-primary uppercase">
                   {g.label}
                 </td>
               </tr>
@@ -173,6 +185,35 @@ export function ProductsTab({ rows, retired, catalogLender, lenderPrograms, veri
                         ))}
                       </span>
                     </td>
+                    {hot.data?.ready && (
+                      <td className="px-3 py-2">
+                        <span className="flex flex-wrap gap-1">
+                          {hotKeysOf(r.program).map((k) => {
+                            const current = hot.data!.hotFor.get(r.program.id) ?? []
+                            const on = current.includes(k)
+                            return canEdit ? (
+                              <button
+                                key={k}
+                                type="button"
+                                aria-pressed={on}
+                                disabled={setHotFor.isPending}
+                                title={on ? `Hot for ${hotKeyLabel(k)} (click to remove)` : `Make this Hot for ${hotKeyLabel(k)}`}
+                                onClick={() => flipHot(r.program.id, current, k, !on)}
+                                className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs whitespace-nowrap disabled:opacity-60', on ? 'border-money/40 bg-money/10 font-medium text-money' : 'text-muted-foreground hover:text-foreground')}
+                              >
+                                <StarIcon className={cn('size-3', on && 'fill-money')} />
+                                {hotKeyLabel(k)}
+                              </button>
+                            ) : on ? (
+                              <span key={k} className="inline-flex items-center gap-1 rounded-full bg-money/10 px-2 py-0.5 text-xs font-medium text-money">
+                                <StarIcon className="size-3 fill-money" />
+                                {hotKeyLabel(k)}
+                              </span>
+                            ) : null
+                          })}
+                        </span>
+                      </td>
+                    )}
                     <td className="px-3 py-2" title={LIENS.label[r.program.lien]}>
                       {LIEN_SHORT[r.program.lien]}
                     </td>

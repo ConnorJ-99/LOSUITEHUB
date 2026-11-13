@@ -37,7 +37,7 @@ export function BuildEstimates({ loan, data, onClose, onCreated }: { loan: LoanP
   const options = useProgramOptions(loan.id)
   const catalog = useProgramList()
   const hot = useHotPrograms()
-  const hotIds = hot.data?.ids ?? new Set<string>()
+  const hotIds = new Set(hot.data?.hotFor.keys() ?? [])
   const [params] = useSearchParams()
   const isPurchase = loan.purpose === 'purchase'
   const d = loan.details

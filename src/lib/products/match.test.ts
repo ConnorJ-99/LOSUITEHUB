@@ -93,8 +93,9 @@ describe('match lenders', () => {
 })
 
 describe('hot programs', () => {
-  it('only Hot programs, in every group', () => {
-    const m = onlyHot(matchLenders(file, catalog, false), new Set(['Bravo TPO · Conv Fixed', 'Delta Lending · FHA 30']))
+  it('only the programs Hot for the type they are matched as, in every group', () => {
+    const hot = new Map([['Bravo TPO · Conv Fixed', ['conventional']], ['Delta Lending · FHA 30', ['fha']], ['Alpha Wholesale · Conv 30 Fixed', ['fha']]])
+    const m = onlyHot(matchLenders(file, catalog, false), hot, file)
     expect([m.fits, m.nearMisses, m.excluded].map((g) => g.map((r) => r.result.program.name))).toEqual([['Conv Fixed'], [], ['FHA 30']])
   })
   it('hot first in a list, order kept otherwise', () => {
