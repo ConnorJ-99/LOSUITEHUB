@@ -8,14 +8,15 @@
 // bar, published letters and estimates by home, and home requests
 // (PublicPortal.tsx); its items are every request for that borrower.
 import { useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router'
-import { AlertCircleIcon, CameraIcon, CheckCircle2Icon, Loader2Icon, MailIcon, MessageSquareIcon } from 'lucide-react'
+import { useParams, useSearchParams } from 'react-router'
+import { AlertCircleIcon, CameraIcon, ClipboardListIcon, CheckCircle2Icon, Loader2Icon, MailIcon, MessageSquareIcon } from 'lucide-react'
 import logo from '@/assets/mps-logo.png'
 import { callDocumentUpload, putSignedUpload, saveUploadSession, savedUploadSession } from '@/lib/api/documentUpload'
 import { formatPhone } from '@/lib/pipeline/helpers'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { borrowerDocStatus, type PortalView } from '../../supabase/functions/document-upload/portal'
 import { ALLOWED_TYPES, fileProblem, stillNeeded, type UploadItem, type UploadLo } from '../../supabase/functions/document-upload/rules'
+import { ApplicationWizard } from './ApplicationWizard'
 import { DocProgress, LettersAndHomes, PortalHeader } from './PublicPortal'
 
 type Screen =
@@ -31,6 +32,12 @@ export function PublicUploadPage() {
   const { token = '' } = useParams()
   const [screen, setScreen] = useState<Screen>({ kind: 'loading' })
   const [session, setSession] = useState<string | null>(null)
+  const [params, setParams] = useSearchParams()
+  const applying = params.get('apply') === '1'
+  const setApplying = (on: boolean) => {
+    setParams(on ? { apply: '1' } : {}, { replace: true })
+    window.scrollTo({ top: 0 })
+  }
 
   const expired = (lo: UploadLo | null, message?: string) => setScreen({ kind: 'expired', lo, message: message ?? `This link has expired. Contact ${lo?.name ?? 'your loan officer'} for a new one.` })
 
@@ -96,12 +103,38 @@ export function PublicUploadPage() {
             onExpired={() => expired(screen.lo)}
           />
         )}
-        {screen.kind === 'open' && session && screen.portal && <PortalHeader view={screen.portal} />}
-        {screen.kind === 'open' && session && <Items token={token} session={session} items={screen.items} portal={!!screen.portal} onChanged={refresh} onExpired={() => expired(screen.lo)} />}
-        {screen.kind === 'open' && session && screen.portal && <LettersAndHomes view={screen.portal} token={token} session={session} onChanged={refresh} onExpired={() => expired(screen.lo)} />}
+        {screen.kind === 'open' && session && screen.portal && applying && (
+          <>
+            <button type="button" onClick={() => setApplying(false)} className="text-sm font-medium text-primary">
+              ← Back to your loan
+            </button>
+            <ApplicationWizard mode={{ kind: 'portal', token, session }} onExpired={() => void view(session, screen.lo, true)} />
+          </>
+        )}
+        {screen.kind === 'open' && session && screen.portal && !applying && <PortalHeader view={screen.portal} />}
+        {screen.kind === 'open' && session && screen.portal && !applying && <ApplicationEntry onOpen={() => setApplying(true)} />}
+        {screen.kind === 'open' && session && !(screen.portal && applying) && <Items token={token} session={session} items={screen.items} portal={!!screen.portal} onChanged={refresh} onExpired={() => expired(screen.lo)} />}
+        {screen.kind === 'open' && session && screen.portal && !applying && <LettersAndHomes view={screen.portal} token={token} session={session} onChanged={refresh} onExpired={() => expired(screen.lo)} />}
         {lo && <LoCard lo={lo} />}
       </main>
     </div>
+  )
+}
+
+// The portal's way into the full application (Stage 5). The wizard itself says
+// when it was already sent.
+function ApplicationEntry({ onOpen }: { onOpen: () => void }) {
+  return (
+    <section className="flex items-center gap-3 rounded-xl border bg-white p-4 shadow-soft">
+      <ClipboardListIcon className="size-6 shrink-0 text-primary" />
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold">Your mortgage application</p>
+        <p className="text-sm text-muted-foreground">About 10 minutes. It saves as you go.</p>
+      </div>
+      <button type="button" onClick={onOpen} className="h-10 shrink-0 rounded-lg bg-primary px-4 text-sm font-semibold text-white">
+        Open
+      </button>
+    </section>
   )
 }
 

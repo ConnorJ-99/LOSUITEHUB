@@ -2,6 +2,7 @@ import { Link } from 'react-router'
 import { ArrowRightIcon, CalendarDaysIcon, CircleXIcon, InboxIcon, KanbanIcon, LandmarkIcon, LeafIcon, PauseCircleIcon, PlusIcon, RefreshCwIcon, StarIcon, TrendingUpIcon, TriangleAlertIcon, UsersIcon, WorkflowIcon, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState } from '@/components/shared'
+import { ApplicationLinkButton } from '@/components/applications/ApplicationLinkButton'
 import { useNewLead } from '@/components/leads/new-lead-context'
 import { usePipeline } from '@/lib/api/loans'
 import { formatCompactCurrency } from '@/lib/format'
@@ -44,7 +45,7 @@ export function LeadsHomePage() {
       <div className="text-center">
         <h1 className="text-4xl leading-tight">Leads</h1>
         <p className="text-sm text-muted-foreground">Pick the pipeline you want to work.</p>
-        <div className="mt-3 flex justify-center gap-2">
+        <div className="mt-3 flex flex-wrap justify-center gap-2">
           <Button onClick={() => openNewLead()}>
             <PlusIcon />
             New Lead
@@ -55,6 +56,7 @@ export function LeadsHomePage() {
               All loans
             </Link>
           </Button>
+          <ApplicationLinkButton />
         </div>
       </div>
 

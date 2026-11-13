@@ -39,3 +39,13 @@ export function numbersReady(v: { firstName: string; loName: string; url: string
   const email = [`Hi ${v.firstName},`, '', `Your numbers for ${v.address} are ready. You can view them in your loan portal:`, v.url, '', 'Let me know if you have any questions.', '', 'Thanks,', v.loName].join('\n')
   return { text, subject: `Your numbers for ${v.address}`, email }
 }
+
+/** The application invite: the portal link opened straight on the application (Stage 5). */
+export function applicationInvite(v: { firstName: string; loName: string; url: string }) {
+  const text = `Hi ${v.firstName}, here's your secure mortgage application. It takes about 10 minutes and saves as you go: ${v.url} You'll confirm your email to open it. - ${firstOf(v.loName)}`
+  const email = [`Hi ${v.firstName},`, '', "Here's your secure mortgage application:", v.url, '', 'It takes about 10 minutes and saves as you go, so you can stop and come back. You will confirm your email address to open it, and it never asks for your Social Security number.', '', 'Thanks,', v.loName].join('\n')
+  return { text, subject: 'Your mortgage application', email }
+}
+
+/** The portal link opened on the application. */
+export const applicationUrl = (portalLinkUrl: string) => `${portalLinkUrl}?apply=1`

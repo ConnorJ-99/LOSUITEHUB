@@ -4,6 +4,7 @@ import { ArrowLeftIcon, KanbanIcon, ListIcon, PlusIcon, SearchXIcon, TriangleAle
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, PageHeader, SearchInput, Select } from '@/components/shared'
+import { ApplicationLinkButton } from '@/components/applications/ApplicationLinkButton'
 import { useNewLead } from '@/components/leads/new-lead-context'
 import { PipelineBoard } from '@/components/pipeline/PipelineBoard'
 import { PipelineList } from '@/components/pipeline/PipelineList'
@@ -109,6 +110,7 @@ function PipelineView({ pipeline: only }: { pipeline: PipelineId | null }) {
         action={
           <div className="flex items-center gap-2">
             <ViewToggle view={view} onChange={changeView} />
+            <ApplicationLinkButton />
             <Button onClick={() => openNewLead()}>
               <PlusIcon />
               New Lead
