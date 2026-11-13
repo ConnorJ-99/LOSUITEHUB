@@ -33,7 +33,7 @@ export function AnalysisPanel({ loan, doc }: { loan: LoanProfile; doc: LoanDocum
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
   const a = analyses.data?.get(doc.id)
-  if (!a) return null
+  if (!a || !FEATURES.uploadReview) return null
   const fail = (e: Error) => toast.error(e.message)
   const s = STATUS[a.status]
   const waitingKey = a.status === 'queued' && a.lastError?.startsWith('Waiting for the AI key')

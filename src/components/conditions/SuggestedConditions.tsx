@@ -12,6 +12,7 @@ import { useProperties } from '@/lib/api/properties'
 import type { LoanProfile } from '@/lib/api/types'
 import { useApplication } from '@/lib/api/urla'
 import { fileFactsFrom } from '@/lib/conditions/facts'
+import { FEATURES } from '@/lib/features'
 import { documentSuggestions, type AnalyzedDoc } from '@/lib/conditions/fromDocuments'
 import { useAnalyses } from '@/lib/api/analyses'
 import { useLoanDocuments } from '@/lib/api/documents'
@@ -51,7 +52,7 @@ export function useConditionSuggestions(loan: LoanProfile, conditions: Condition
       conditions: conditions!.map((c) => ({ id: c.id, sourceKey: c.sourceKey ?? null, status: c.status })),
       requests: requests.data!.map((r) => ({ id: r.id, contactId: r.contactId, ruleKey: r.ruleKey, status: r.status })),
       dismissed: dismissed.data!,
-    }, documentSuggestions(analyzed))
+    }, FEATURES.uploadReview ? documentSuggestions(analyzed) : [])
   }, [ready, loan, app.data, properties.data, events.data, program.data, rules.data, requests.data, dismissed.data, conditions, analyses.data, docs.data])
 }
 

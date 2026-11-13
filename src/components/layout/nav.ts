@@ -14,6 +14,7 @@ import {
   UsersIcon,
   type LucideIcon,
 } from 'lucide-react'
+import { FEATURES } from '@/lib/features'
 
 export interface NavItem {
   to: string
@@ -35,7 +36,7 @@ export const navSections: NavSection[] = [
     items: [
       { to: '/', label: 'Today', icon: InboxIcon },
       { to: '/inbox', label: 'Inbox', icon: MessagesSquareIcon, unreadBadge: true },
-      { to: '/assistant', label: 'Assistant', icon: SparklesIcon },
+      ...(FEATURES.assistant ? [{ to: '/assistant', label: 'Assistant', icon: SparklesIcon }] : []),
       { to: '/pipeline', label: 'Pipeline', icon: KanbanIcon },
       { to: '/contacts', label: 'Contacts', icon: UsersIcon },
       { to: '/partners', label: 'Partner center', icon: HandshakeIcon },

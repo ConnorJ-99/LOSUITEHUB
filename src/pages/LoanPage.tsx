@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { cn } from 'cn'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
@@ -10,7 +10,6 @@ import {
   FolderIcon,
   HomeIcon,
   LayersIcon,
-  ListChecksIcon,
   MailIcon,
   MessagesSquareIcon,
   NotebookPenIcon,
@@ -171,7 +170,9 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const unread = (thread.data ?? []).filter((m) => m.direction === 'inbound' && !m.readAt).length
   // The old Fees and Loan · Pricing tabs are now Scenarios & Estimate.
   const tab = searchParams.get('tab')
-  const param = (tab === 'fees' || tab === 'loan' ? 'estimates' : tab) as Section | null
+  // Conditions and Documents are one tab (Connor, 2026-11-13); old ?tab=conditions links open it at the conditions.
+  const param = (tab === 'fees' || tab === 'loan' ? 'estimates' : tab === 'conditions' ? 'documents' : tab) as Section | null
+  const toConditions = tab === 'conditions'
   const closedFile = loan.stage === 'closed'
   const section: Section = param && READY.includes(param) && ((param !== 'contract' && param !== 'letters') || isPurchase) && (!closedFile || CLOSED_SECTIONS.includes(param)) ? param : 'overview'
   const goTo = (next: string) => setSearchParams(next === 'overview' ? {} : { tab: next }, { replace: true })
@@ -232,8 +233,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     ...(FEATURES.incomeReview ? [{ id: 'income', label: 'Income', icon: CalculatorIcon }] : []),
     ...(isPurchase ? [{ id: 'contract', label: 'Contract', icon: FileSignatureIcon }] : []),
     { id: 'estimates', label: 'Scenarios & Estimate', icon: ReceiptIcon },
-    { id: 'documents', label: 'Documents', icon: FolderIcon },
-    { id: 'conditions', label: 'Conditions', icon: ListChecksIcon, marker: loan.conditions.total && loan.conditions.cleared < loan.conditions.total ? { type: 'count', value: loan.conditions.total - loan.conditions.cleared } : loan.conditions.total ? { type: 'complete' } : undefined },
+    { id: 'documents', label: closedFile ? 'Documents' : 'Docs & Conditions', icon: FolderIcon, marker: closedFile ? undefined : loan.conditions.total && loan.conditions.cleared < loan.conditions.total ? { type: 'count', value: loan.conditions.total - loan.conditions.cleared } : loan.conditions.total ? { type: 'complete' } : undefined },
     { id: 'notes', label: 'Notes', icon: NotebookPenIcon },
     { id: 'messages', label: 'Messages', icon: MessagesSquareIcon, marker: unread ? { type: 'count', value: unread } : undefined },
     { id: 'properties', label: 'Properties', icon: HomeIcon },
@@ -407,12 +407,16 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           {section === 'contract' && <ContractTab loan={loan} />}
           {section === 'estimates' && <EstimatesTab loan={loan} />}
           {section === 'letters' && isPurchase && <LettersTab loan={loan} />}
-          {section === 'documents' && <DocumentsTab loan={loan} />}
+          {section === 'documents' && (
+            <div className="space-y-6">
+              {!closedFile && <ConditionsSection loan={loan} step={workflow?.steps.find((s) => s.key === 'conditions') ?? null} scrollTo={toConditions} />}
+              <DocumentsTab loan={loan} />
+            </div>
+          )}
           {section === 'notes' && <NotesTab loan={loan} />}
           {section === 'messages' && <MessagesTab loan={loan} />}
           {section === 'properties' && <PropertiesTab loan={loan} />}
           {section === 'loans' && closedFile && <LoansTab loan={loan} />}
-          {section === 'conditions' && <ConditionsTab loan={loan} step={workflow?.steps.find((s) => s.key === 'conditions') ?? null} />}
         </div>
       </div>
 
@@ -457,7 +461,20 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
       )}
       {dialog}
       <RequestDocumentsHost loan={loan} />
-      <FileAssistant loanId={loan.id} borrowerName={name} />
+      {FEATURES.assistant && <FileAssistant loanId={loan.id} borrowerName={name} />}
     </>
+  )
+}
+
+/** Conditions at the top of Docs & Conditions; an old Conditions link scrolls here. */
+function ConditionsSection({ loan, step, scrollTo }: { loan: LoanProfile; step: Parameters<typeof ConditionsTab>[0]['step']; scrollTo: boolean }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (scrollTo) ref.current?.scrollIntoView({ block: 'start' })
+  }, [scrollTo])
+  return (
+    <div ref={ref} className="scroll-mt-20">
+      <ConditionsTab loan={loan} step={step} />
+    </div>
   )
 }

@@ -6,6 +6,7 @@ import { FileTextIcon } from 'lucide-react'
 import { Card } from '@/components/shared'
 import { useOpenPortalRequests, usePortalUploads } from '@/lib/api/portal'
 import { useAnalysesNeedingReview } from '@/lib/api/analyses'
+import { FEATURES } from '@/lib/features'
 import { relativeTime } from '@/lib/dates'
 import { RequestRow } from './PortalCard'
 
@@ -14,7 +15,8 @@ export function PortalRequestsCard() {
   const uploads = usePortalUploads()
   const reqs = requests.data ?? []
   const ups = uploads.data ?? []
-  const review = useAnalysesNeedingReview().data ?? []
+  const reviewed = useAnalysesNeedingReview().data ?? []
+  const review = FEATURES.uploadReview ? reviewed : []
   if (reqs.length === 0 && ups.length === 0 && review.length === 0) return null
   return (
     <Card className="border-t-2 border-t-primary" title="Portal requests" description="From borrowers' portal and upload links">

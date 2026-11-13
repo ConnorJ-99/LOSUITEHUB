@@ -8,6 +8,7 @@ import { NewLeadDialog } from '@/components/leads/NewLeadDialog'
 import { useNewMessageAlerts } from '@/components/messages/useNewMessageAlerts'
 import { FileTextsHost } from '@/components/messaging/FileTextsHost'
 import { MobileAssistantButton } from '@/components/assistant/FileAssistant'
+import { FEATURES } from '@/lib/features'
 import { NotificationsBell } from '@/components/notifications/NotificationsBell'
 import { useMessagesLive } from '@/lib/api/messages'
 import { useNotificationsLive } from '@/lib/api/notifications'
@@ -88,7 +89,7 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
             </Button>
             <BrandMark />
             <div className="ml-auto flex items-center">
-              <MobileAssistantButton />
+              {FEATURES.assistant && <MobileAssistantButton />}
               <NotificationsBell tone="bar" />
             </div>
           </header>
