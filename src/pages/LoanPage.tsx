@@ -49,6 +49,7 @@ import { NotesTab } from '@/components/profile/NotesTab'
 import { OverviewTab } from '@/components/profile/OverviewTab'
 import { TasksCard } from '@/components/profile/TasksCard'
 import { PropertiesTab } from '@/components/profile/PropertiesTab'
+import { FEATURES } from '@/lib/features'
 import { IncomeTab } from '@/components/income/IncomeTab'
 import { PrequalTab } from '@/components/prequal/PrequalTab'
 import { TeamMemberDialog } from '@/components/partners/TeamMemberDialog'
@@ -227,7 +228,8 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     { id: 'overview', label: 'Overview', icon: WorkflowIcon },
     { id: 'prequal', label: 'Prequal', icon: UserCheckIcon },
     { id: '1003', label: '1003', icon: FileTextIcon, marker: validation ? (validation.totalMissing ? { type: 'count', value: validation.totalMissing } : { type: 'complete' }) : undefined },
-    { id: 'income', label: 'Income', icon: CalculatorIcon },
+    // The Income tab is put away for now (FEATURES.incomeReview); ?tab=income still opens it.
+    ...(FEATURES.incomeReview ? [{ id: 'income', label: 'Income', icon: CalculatorIcon }] : []),
     ...(isPurchase ? [{ id: 'contract', label: 'Contract', icon: FileSignatureIcon }] : []),
     { id: 'estimates', label: 'Scenarios & Estimate', icon: ReceiptIcon },
     { id: 'documents', label: 'Documents', icon: FolderIcon },

@@ -25,6 +25,8 @@ export interface NavItem {
 export interface NavSection {
   label?: string
   items: NavItem[]
+  /** Shown only to owners and admins (Connor, 2026-11-13). */
+  adminOnly?: boolean
 }
 
 export const navSections: NavSection[] = [
@@ -42,9 +44,12 @@ export const navSections: NavSection[] = [
   },
   {
     label: 'Admin',
+  {
+    items: [{ to: '/settings', label: 'Settings', icon: SettingsIcon }],
+  },
     items: [
       { to: '/admin/lenders', label: 'Lenders', icon: BuildingIcon },
-      { to: '/settings', label: 'Settings', icon: SettingsIcon },
+    adminOnly: true,
       { to: '/dev/components', label: 'Component Library', icon: ComponentIcon },
       { to: '/dev/loan-file', label: 'Loan File Preview', icon: PanelsTopLeftIcon },
     ],

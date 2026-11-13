@@ -77,7 +77,7 @@ export function Sidebar({ user, collapsed, onToggleCollapsed, onNavigate }: Side
       </div>
 
       <nav className="flex-1 space-y-4 overflow-y-auto px-3 pb-3">
-        {navSections.map((section, i) => (
+        {navSections.filter((s) => !s.adminOnly || user.role === 'owner' || user.role === 'admin').map((section, i) => (
           <div key={section.label ?? i} className="space-y-0.5">
             {section.label && !collapsed && (
               <p className="px-2 pb-1 text-[11px] font-semibold tracking-[0.14em] text-sidebar-foreground/50 uppercase">

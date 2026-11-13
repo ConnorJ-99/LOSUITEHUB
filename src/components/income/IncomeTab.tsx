@@ -19,6 +19,7 @@ import { useSavePdf } from '@/components/pdf/useSavePdf'
 import { INCOME_ANALYSIS_TEMPLATE, incomeAnalysisView } from '@/lib/documents/incomeAnalysis'
 import { todayIso } from '@/lib/dates'
 import { useCalculateIncome } from './useCalculateIncome'
+import { FEATURES } from '@/lib/features'
 
 const SELF_EMPLOYED_KINDS: WorksheetKind[] = ['schedule_c', 's_corp', 'partnership', 'bank_statement']
 
@@ -39,7 +40,7 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
   const wantedFor = params.get('contact')
   const firstNameOf = (id: string) => app.data?.borrowers.find((b) => b.contactId === id)?.person.firstName ?? 'the borrower'
   useEffect(() => {
-    if (!wanted || !wantedFor || asked.current || !calc.available || !app.data) return
+    if (!FEATURES.incomeReview || !wanted || !wantedFor || asked.current || !calc.available || !app.data) return
     asked.current = true
     setSelectedId(wantedFor)
     void calc.calculate(wantedFor, firstNameOf(wantedFor), wanted)
@@ -107,7 +108,7 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
           <div className="min-w-0 space-y-3">
             <Card title="Worksheets" description="Enter figures from pay stubs, W-2s, tax returns or bank statements, or calculate them from the analyzed uploads. Push the result to fill in the 1003.">
               <div className="flex flex-wrap gap-2">
-                {calc.available && (
+                {FEATURES.incomeReview && calc.available && (
                   <Button size="sm" className="bg-money text-white hover:bg-money/90" disabled={calc.busy} onClick={() => void calc.calculate(borrower.contactId, borrower.person.firstName)} title="Fill draft worksheets from this borrower's analyzed pay stubs, W-2s, bank statements and tax returns">
                     <SparklesIcon />
                     {calc.busy ? 'Calculating…' : 'Calculate income'}

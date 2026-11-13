@@ -5,6 +5,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { incomeKindOf } from '@/lib/income/fromDocuments'
+import { FEATURES } from '@/lib/features'
 import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, Loader2Icon, RotateCcwIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
@@ -83,7 +84,7 @@ export function AnalysisPanel({ loan, doc }: { loan: LoanProfile; doc: LoanDocum
             Re-run analysis
           </Button>
         )}
-        {(a.status === 'ready' || a.status === 'needs_review') && doc.contactId && incomeKindOf(doc.kind !== 'other' ? doc.kind : (a.suggestedKind ?? 'other')) && (
+        {FEATURES.incomeReview && (a.status === 'ready' || a.status === 'needs_review') && doc.contactId && incomeKindOf(doc.kind !== 'other' ? doc.kind : (a.suggestedKind ?? 'other')) && (
           <Button size="xs" variant="outline" title="Draft the income worksheet from this borrower's analyzed documents of this kind" onClick={() => navigate(`/loans/${loan.id}?tab=income&calculate=${incomeKindOf(doc.kind !== 'other' ? doc.kind : (a.suggestedKind ?? 'other'))}&contact=${doc.contactId}`)}>
             <SparklesIcon />
             Calculate income
