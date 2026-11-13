@@ -1,5 +1,6 @@
 import {
   BuildingIcon,
+  ChartColumnIcon,
   CalculatorIcon,
   ComponentIcon,
   FileTextIcon,
@@ -52,6 +53,7 @@ export const navSections: NavSection[] = [
     label: 'Admin',
     adminOnly: true,
     items: [
+      { to: '/admin/metrics', label: 'Business metrics', icon: ChartColumnIcon },
       { to: '/admin/lenders', label: 'Lenders', icon: BuildingIcon },
       { to: '/dev/components', label: 'Component Library', icon: ComponentIcon },
       { to: '/dev/loan-file', label: 'Loan File Preview', icon: PanelsTopLeftIcon },
