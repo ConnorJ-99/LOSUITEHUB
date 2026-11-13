@@ -35,6 +35,9 @@ export interface RegisterLoan {
   snapshot: CompSnapshot | null
   /** Phase 6: the review request status. */
   reviewStatus: ReviewStatus | null
+  /** Commission confirmed (locked) and its payroll date (2026-11-13; absent before that script). */
+  compConfirmedAt?: string | null
+  compPaidOn?: string | null
 }
 
 export interface RegisterRow extends RegisterLoan {
@@ -61,17 +64,27 @@ export function registerRow(l: RegisterLoan, plans: CompPlan[]): RegisterRow {
   return { ...l, productionDate: productionDate(l), gross: c.gross, loComp: c.loComp, net: c.net, planFigure, flags }
 }
 
+export type CommissionFilter = 'unconfirmed' | 'confirmed_unpaid' | 'paid'
+
 export interface RegisterFilters {
   from: string | null
   to: string | null
   loId: string | null
   leadSource: 'company' | 'self' | null
+  commission?: CommissionFilter | null
 }
+
+/** Where a loan's commission stands: not confirmed, confirmed (not paid yet), or paid. */
+export function commissionStatus(r: Pick<RegisterLoan, 'compConfirmedAt' | 'compPaidOn'>): CommissionFilter {
+  return r.compPaidOn ? 'paid' : r.compConfirmedAt ? 'confirmed_unpaid' : 'unconfirmed'
+}
+
+export const COMMISSION_LABEL: Record<CommissionFilter, string> = { unconfirmed: 'Not confirmed', confirmed_unpaid: 'Confirmed, not paid', paid: 'Paid' }
 
 /** By production date (funding, else closing), loan officer and lead source; newest first. */
 export function filterRegister(rows: RegisterRow[], f: RegisterFilters): RegisterRow[] {
   return rows
-    .filter((r) => (!f.from || (r.productionDate ?? '') >= f.from) && (!f.to || (r.productionDate ?? '9999') <= f.to) && (!f.loId || r.loId === f.loId) && (!f.leadSource || r.leadSourceType === f.leadSource))
+    .filter((r) => (!f.from || (r.productionDate ?? '') >= f.from) && (!f.to || (r.productionDate ?? '9999') <= f.to) && (!f.loId || r.loId === f.loId) && (!f.leadSource || r.leadSourceType === f.leadSource) && (!f.commission || commissionStatus(r) === f.commission))
     .sort((a, b) => (b.productionDate ?? '').localeCompare(a.productionDate ?? ''))
 }
 
@@ -97,13 +110,13 @@ export function registerTotals(rows: RegisterRow[]): RegisterTotals {
   return { count: rows.length, volume: sum((r) => r.loanAmount), gross: sum((r) => r.gross), loComp: sum((r) => r.loComp), net: sum((r) => r.net), missingRevenue: rows.filter((r) => r.gross == null).length }
 }
 
-export const REGISTER_COLUMNS = ['Production date', 'Closing date', 'Funding date', 'Borrower', 'Property', 'Loan officer', 'Lender', 'Program', 'Purpose', 'Occupancy', 'Loan amount', 'Rate', 'Term (years)', 'Arive loan #', 'Lead source', 'Gross revenue', 'LO comp', 'Net', 'Review', 'Flags'] as const
+export const REGISTER_COLUMNS = ['Production date', 'Closing date', 'Funding date', 'Borrower', 'Property', 'Loan officer', 'Lender', 'Program', 'Purpose', 'Occupancy', 'Loan amount', 'Rate', 'Term (years)', 'Arive loan #', 'Lead source', 'Gross revenue', 'LO comp', 'Net', 'Commission', 'Paid on', 'Review', 'Flags'] as const
 
 /** The rows on screen as CSV cells, in REGISTER_COLUMNS order. */
 export function registerCells(r: RegisterRow, labels: { purpose: (p: string) => string; occupancy: (o: string | null) => string }): (string | number | null)[] {
   return [
     r.productionDate, r.closingDate, r.fundingDate, r.borrower, r.property, r.loName, r.lender, r.program, labels.purpose(r.purpose), labels.occupancy(r.occupancy),
     r.loanAmount, r.rate, r.termMonths ? r.termMonths / 12 : null, r.ariveLoanNumber, r.leadSourceType === 'company' ? 'Company' : r.leadSourceType === 'self' ? 'Self' : null,
-    r.gross, r.loComp, r.net, r.reviewStatus ? REVIEW_STATUS_LABEL[r.reviewStatus] : null, r.flags.join('; ') || null,
+    r.gross, r.loComp, r.net, COMMISSION_LABEL[commissionStatus(r)], r.compPaidOn ?? null, r.reviewStatus ? REVIEW_STATUS_LABEL[r.reviewStatus] : null, r.flags.join('; ') || null,
   ]
 }

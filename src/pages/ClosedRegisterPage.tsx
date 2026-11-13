@@ -10,7 +10,7 @@ import { useLenders } from '@/lib/api/lenders'
 import { useRegisterLoans } from '@/lib/api/register'
 import { useAuth } from '@/lib/auth/context'
 import { REVIEW_STATUS_LABEL } from '@/lib/closed/reviews'
-import { filterRegister, REGISTER_COLUMNS, registerCells, registerRow, registerTotals, thisMonth, type RegisterFilters } from '@/lib/closed/register'
+import { COMMISSION_LABEL, commissionStatus, filterRegister, REGISTER_COLUMNS, registerCells, registerRow, registerTotals, thisMonth, type CommissionFilter, type RegisterFilters } from '@/lib/closed/register'
 import { formatIsoDate, todayIso } from '@/lib/dates'
 import { downloadText } from '@/lib/download'
 import { formatCurrency, formatPercent } from '@/lib/format'
@@ -34,7 +34,7 @@ export function ClosedRegisterPage() {
   const plans = useCompPlans()
   const loans = useRegisterLoans(lenders.data?.map((l) => ({ id: l.id, name: l.name })))
   const today = todayIso()
-  const [f, setF] = useState<RegisterFilters>({ ...thisMonth(today), loId: null, leadSource: null })
+  const [f, setF] = useState<RegisterFilters>({ ...thisMonth(today), loId: null, leadSource: null, commission: null })
 
   const all = useMemo(() => (loans.data ?? []).map((l) => registerRow(l, plans.data ?? [])), [loans.data, plans.data])
   const rows = useMemo(() => filterRegister(all, f), [all, f])
@@ -45,7 +45,7 @@ export function ClosedRegisterPage() {
   const exportCsv = () =>
     downloadText(
       `closed-register-${f.from ?? 'all'}-to-${f.to ?? 'all'}.csv`,
-      toCsv([[...REGISTER_COLUMNS], ...rows.map((r) => registerCells(r, { purpose: (p) => purposeLabel(p as never), occupancy })), ['Totals', '', '', `${totals.count} loans`, '', '', '', '', '', '', totals.volume, '', '', '', '', totals.gross, totals.loComp, totals.net, '', '']]),
+      toCsv([[...REGISTER_COLUMNS], ...rows.map((r) => registerCells(r, { purpose: (p) => purposeLabel(p as never), occupancy })), ['Totals', '', '', `${totals.count} loans`, '', '', '', '', '', '', totals.volume, '', '', '', '', totals.gross, totals.loComp, totals.net, '', '', '', '']]),
       'text/csv',
     )
 
@@ -63,11 +63,12 @@ export function ClosedRegisterPage() {
         }
       />
       <Card className="mb-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <DateInput label="From (production date)" value={f.from} onChange={(from) => setF({ ...f, from })} />
           <DateInput label="To" value={f.to} onChange={(to) => setF({ ...f, to })} />
           <Select label="Loan officer" value={f.loId ?? ALL} options={[{ value: ALL, label: 'Everyone' }, ...los.map(([value, label]) => ({ value, label }))]} onChange={(v) => setF({ ...f, loId: v === ALL ? null : v })} />
           <Select label="Lead source" value={f.leadSource ?? ALL} options={[{ value: ALL, label: 'All' }, { value: 'company', label: 'Company-generated' }, { value: 'self', label: 'Self-generated' }]} onChange={(v) => setF({ ...f, leadSource: v === ALL ? null : (v as 'company' | 'self') })} />
+          <Select label="Commission" value={f.commission ?? ALL} options={[{ value: ALL, label: 'All' }, ...(Object.keys(COMMISSION_LABEL) as CommissionFilter[]).map((value) => ({ value, label: COMMISSION_LABEL[value] }))]} onChange={(v) => setF({ ...f, commission: v === ALL ? null : (v as CommissionFilter) })} />
           <div className="flex items-end gap-2">
             <Button size="sm" variant="outline" onClick={() => setF({ ...f, ...thisMonth(today) })}>
               This month
@@ -105,13 +106,14 @@ export function ClosedRegisterPage() {
                   <th className="text-right!">Gross</th>
                   <th className="text-right!">LO comp</th>
                   <th className="text-right!">Net</th>
+                  <th>Commission</th>
                   <th>Review</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={14} className="py-10 text-center text-sm text-muted-foreground">
+                    <td colSpan={15} className="py-10 text-center text-sm text-muted-foreground">
                       No closed loans in these dates.
                     </td>
                   </tr>
@@ -150,6 +152,7 @@ export function ClosedRegisterPage() {
                     <td className="text-right tabular-nums">{r.gross == null ? <span className="text-amber-700">Needs revenue</span> : money(r.gross)}</td>
                     <td className="text-right tabular-nums">{money(r.loComp)}</td>
                     <td className="text-right tabular-nums">{money(r.net)}</td>
+                    <td className={`text-xs whitespace-nowrap ${commissionStatus(r) === 'unconfirmed' ? 'text-muted-foreground' : 'text-nurture'}`}>{r.compPaidOn ? `Paid ${formatIsoDate(r.compPaidOn)}` : COMMISSION_LABEL[commissionStatus(r)]}</td>
                     <td className="text-xs whitespace-nowrap">{r.reviewStatus ? REVIEW_STATUS_LABEL[r.reviewStatus] : '—'}</td>
                   </tr>
                 ))}
@@ -166,7 +169,7 @@ export function ClosedRegisterPage() {
                     <td className="text-right tabular-nums">{money(totals.gross)}</td>
                     <td className="text-right tabular-nums">{money(totals.loComp)}</td>
                     <td className="text-right tabular-nums">{money(totals.net)}</td>
-                    <td />
+                    <td colSpan={2} />
                   </tr>
                 </tfoot>
               )}

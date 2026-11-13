@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CompPlan } from '@/lib/calc/lenderComp'
-import { filterRegister, registerRow, registerTotals, thisMonth, type RegisterLoan } from './register'
+import { commissionStatus, filterRegister, registerCells, REGISTER_COLUMNS, registerRow, registerTotals, thisMonth, type RegisterLoan } from './register'
 
 const loan = (o: Partial<RegisterLoan> = {}): RegisterLoan => ({
   id: 'a', closingDate: '2026-11-06', fundingDate: '2026-11-06', stageChangedAt: '2026-11-09T15:00:00Z', borrower: 'Pat TEST', property: null, loId: 'me', loName: 'Connor',
@@ -41,5 +41,23 @@ describe('filters and totals', () => {
   })
   it('totals count, volume, gross, LO comp and net; missing revenue adds nothing', () => {
     expect(registerTotals(rows)).toEqual({ count: 3, volume: 1_200_000, gross: 22_000, loComp: 7727.5 * 2, net: 3272.5 * 2, missingRevenue: 1 })
+  })
+})
+
+describe('commission confirmation in the register', () => {
+  const rows = [
+    registerRow(loan({ id: 'new' }), []),
+    registerRow(loan({ id: 'ok', compConfirmedAt: '2026-11-13T15:00:00Z' }), []),
+    registerRow(loan({ id: 'paid', compConfirmedAt: '2026-11-13T15:00:00Z', compPaidOn: '2026-11-30' }), []),
+  ]
+  it('not confirmed, confirmed but not paid, or paid', () => {
+    expect(rows.map(commissionStatus)).toEqual(['unconfirmed', 'confirmed_unpaid', 'paid'])
+    expect(filterRegister(rows, { from: null, to: null, loId: null, leadSource: null, commission: 'confirmed_unpaid' }).map((r) => r.id)).toEqual(['ok'])
+  })
+  it('the CSV has a cell for every column', () => {
+    const cells = registerCells(rows[2], { purpose: (p) => p, occupancy: (o) => o ?? '' })
+    expect(cells).toHaveLength(REGISTER_COLUMNS.length)
+    expect(cells[REGISTER_COLUMNS.indexOf('Commission')]).toBe('Paid')
+    expect(cells[REGISTER_COLUMNS.indexOf('Paid on')]).toBe('2026-11-30')
   })
 })

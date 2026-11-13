@@ -49,8 +49,12 @@ export function useRegisterLoans(lenders: { id: string; name: string }[] | undef
   return useQuery({
     queryKey: ['register', lenders?.length ?? 0],
     enabled: !!lenders,
-    queryFn: async (): Promise<RegisterLoan[]> =>
-      unwrap<Row[]>(await db().from('loans').select(SELECT).eq('stage', 'closed').limit(5000)).map((r) => {
+    queryFn: async (): Promise<RegisterLoan[]> => {
+      const rows = unwrap<Row[]>(await db().from('loans').select(SELECT).eq('stage', 'closed').limit(5000))
+      // Commission confirmation (read on its own, so the register works before that script has run).
+      const conf = await db().from('loans').select('id, comp_confirmed_at, comp_paid_on').eq('stage', 'closed').limit(5000)
+      const confirmed = new Map(((conf.error ? [] : conf.data) as { id: string; comp_confirmed_at: string | null; comp_paid_on: string | null }[]).map((c) => [c.id, c]))
+      return rows.map((r) => {
         const people = r.borrowers.filter((b) => b.contact)
         const primary = (people.find((b) => b.role === 'primary') ?? people[0])?.contact
         const typed = r.lender_name?.trim().toLowerCase()
@@ -81,7 +85,10 @@ export function useRegisterLoans(lenders: { id: string; name: string }[] | undef
           compPlanId: r.comp_plan_id,
           reviewStatus: r.review_status ?? null,
           snapshot: r.comp_base_mode && split != null ? { baseMode: r.comp_base_mode, baseBps: num(r.comp_base_bps), splitPct: split, memberType: r.comp_member_type ?? 'commission' } : null,
+          compConfirmedAt: confirmed.get(r.id)?.comp_confirmed_at ?? null,
+          compPaidOn: confirmed.get(r.id)?.comp_paid_on ?? null,
         }
-      }),
+      })
+    },
   })
 }

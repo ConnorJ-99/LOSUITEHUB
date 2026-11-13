@@ -125,3 +125,42 @@ export function useSaveLoanComp(loanId: string) {
     },
   })
 }
+
+// ---------------------------------------------------------------------------
+// Confirming a closed loan's commission (2026-11-13, 20270122000000)
+// ---------------------------------------------------------------------------
+
+export interface CompConfirmation {
+  confirmedAt: string | null
+  confirmedBy: string | null
+  paidOn: string | null
+}
+
+/** null = the commission confirmation script hasn't run yet (the panel works without it). */
+export function useCompConfirmation(loanId: string) {
+  return useQuery({
+    queryKey: ['compConfirmation', loanId],
+    retry: false,
+    queryFn: async (): Promise<CompConfirmation | null> => {
+      const r = await db().from('loans').select('comp_confirmed_at, comp_paid_on, confirmer:profiles!loans_comp_confirmed_by_fkey ( full_name, email )').eq('id', loanId).single()
+      if (r.error) return null
+      const x = r.data as unknown as { comp_confirmed_at: string | null; comp_paid_on: string | null; confirmer: { full_name: string | null; email: string } | null }
+      return { confirmedAt: x.comp_confirmed_at, confirmedBy: x.confirmer ? x.confirmer.full_name || x.confirmer.email : null, paidOn: x.comp_paid_on }
+    },
+  })
+}
+
+/** Confirm (locks the numbers), unlock (also clears paid on), or set the paid-on date. */
+export function useSetCompConfirmation(loanId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (v: { confirmed: boolean } | { paidOn: string | null }) => {
+      const changes = 'confirmed' in v ? (v.confirmed ? { comp_confirmed_at: new Date().toISOString() } : { comp_confirmed_at: null, comp_paid_on: null }) : { comp_paid_on: v.paidOn }
+      const r = unwrap<{ id: string }[]>(await db().from('loans').update(changes).eq('id', loanId).select('id'))
+      if (!r.length) throw new Error('Only owners and admins can confirm a commission.')
+    },
+    onSettled: () => {
+      for (const k of [['compConfirmation', loanId], ['loanChanges', loanId], ['register'], keys.closedLoans]) queryClient.invalidateQueries({ queryKey: k })
+    },
+  })
+}
