@@ -112,6 +112,7 @@ export async function fetchProperties(loanId: string): Promise<Property[]> {
 export function useProperties(loanId: string) {
   return useQuery({
     queryKey: keys.properties(loanId),
+    enabled: !!loanId,
     queryFn: () => fetchProperties(loanId),
   })
 }

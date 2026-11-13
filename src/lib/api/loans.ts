@@ -191,6 +191,8 @@ export async function fetchLoanProfile(id: string): Promise<LoanProfile | null> 
 export function useLoan(id: string) {
   return useQuery({
     queryKey: keys.loan(id),
+    // A blank id (Quick Quote with no file yet) asks nothing.
+    enabled: !!id,
     queryFn: () => fetchLoanProfile(id),
   })
 }

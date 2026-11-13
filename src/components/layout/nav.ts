@@ -1,5 +1,6 @@
 import {
   BuildingIcon,
+  CalculatorIcon,
   ComponentIcon,
   FileTextIcon,
   HandshakeIcon,
@@ -39,6 +40,7 @@ export const navSections: NavSection[] = [
       { to: '/contacts', label: 'Contacts', icon: UsersIcon },
       { to: '/partners', label: 'Partner center', icon: HandshakeIcon },
       { to: '/pages', label: 'Pages', icon: FileTextIcon },
+      { to: '/quick-quote', label: 'Quick Quote', icon: CalculatorIcon },
       { to: '/product-search', label: 'Product Search', icon: SearchIcon },
     ],
   },

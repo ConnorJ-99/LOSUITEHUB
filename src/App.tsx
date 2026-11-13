@@ -30,6 +30,7 @@ import { NewOpenHousePage } from '@/pages/NewOpenHousePage'
 import { PageSubmissionsPage } from '@/pages/PageSubmissionsPage'
 import { PublicPage } from '@/pages/PublicPage'
 import { ProductSearchPage } from '@/pages/ProductSearchPage'
+import { QuickQuotePage } from '@/pages/QuickQuotePage'
 import { RefiBenchmarksPage } from '@/pages/RefiBenchmarksPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
@@ -63,6 +64,7 @@ const router = createBrowserRouter([
       { path: 'assistant', element: <AssistantPage /> },
       { path: 'loans/:loanId', element: <LoanPage /> },
       { path: 'product-search', element: <ProductSearchPage /> },
+      { path: 'quick-quote', element: <QuickQuotePage /> },
       { path: 'admin/lenders', element: <LendersPage /> },
       { path: 'admin/lenders/imports/:importId', element: <MatrixImportPage /> },
       { path: 'admin/lenders/updates/:updateId', element: <ProductUpdatePage /> },

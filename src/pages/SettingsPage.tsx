@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Select as BaseSelect, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, confirmAction, CurrencyInput, FormGrid, Input, PageHeader, Select } from '@/components/shared'
+import { QuoteProfileFields } from '@/components/quickquote/QuoteProfileFields'
 import { BRAND_TYPES, useBrandImage, useRemoveBrandImage, useUploadBrandImage } from '@/lib/api/brandFiles'
 import { DocumentRulesCard } from '@/components/documents/DocumentRulesCard'
 import { DocumentCatalogCard } from '@/components/documents/DocumentCatalogCard'
@@ -20,8 +21,8 @@ import type { OrgMember } from '@/lib/api/types'
 import { ariveTemplateProblem } from '@/lib/arive'
 import { CompensationCard } from '@/components/settings/CompensationCard'
 import { ReviewsCard } from '@/components/settings/ReviewsCard'
-import { roleLabels, useAuth, type CurrentUser, type OrgRole } from '@/lib/auth/context'
 import { PortalSettingsCard } from '@/components/settings/PortalSettingsCard'
+import { roleLabels, useAuth, type CurrentUser, type OrgRole } from '@/lib/auth/context'
 
 function SaveBar({ dirty, saving, onSave, onDiscard }: { dirty: boolean; saving: boolean; onSave: () => void; onDiscard: () => void }) {
   if (!dirty) return null
@@ -112,6 +113,7 @@ function MyProfileCard({ profile, organizationId }: { profile: Profile; organiza
         }}
       />
       <BrandImageField kind="signature" label="Signature" hint="Shown above your name and NMLS on pre-approval letters. A PNG of your signature in dark ink on a white or clear background works best." path={profile.signaturePath} organizationId={organizationId} userId={profile.id} canEdit />
+      <QuoteProfileFields userId={profile.id} organizationId={organizationId} />
     </Card>
   )
 }
@@ -306,9 +308,9 @@ export function SettingsPage() {
         <FeeListCard canEdit={canEditCompany} />
         {canEditCompany && <CompensationCard />}
         <ReviewsCard canEdit={canEditCompany} />
+        <PortalSettingsCard canEdit={canEditCompany} organizationId={me?.organizationId ?? null} />
         <RefiScenariosCard canEdit={canEditCompany} />
         {me && <TeamCard members={members.data ?? []} me={me} />}
-        <PortalSettingsCard canEdit={canEditCompany} organizationId={me?.organizationId ?? null} />
         {canEditCompany && <GhlCard members={members.data ?? []} />}
         <SendingCard canEdit={canEditCompany} />
         <NotificationSettingsCard />

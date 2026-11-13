@@ -324,6 +324,12 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
                 {loan.onHoldAt ? 'On hold' : 'Hold'}
               </Button>
             )}
+            {!closedFile && (
+              <Button size="sm" variant="outline" onClick={() => navigate(`/quick-quote?loan=${loan.id}`)} title="Put loan options in front of this borrower">
+                <CalculatorIcon />
+                Quick quote
+              </Button>
+            )}
             <Button size="xs" variant="outline" onClick={() => setEditing(true)}>
               <PencilIcon />
               Edit
