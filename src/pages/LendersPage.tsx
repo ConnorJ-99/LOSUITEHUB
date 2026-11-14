@@ -7,6 +7,7 @@ import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, PageHeader, ToggleChip, ToggleChipGroup, confirmAction } from '@/components/shared'
 import { LenderDialog } from '@/components/lenders/LenderDialog'
+import { MortgageeClausesDialog } from '@/components/lenders/MortgageeClausesDialog'
 import { ContactsTab, LenderHeader, LenderTabs, LoansTab, OverlaysTab, ProductsTab, SidePanel, useSaveLenderNotes } from '@/components/lenders/LenderDetailParts'
 import { LenderList } from '@/components/lenders/LenderList'
 import { ApproveAllReadyButton, NeedsReviewList } from '@/components/lenders/ApproveAllReady'
@@ -27,6 +28,8 @@ import { averageDaysToClose, lastMatrixUpdate, productRow } from '@/lib/products
 import { loanCounts } from '@/lib/products/lenderSummary'
 import { programFromGuess } from '@/lib/products/typedMatrix'
 
+const EMPTY_CLAUSE = { clauseName: null, addressLine1: null, addressLine2: null, city: null, state: null, zip: null, insuranceEmail: null, insuranceFax: null, notes: null }
+
 const DOC_LABEL: Record<LenderDocument['docType'], string> = { matrix: 'Matrix', guidelines: 'Guidelines', overlay_bulletin: 'Overlay bulletin', rate_sheet: 'Rate sheet' }
 const toDraft = ({ programs: _p, documentCount: _d, ...l }: Lender): LenderDraft => l
 
@@ -37,9 +40,12 @@ export function LendersPage() {
   const lenders = useLenders()
   const [params, setParams] = useSearchParams()
   const [editing, setEditing] = useState<LenderDraft | null>(null)
+  const [clausesOpen, setClausesOpen] = useState(false)
   const [approvedAll, setApprovedAll] = useState<ApproveAllResult | null>(null)
   const [pasting, setPasting] = useState(false)
   const list = lenders.data ?? []
+  // The structured mortgagee clause exists once the partner requests script has run.
+  const clausesReady = list.some((l) => l.clause !== undefined)
   const selected = list.find((l) => l.id === params.get('lender')) ?? null
   const pick = (id: string) => setParams({ lender: id })
   // The loan-amount tier review of approved matrices (Lenders → "Loan-amount tiers").
@@ -70,7 +76,12 @@ export function LendersPage() {
                   <ClipboardPasteIcon />
                   Paste a product update
                 </Button>
-                <Button onClick={() => setEditing(blankLender())}>
+                {clausesReady && (
+                  <Button variant="outline" onClick={() => setClausesOpen(true)}>
+                    Mortgagee clauses
+                  </Button>
+                )}
+                <Button onClick={() => setEditing({ ...blankLender(), ...(clausesReady && { clause: EMPTY_CLAUSE }) })}>
                   <PlusIcon />
                   Add lender
                 </Button>
@@ -103,6 +114,7 @@ export function LendersPage() {
       ) : (
         selected ? <LenderDetail key={selected.id} lender={selected} canEdit={canEdit} onEdit={() => setEditing(toDraft(selected))} /> : <LenderList lenders={list} onOpen={pick} />
       )}
+      {clausesOpen && <MortgageeClausesDialog lenders={lenders.data ?? []} onClose={() => setClausesOpen(false)} />}
       {editing && <LenderDialog initial={editing} onClose={() => setEditing(null)} onSaved={pick} />}
     </>
   )

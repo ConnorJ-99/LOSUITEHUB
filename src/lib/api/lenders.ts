@@ -3,6 +3,7 @@ import { useAuth } from '@/lib/auth/context'
 import { pdfPages, sha256Hex } from '@/lib/documents/pdfText'
 import { guessDocument, matchPrograms, type DocGuess } from '@/lib/products/docGuess'
 import type { LenderLoan } from '@/lib/products/lenderSummary'
+import type { LenderClause } from '@/lib/loans/mortgagee'
 import { splitIntoPassages, type ExtractedPassage } from '@/lib/products/passages'
 import { termMonths, type DocType, type Feature, type LenderChannel, type LenderStatus, type Lien, type MatrixPurpose, type ProductFamily, type ProgramTerm } from '@/lib/products/taxonomy'
 import type { GuidelineDocument } from './products'
@@ -25,6 +26,8 @@ export interface Lender {
   compNotes: string | null
   /** The lender's mortgagee clause (Smart Fees script); shown on its estimates. */
   mortgageeClause: string | null
+  /** The structured mortgagee clause; undefined until the partner requests script has run. */
+  clause?: LenderClauseFields
   states: string[] | null
   notes: string | null
   programs: { id: string; name: string; family: ProductFamily; lien: Lien; docTypes: DocType[]; features: Feature[]; active: boolean; lastVerifiedOn: string | null }[]
@@ -43,10 +46,71 @@ interface LenderRow {
   portal_url: string | null
   comp_notes: string | null
   mortgagee_clause?: string | null
+  clause_name?: string | null
+  clause_address_line1?: string | null
+  clause_address_line2?: string | null
+  clause_city?: string | null
+  clause_state?: string | null
+  clause_zip?: string | null
+  insurance_email?: string | null
+  insurance_fax?: string | null
+  clause_notes?: string | null
   states: string[] | null
   notes: string | null
   programs: { id: string; name: string; product_family: ProductFamily; lien: Lien; doc_types: DocType[]; features: Feature[]; active: boolean; last_verified_on: string | null }[]
   guideline_documents: { count: number }[]
+}
+
+/** The clause fields a lender carries (for a loan's mortgagee clause). */
+export type LenderClauseFields = Omit<LenderClause, 'lenderId' | 'lenderName' | 'legacy'>
+
+function toClause(r: LenderRow): LenderClauseFields | undefined {
+  if (r.clause_name === undefined) return undefined
+  return {
+    clauseName: r.clause_name ?? null,
+    addressLine1: r.clause_address_line1 ?? null,
+    addressLine2: r.clause_address_line2 ?? null,
+    city: r.clause_city ?? null,
+    state: r.clause_state ?? null,
+    zip: r.clause_zip ?? null,
+    insuranceEmail: r.insurance_email ?? null,
+    insuranceFax: r.insurance_fax ?? null,
+    notes: r.clause_notes ?? null,
+  }
+}
+
+const clauseRow = (c: LenderClauseFields) => ({
+  clause_name: c.clauseName?.trim() || null,
+  clause_address_line1: c.addressLine1?.trim() || null,
+  clause_address_line2: c.addressLine2?.trim() || null,
+  clause_city: c.city?.trim() || null,
+  clause_state: c.state?.trim().toUpperCase() || null,
+  clause_zip: c.zip?.trim() || null,
+  insurance_email: c.insuranceEmail?.trim().toLowerCase() || null,
+  insurance_fax: c.insuranceFax?.trim() || null,
+  clause_notes: c.notes?.trim() || null,
+})
+
+/** A lender as a clause (for mortgageeClause()). */
+export const lenderClause = (l: Pick<Lender, 'id' | 'name' | 'mortgageeClause' | 'clause'>): LenderClause => ({
+  lenderId: l.id,
+  lenderName: l.name,
+  ...(l.clause ?? { clauseName: null, addressLine1: null, addressLine2: null, city: null, state: null, zip: null, insuranceEmail: null, insuranceFax: null, notes: null }),
+  legacy: l.mortgageeClause,
+})
+
+/** Saves the clause fields of several lenders (the CSV import). */
+export function useSaveClauses() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (items: { lenderId: string; clause: LenderClauseFields }[]) => {
+      for (const it of items) {
+        const rows = unwrap<{ id: string }[]>(await db().from('lenders').update(clauseRow(it.clause)).eq('id', it.lenderId).select('id'))
+        if (rows.length === 0) throw new Error('Only owners and admins can change lenders.')
+      }
+    },
+    onSuccess: () => invalidateCatalog(queryClient),
+  })
 }
 
 export function useLenders() {
@@ -68,6 +132,7 @@ export function useLenders() {
           portalUrl: r.portal_url,
           compNotes: r.comp_notes,
           mortgageeClause: r.mortgagee_clause ?? null,
+          clause: toClause(r),
           states: r.states,
           notes: r.notes,
           programs: r.programs.map((p) => ({ id: p.id, name: p.name, family: p.product_family, lien: p.lien, docTypes: p.doc_types, features: p.features, active: p.active, lastVerifiedOn: p.last_verified_on })).sort((a, b) => a.name.localeCompare(b.name)),
@@ -140,6 +205,7 @@ export function useSaveLender() {
         comp_notes: l.compNotes?.trim() || null,
         // Sent only once there is one, so lenders still save before the Smart Fees script runs.
         ...(l.mortgageeClause?.trim() && { mortgagee_clause: l.mortgageeClause.trim() }),
+        ...(l.clause && clauseRow(l.clause)),
         states: states.length ? states : null,
         notes: l.notes?.trim() || null,
       }

@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CardFile } from '@/lib/pipeline/card'
 import type { LeadTypeId } from '@/lib/pipeline/leadType'
 import { db, keys, num, unwrap } from './client'
+import { useLoanNumberIndex } from './loanNumbers'
 import { usePipeline } from './loans'
 import { useOpenTasks } from './tasks'
 import type { PipelineLoan, Task } from './types'
@@ -63,6 +64,8 @@ export interface BoardFile extends CardFile {
   name: string
   address: string | null
   ariveLoanNumber: string | null
+  /** Arive #, lender loan # and title GF #, for search. */
+  loanNumbers: string[]
   nextTask: Task | null
 }
 
@@ -71,6 +74,7 @@ export function useBoardFiles() {
   const facts = useCardFacts()
   const steps = useCardSteps()
   const tasks = useOpenTasks()
+  const numbers = useLoanNumberIndex()
   const loading = pipeline.isLoading || facts.isLoading || steps.isLoading
   const files: BoardFile[] | undefined =
     pipeline.data && facts.data
@@ -103,6 +107,7 @@ export function useBoardFiles() {
             name: l.borrower ? `${l.borrower.firstName} ${l.borrower.lastName}`.trim() : 'No borrower',
             address: f?.home ? [f.home.address_line, f.home.city].filter(Boolean).join(', ') : null,
             ariveLoanNumber: f?.arive_loan_number ?? null,
+            loanNumbers: numbers.data?.byLoan.get(l.id) ?? (f?.arive_loan_number ? [f.arive_loan_number] : []),
             nextTask: tasks.data?.get(l.id)?.[0] ?? null,
           }
         })
@@ -147,14 +152,15 @@ export function useSetLeadType() {
 /** The card facts refresh with the pipeline (a stage move changes them). */
 export const BOARD_KEYS = [factsKey, stepsKey]
 
-/** One file's lead type as set (null = automatic), for the profile's picker; undefined before the script has run. */
+/** One file's lead type as set (null = automatic), for the profile's picker; no data before the script has run. */
 export function useLoanLeadType(loanId: string) {
   return useQuery({
     queryKey: [...stepsKey, loanId],
     retry: false,
     queryFn: async () => {
       const r = await db().from('loans').select('lead_type').eq('id', loanId).maybeSingle()
-      if (r.error) return undefined
+      // Before the script (no column) or offline: the picker stays hidden (no data).
+      if (r.error) throw new Error(r.error.message)
       return ((r.data as { lead_type: string | null } | null)?.lead_type ?? null) as LeadTypeId | null
     },
   })

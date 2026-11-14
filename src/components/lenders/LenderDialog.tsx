@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FormGrid, Input, Select, TextArea, confirmAction } from '@/components/shared'
-import { useDeleteLender, useSaveLender, type LenderDraft } from '@/lib/api/lenders'
+import { useDeleteLender, useSaveLender, type LenderClauseFields, type LenderDraft } from '@/lib/api/lenders'
 import { LENDER_CHANNELS, LENDER_STATUSES } from '@/lib/products/taxonomy'
 
 const options = <T extends string>(l: { values: T[]; label: Record<T, string> }) => l.values.map((v) => ({ value: v, label: l.label[v] }))
@@ -14,6 +14,7 @@ export function LenderDialog({ initial, onClose, onSaved }: { initial: LenderDra
   const save = useSaveLender()
   const remove = useDeleteLender()
   const set = <K extends keyof LenderDraft>(key: K) => (value: LenderDraft[K]) => setL((s) => ({ ...s, [key]: value }))
+  const clause = (key: keyof LenderClauseFields) => (v: string) => setL((s) => ({ ...s, clause: { ...s.clause!, [key]: v || null } }))
   const text = (key: 'shortName' | 'aeName' | 'aePhone' | 'aeEmail' | 'portalUrl' | 'compNotes' | 'mortgageeClause' | 'notes') => (v: string) => set(key)(v || null)
 
   return (
@@ -34,7 +35,23 @@ export function LenderDialog({ initial, onClose, onSaved }: { initial: LenderDra
           <Input label="Lender portal" value={l.portalUrl ?? ''} onChange={text('portalUrl')} span={2} placeholder="https://" />
           <Input label="States" value={(l.states ?? []).join(', ')} onChange={(v) => set('states')(v.split(/[\s,]+/).filter(Boolean).map((s) => s.toUpperCase().slice(0, 2)))} hint="e.g. TX, OK. Blank = not checked" span={2} />
           <TextArea label="Comp notes" value={l.compNotes ?? ''} onChange={text('compNotes')} rows={2} span={2} />
-          <TextArea label="Mortgagee clause" value={l.mortgageeClause ?? ''} onChange={text('mortgageeClause')} rows={2} span={2} hint="Shown on this lender's estimates (for the insurance agent)" />
+          {l.clause ? (
+            <>
+              <p className="pt-2 text-sm font-semibold sm:col-span-2 lg:col-span-4">Mortgagee clause</p>
+              <Input label="Clause name" value={l.clause.clauseName ?? ''} onChange={clause('clauseName')} placeholder="e.g. United Wholesale Mortgage, LLC ISAOA/ATIMA" span={4} />
+              <Input label="Address line 1" value={l.clause.addressLine1 ?? ''} onChange={clause('addressLine1')} span={2} />
+              <Input label="Address line 2" value={l.clause.addressLine2 ?? ''} onChange={clause('addressLine2')} span={2} />
+              <Input label="City" value={l.clause.city ?? ''} onChange={clause('city')} span={2} />
+              <Input label="State" value={l.clause.state ?? ''} onChange={(v) => clause('state')(v.toUpperCase().slice(0, 2))} />
+              <Input label="ZIP" value={l.clause.zip ?? ''} onChange={clause('zip')} />
+              <Input label="Insurance email" type="email" value={l.clause.insuranceEmail ?? ''} onChange={clause('insuranceEmail')} span={2} hint="Where agents send binders / EOIs" />
+              <Input label="Insurance fax" type="tel" value={l.clause.insuranceFax ?? ''} onChange={clause('insuranceFax')} span={2} />
+              <TextArea label="Clause notes" value={l.clause.notes ?? ''} onChange={clause('notes')} rows={2} span={4} />
+              {l.mortgageeClause && <TextArea label="Old one-line clause" value={l.mortgageeClause} onChange={text('mortgageeClause')} rows={2} span={4} hint="Used only when the fields above are blank" />}
+            </>
+          ) : (
+            <TextArea label="Mortgagee clause" value={l.mortgageeClause ?? ''} onChange={text('mortgageeClause')} rows={2} span={2} hint="Shown on this lender's estimates (for the insurance agent)" />
+          )}
           <TextArea label="Notes" value={l.notes ?? ''} onChange={text('notes')} rows={2} span={2} />
         </FormGrid>
         <DialogFooter>

@@ -8,7 +8,8 @@ import { MORTGAGE_TYPE_OPTIONS, TERM_OPTIONS } from '@/components/profile/option
 import { ReviewFees } from '@/components/pricing/ReviewFees'
 import { SendSavedPdf } from '@/components/messages/SendDocumentDialog'
 import { newProgramOption } from '@/lib/api/estimates'
-import { useLenders } from '@/lib/api/lenders'
+import { lenderClause, useLenders } from '@/lib/api/lenders'
+import { mortgageeClause } from '@/lib/loans/mortgagee'
 import { useSaveRow } from '@/lib/api/urla'
 import type { LoanProfile } from '@/lib/api/types'
 import { pct, pointsAmount, prepaidInterestDays, round, type FeeOverride } from '@/lib/calc'
@@ -220,7 +221,8 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
     }
   }
   const lender = picked ? (draft.lenderName ?? null) : estimateLender({ ...estimate, ...draft })
-  const mortgagee = chosenLender?.mortgageeClause ?? null
+  // The lender's structured clause (else its old one-line clause); the loan # goes on the file's Settlement card.
+  const mortgagee = chosenLender ? mortgageeClause(null, lenderClause(chosenLender), null).text : null
 
   return (
     <div className="space-y-3">

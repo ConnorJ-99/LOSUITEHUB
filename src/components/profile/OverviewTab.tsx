@@ -27,6 +27,7 @@ import { WebFormsCard } from './WebFormsCard'
 import { ProposedUpdatesCard } from '@/components/pages/ProposedUpdatesCard'
 import { SendFormCard } from '@/components/pages/SendFormCard'
 import { ApplicationCard } from '@/components/applications/ApplicationCard'
+import { SettlementCard } from '@/components/loanfile/SettlementCard'
 import { PortalCard } from '@/components/portal/PortalCard'
 import { LeadTypePicker } from '@/components/pipeline/LeadTypePicker'
 import { ReadinessCard, useSavedReadiness } from '@/components/prequal/Readiness'
@@ -582,6 +583,8 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
               </Detail>
             </dl>
           </Card>
+
+          <SettlementCard loanId={loan.id} organizationId={loan.organizationId} />
 
           <ProposedUpdatesCard loanId={loan.id} />
 

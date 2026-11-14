@@ -21,6 +21,7 @@ const ROLE_LABEL: Record<string, string> = {
   listing_agent: 'Listing agent',
   title: 'Title',
   escrow_officer: 'Escrow officer',
+  insurance_agent: 'Insurance agent',
 }
 
 const ADDED_FROM: Record<Partner['addedFrom'], string> = {

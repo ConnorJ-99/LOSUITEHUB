@@ -65,9 +65,12 @@ export async function offerMilestoneUpdate(loanId: string, milestone: Milestone)
 /**
  * A partner just joined a file's team: add them to GoHighLevel if they aren't
  * there yet (matched to their existing contact, never a duplicate), then offer
- * the intro text. A GHL problem doesn't stop the intro; the send links them too.
+ * the intro text (not for Gmail partners: title and insurance). A GHL problem doesn't stop the intro; the send links them too.
  */
 export async function afterPartnerJoined(organizationId: string, loanId: string, partnerId: string) {
+  // Title and insurance partners who email through Gmail stay out of GoHighLevel and get no text.
+  const p = await db().from('partners').select('*').eq('id', partnerId).maybeSingle()
+  if ((p.data as { email_via_gmail?: boolean } | null)?.email_via_gmail) return
   try {
     await linkGhlPartner(organizationId, partnerId)
   } catch {

@@ -6,7 +6,7 @@ import { db, keys, unwrap } from './client'
 import { reassignLoan, saveLoanDetails } from './loans'
 import { toSnake } from './urla'
 
-export type TeamRole = 'processor' | 'lender_ae' | 'title' | 'escrow_officer' | 'buyer_agent' | 'listing_agent'
+export type TeamRole = 'processor' | 'lender_ae' | 'title' | 'escrow_officer' | 'buyer_agent' | 'listing_agent' | 'insurance_agent'
 
 export interface TeamMemberRecord {
   id: string

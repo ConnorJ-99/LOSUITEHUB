@@ -12,6 +12,7 @@ import { todayIso } from '@/lib/dates'
 import { formatCompactCurrency } from '@/lib/format'
 import { boardStats, cardType, matchesSearch, sortCards } from '@/lib/pipeline/card'
 import type { LeadTypeId } from '@/lib/pipeline/leadType'
+import { matchesLoanNumber } from '@/lib/loans/numbers'
 import { BOARDS, pipelineFor, pipelineInfo } from '@/lib/pipeline/pipelines'
 
 /** Cards shown per stage on the overview; the rest are "+N more" (the board has them all). */
@@ -33,7 +34,7 @@ export function PipelineOverviewPage() {
   const today = todayIso()
 
   const all = useMemo(() => files ?? [], [files])
-  const shown = useMemo(() => all.filter((f) => (!type || cardType(f) === type) && matchesSearch(search, [f.name, f.address, f.ariveLoanNumber])), [all, type, search])
+  const shown = useMemo(() => all.filter((f) => (!type || cardType(f) === type) && (matchesSearch(search, [f.name, f.address]) || matchesLoanNumber(search, f.loanNumbers))), [all, type, search])
   const active = shown.filter(isActive)
   const totals = boardStats(active, now, today)
 
@@ -55,7 +56,7 @@ export function PipelineOverviewPage() {
           </p>
         </div>
         <span className="flex-1" />
-        <SearchBox value={search} onChange={setSearch} placeholder="Search name, address, Arive #" />
+        <SearchBox value={search} onChange={setSearch} placeholder="Search name, address, loan #, GF #" />
         <Button variant="outline" asChild>
           <Link to="/pipeline/closings">
             <CalendarDaysIcon />

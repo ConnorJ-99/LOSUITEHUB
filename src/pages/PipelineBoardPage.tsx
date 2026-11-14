@@ -14,6 +14,7 @@ import { todayIso } from '@/lib/dates'
 import { formatCompactCurrency } from '@/lib/format'
 import { boardStats, cardType, matchesQuick, matchesSearch, QUICK_FILTERS, sortCards, type QuickFilter } from '@/lib/pipeline/card'
 import type { LeadTypeId } from '@/lib/pipeline/leadType'
+import { matchesLoanNumber } from '@/lib/loans/numbers'
 import { BOARDS, isBoard, pipelineFor, pipelineInfo, type BoardId, type PipelineColumn } from '@/lib/pipeline/pipelines'
 import type { LoanPurpose } from '@/lib/pipeline/stages'
 
@@ -54,7 +55,7 @@ function Board({ id }: { id: BoardId }) {
   const all = useMemo(() => (files ?? []).filter((f) => f.stage !== 'closed' && f.stage !== 'nurture' && f.stage !== 'lost'), [files])
   const mine = useMemo(() => all.filter((f) => pipelineFor(f) === id), [all, id])
   const shown = useMemo(
-    () => mine.filter((f) => (!type || cardType(f) === type) && matchesSearch(search, [f.name, f.address, f.ariveLoanNumber]) && [...quick].every((q) => matchesQuick(f, q, now, today))),
+    () => mine.filter((f) => (!type || cardType(f) === type) && (matchesSearch(search, [f.name, f.address]) || matchesLoanNumber(search, f.loanNumbers)) && [...quick].every((q) => matchesQuick(f, q, now, today))),
     [mine, type, search, quick, now, today],
   )
   const stats = boardStats(mine, now, today)
@@ -120,7 +121,7 @@ function Board({ id }: { id: BoardId }) {
           </span>
         </div>
         <span className="flex-1" />
-        <SearchBox value={search} onChange={setSearch} placeholder="Search this pipeline" />
+        <SearchBox value={search} onChange={setSearch} placeholder="Search name, address, loan #" />
         <Button onClick={() => openNewLead({ purpose: NEW_LEAD_PURPOSE[id] })}>
           <PlusIcon />
           New lead

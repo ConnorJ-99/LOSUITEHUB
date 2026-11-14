@@ -23,13 +23,14 @@ export function useFileRecipients(loanId: string | null) {
     queryFn: async (): Promise<FileRecipient[]> => {
       const [people, team] = await Promise.all([
         db().from('loan_borrowers').select('role, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, phone, sms_consent, sms_opted_out_at )').eq('loan_id', loanId!),
-        db().from('loan_team_members').select('role, partner:partners!loan_team_members_partner_id_fkey ( id, name, phone, sms_consent, sms_opted_out_at )').eq('loan_id', loanId!).not('partner_id', 'is', null),
+        db().from('loan_team_members').select('role, partner:partners!loan_team_members_partner_id_fkey ( * )').eq('loan_id', loanId!).not('partner_id', 'is', null),
       ])
       const p = unwrap<{ role: string; contact: { id: string; first_name: string; last_name: string; phone: string | null; sms_consent: boolean | null; sms_opted_out_at: string | null } | null }[]>(people)
-      const t = unwrap<{ role: string; partner: { id: string; name: string; phone: string | null; sms_consent: boolean | null; sms_opted_out_at: string | null } | null }[]>(team)
+      const t = unwrap<{ role: string; partner: { id: string; name: string; phone: string | null; sms_consent: boolean | null; sms_opted_out_at: string | null; email_via_gmail?: boolean } | null }[]>(team)
       const out: FileRecipient[] = p.flatMap((r) => (r.contact ? [{ kind: 'borrower' as const, id: r.contact.id, name: `${r.contact.first_name} ${r.contact.last_name}`.trim(), role: ROLE[r.role] ?? 'Borrower', phone: r.contact.phone, smsConsent: r.contact.sms_consent, smsOptedOutAt: r.contact.sms_opted_out_at }] : []))
       for (const r of t) {
-        if (r.partner && !out.some((o) => o.kind === 'partner' && o.id === r.partner!.id))
+        // Gmail partners (title, insurance) are emailed from Messages, never texted through GoHighLevel.
+        if (r.partner && !r.partner.email_via_gmail && !out.some((o) => o.kind === 'partner' && o.id === r.partner!.id))
           out.push({ kind: 'partner', id: r.partner.id, name: r.partner.name, role: ROLE[r.role] ?? r.role, phone: r.partner.phone, smsConsent: r.partner.sms_consent, smsOptedOutAt: r.partner.sms_opted_out_at })
       }
       return out

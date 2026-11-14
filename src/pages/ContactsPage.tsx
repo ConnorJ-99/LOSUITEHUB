@@ -10,6 +10,8 @@ import { useNewLead } from '@/components/leads/new-lead-context'
 import { StageBadge } from '@/components/pipeline/StageBadge'
 import { useContacts } from '@/lib/api/contacts'
 import { useAuth } from '@/lib/auth/context'
+import { useLoanNumberIndex } from '@/lib/api/loanNumbers'
+import { matchesLoanNumber } from '@/lib/loans/numbers'
 import { emptyFilters, formatPhone, fullName, matchesFilters } from '@/lib/pipeline/helpers'
 
 const dateOnly = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -22,19 +24,22 @@ export function ContactsPage() {
   const { openNewLead } = useNewLead()
   const [params, setParams] = useSearchParams()
   const [search, setSearch] = useState('')
+  const numberIndex = useLoanNumberIndex()
   const [importing, setImporting] = useState(false)
   const tab = params.get('tab') === 'closed' ? 'closed' : 'everyone'
   const canImport = state.status === 'signedIn' && (state.user.role === 'owner' || state.user.role === 'admin' || state.user.role === 'loan_officer')
 
   const rows = useMemo(
     () =>
-      (contacts.data ?? []).filter((c) =>
-        matchesFilters(
+      (contacts.data ?? []).filter(
+        (c) =>
+          matchesLoanNumber(search, numberIndex.data?.byContact.get(c.id) ?? []) ||
+          matchesFilters(
           { stage: 'lead', purpose: 'purchase', assignedLoId: null, referralSource: null, borrower: c },
           { ...emptyFilters, search },
         ),
       ),
-    [contacts.data, search],
+    [contacts.data, search, numberIndex.data],
   )
 
   return (
@@ -84,7 +89,7 @@ export function ContactsPage() {
 
       {tab === 'everyone' && contacts.isSuccess && (
         <>
-          <SearchInput value={search} onChange={setSearch} placeholder="Name, phone or email" className="mb-4 w-full sm:w-72" />
+          <SearchInput value={search} onChange={setSearch} placeholder="Name, phone, email or loan #" className="mb-4 w-full sm:w-72" />
           <Card contentClassName="px-0 md:px-(--card-spacing)">
             <DataTable
               rows={rows}

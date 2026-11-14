@@ -4,11 +4,12 @@
 // anything is saved. Email first (lowercased, trimmed), then the 10-digit
 // phone, never the name. Pure, no imports.
 
-export type PartnerKind = 'realtor' | 'title' | 'builder' | 'referral' | 'other'
+export type PartnerKind = 'realtor' | 'title' | 'insurance' | 'builder' | 'referral' | 'other'
 
 export const PARTNER_KINDS: readonly { value: PartnerKind; label: string; plural: string }[] = [
   { value: 'realtor', label: 'Realtor', plural: 'Realtors' },
   { value: 'title', label: 'Title / escrow', plural: 'Title' },
+  { value: 'insurance', label: 'Insurance agent', plural: 'Insurance' },
   { value: 'builder', label: 'Builder', plural: 'Builders' },
   { value: 'referral', label: 'Referral partner', plural: 'Referral partners' },
   { value: 'other', label: 'Other', plural: 'Other' },
@@ -35,6 +36,7 @@ export const looksLikeEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.te
 export function partnerKindForRole(role: string): PartnerKind | null {
   if (role === 'buyer_agent' || role === 'listing_agent') return 'realtor'
   if (role === 'title' || role === 'escrow_officer') return 'title'
+  if (role === 'insurance_agent') return 'insurance'
   return null
 }
 

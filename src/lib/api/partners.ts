@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { db, keys, unwrap } from './client'
 import { useAuth } from '@/lib/auth/context'
 import type { PartnerFile, PartnerKind } from '@/lib/partners/match'
+import type { InsuranceLine, PartnerDetails } from '@/lib/partners/details'
 import type { PartnerStage } from '@/lib/partners/stages'
 import type { PipelineStage } from '@/lib/pipeline/stages'
 
@@ -33,6 +34,8 @@ export interface Partner {
   files: (PartnerFile & { stage: PipelineStage })[]
   /** When their latest website partner form came in. */
   lastInquiryAt: string | null
+  /** Insurance / title fields and the Gmail switch. Undefined until the partner requests script has run. */
+  details?: PartnerDetails
 }
 
 interface PartnerRow {
@@ -66,6 +69,46 @@ interface PartnerRow {
     } | null
   }[]
   inquiries: { received_at: string }[]
+  email_via_gmail?: boolean | null
+  role?: string | null
+  extra_emails?: string[]
+  office_address?: string | null
+  preferred?: boolean
+  email_domain?: string | null
+  agency?: string | null
+  carriers?: string[]
+  license_number?: string | null
+  insurance_lines?: InsuranceLine[]
+  escrow_officer_name?: string | null
+  escrow_officer_email?: string | null
+  processor_name?: string | null
+  processor_email?: string | null
+  title_underwriter?: string | null
+  wire_verify_phone?: string | null
+  last_wire_instructions_doc_id?: string | null
+}
+
+function toDetails(r: PartnerRow): PartnerDetails | undefined {
+  if (r.email_via_gmail === undefined) return undefined
+  return {
+    role: r.role ?? null,
+    extraEmails: r.extra_emails ?? [],
+    officeAddress: r.office_address ?? null,
+    preferred: !!r.preferred,
+    emailViaGmail: !!r.email_via_gmail,
+    emailDomain: r.email_domain ?? null,
+    agency: r.agency ?? null,
+    carriers: r.carriers ?? [],
+    licenseNumber: r.license_number ?? null,
+    insuranceLines: r.insurance_lines ?? [],
+    escrowOfficerName: r.escrow_officer_name ?? null,
+    escrowOfficerEmail: r.escrow_officer_email ?? null,
+    processorName: r.processor_name ?? null,
+    processorEmail: r.processor_email ?? null,
+    titleUnderwriter: r.title_underwriter ?? null,
+    wireVerifyPhone: r.wire_verify_phone ?? null,
+    lastWireInstructionsDocId: r.last_wire_instructions_doc_id ?? null,
+  }
 }
 
 // * so the page keeps working before a script adds columns (the Phase 4 stage fields).
@@ -102,6 +145,7 @@ function toPartner(r: PartnerRow): Partner {
       return [{ loanId: t.loan.id, role: t.role, stage: t.loan.stage, closingDate: t.loan.closing_date, borrowerName: primary ? `${primary.first_name} ${primary.last_name}`.trim() : 'Unnamed borrower' }]
     }),
     lastInquiryAt: r.inquiries.map((i) => i.received_at).sort().at(-1) ?? null,
+    details: toDetails(r),
   }
 }
 
@@ -126,7 +170,11 @@ export interface PartnerDraft {
   notes: string
   /** Phase 4 fields: sent only when the partner stages script has run (the dialog shows them then). */
   stages?: { stage: PartnerStage; assignedLoId: string | null; nextFollowUpOn: string | null; lastMetOn: string | null; source: string }
+  /** Sent only when the partner requests script has run. */
+  details?: Omit<PartnerDetails, 'emailDomain' | 'lastWireInstructionsDocId'>
 }
+
+const blank = (v: string | null) => v?.trim() || null
 
 /** Turns database refusals into something a person can act on. */
 function partnerError(error: { code?: string; message: string }): Error {
@@ -161,6 +209,23 @@ export function useSavePartner() {
         ...(p.smsConsent !== undefined && { sms_consent: p.smsConsent }),
         ...(p.emailConsent !== undefined && { email_consent: p.emailConsent }),
         notes: p.notes.trim() || null,
+        ...(p.details && {
+          role: blank(p.details.role),
+          extra_emails: p.details.extraEmails,
+          office_address: blank(p.details.officeAddress),
+          preferred: p.details.preferred,
+          email_via_gmail: p.details.emailViaGmail,
+          agency: blank(p.details.agency),
+          carriers: p.details.carriers.map((c) => c.trim()).filter(Boolean),
+          license_number: blank(p.details.licenseNumber),
+          insurance_lines: p.details.insuranceLines,
+          escrow_officer_name: blank(p.details.escrowOfficerName),
+          escrow_officer_email: blank(p.details.escrowOfficerEmail)?.toLowerCase() ?? null,
+          processor_name: blank(p.details.processorName),
+          processor_email: blank(p.details.processorEmail)?.toLowerCase() ?? null,
+          title_underwriter: blank(p.details.titleUnderwriter),
+          wire_verify_phone: blank(p.details.wireVerifyPhone),
+        }),
         ...(p.stages && { stage: p.stages.stage, assigned_lo_id: p.stages.assignedLoId, next_follow_up_on: p.stages.nextFollowUpOn, last_met_on: p.stages.lastMetOn, source: p.stages.source.trim() || null }),
       }
       const result = p.id

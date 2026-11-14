@@ -36,7 +36,7 @@ import { RequestDocumentsHost, openRequestDocuments } from '@/components/documen
 import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
 import { ChevronProgress, CompactHeader, FileNav, OverflowMenu, TeamChip, type FileNavItem, type KeyFigure, type TeamMember } from '@/components/loanfile'
 import { useSelectedCashToClose } from '@/lib/api/headerFigures'
-import { AriveLink } from '@/components/loanfile/AriveLink'
+import { LoanNumberChips } from '@/components/loanfile/LoanNumberChips'
 import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
 import { WorkflowPanel } from '@/components/loanfile/WorkflowPanel'
@@ -300,7 +300,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
             >
               {statusText}
             </span>
-            <AriveLink number={loan.details.ariveLoanNumber} onAdd={() => setEditing(true)} />
+            <LoanNumberChips loanId={loan.id} />
           </>
         }
         detailsOpen={detailsOpen}

@@ -4,12 +4,17 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DateInput, FormGrid, TextArea, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { useGhlOpportunity } from '@/components/messaging/useGhlOpportunity'
-import { db, unwrap } from '@/lib/api/client'
+import { db, keys, unwrap } from '@/lib/api/client'
 import { useCloseLoan, useUpdateStage } from '@/lib/api/loans'
 import { todayIso } from '@/lib/dates'
 import { LOST_REASONS, stageLabel, type PipelineStage } from '@/lib/pipeline/stages'
 import { milestoneForStage } from '@/lib/messaging/updates'
 import { offerMilestoneUpdate } from '@/components/messaging/fileTextRequests'
+import { LenderNumberDialog } from '@/components/loanfile/LoanNumberChips'
+import { useLenders } from '@/lib/api/lenders'
+import { fetchLoanNumbers, loanNumbersKey, saveLoanNumbers } from '@/lib/api/loanNumbers'
+import { missingForStage, needsLenderNumber, resolveLender, type LoanNumbers } from '@/lib/loans/numbers'
+import { useQueryClient } from '@tanstack/react-query'
 
 interface Pending {
   loanId: string
@@ -22,7 +27,9 @@ interface Pending {
  * first asks for the Closed on and Funded on dates (production counts on the
  * funding date), saved with the stage in one step; then the borrower's GHL
  * opportunity moves to Closed / Recently Closed, once, on the stage change
- * only. Every other stage saves immediately. Render `dialog` once in the
+ * only. From Processing on, a file without a lender or the lender's loan
+ * number asks for them first (the move waits). Every other stage saves
+ * immediately. Render `dialog` once in the
  * calling component.
  */
 export function useStageChanger() {
@@ -35,6 +42,9 @@ export function useStageChanger() {
   const [closedOn, setClosedOn] = useState<string | null>(null)
   const [fundedOn, setFundedOn] = useState<string | null>(null)
   const [note, setNote] = useState('')
+  const lenders = useLenders()
+  const queryClient = useQueryClient()
+  const [pendingNumbers, setPendingNumbers] = useState<{ loan: Parameters<typeof requestChange>[0]; stage: PipelineStage; numbers: LoanNumbers } | null>(null)
 
   const save = (loanId: string, stage: PipelineStage, lostReason?: string) => {
     updateStage.mutate(
@@ -51,8 +61,20 @@ export function useStageChanger() {
     )
   }
 
-  const requestChange = async (loan: { id: string; stage: PipelineStage; borrowerName: string; closingDate?: string | null }, stage: PipelineStage) => {
+  async function requestChange(loan: { id: string; stage: PipelineStage; borrowerName: string; closingDate?: string | null }, stage: PipelineStage, numbersChecked = false): Promise<void> {
     if (stage === loan.stage) return
+    if (!numbersChecked && needsLenderNumber(stage)) {
+      let numbers: LoanNumbers | null = null
+      try {
+        numbers = await fetchLoanNumbers(loan.id)
+      } catch {
+        numbers = null
+      }
+      if (numbers && missingForStage(numbers, resolveLender(numbers, lenders.data ?? []), stage).length > 0) {
+        setPendingNumbers({ loan, stage, numbers })
+        return
+      }
+    }
     if (stage === 'lost') {
       setReason('')
       setPendingLost({ loanId: loan.id, borrowerName: loan.borrowerName })
@@ -98,6 +120,24 @@ export function useStageChanger() {
 
   const dialog = (
     <>
+      {pendingNumbers && (
+        <LenderNumberDialog
+          open
+          required
+          onOpenChange={(open) => !open && setPendingNumbers(null)}
+          numbers={pendingNumbers.numbers}
+          lender={resolveLender(pendingNumbers.numbers, lenders.data ?? [])}
+          description={`Before ${pendingNumbers.loan.borrowerName}'s file moves to ${stageLabel(pendingNumbers.stage)}, add the lender and the lender's loan number.`}
+          saveLabel={`Save and move to ${stageLabel(pendingNumbers.stage)}`}
+          onSave={async (c) => {
+            const { loan, stage } = pendingNumbers
+            await saveLoanNumbers(loan.id, c)
+            for (const k of [loanNumbersKey(loan.id), keys.loan(loan.id)]) void queryClient.invalidateQueries({ queryKey: k })
+            setPendingNumbers(null)
+            void requestChange(loan, stage, true)
+          }}
+        />
+      )}
       <Dialog open={pendingLost !== null} onOpenChange={(open) => !open && setPendingLost(null)}>
         <DialogContent>
           <DialogHeader>
