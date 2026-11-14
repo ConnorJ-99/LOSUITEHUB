@@ -13,7 +13,6 @@ import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
 import { lenderClause, useLenders } from '@/lib/api/lenders'
 import { useLoanFile, useSaveTeamMember, type TeamRole } from '@/lib/api/loanfile'
 import { useLoanNumbers, useSaveLoanNumbers } from '@/lib/api/loanNumbers'
-import { usePartners } from '@/lib/api/partners'
 import { resolveLender } from '@/lib/loans/numbers'
 import { mortgageeClause } from '@/lib/loans/mortgagee'
 
@@ -26,7 +25,6 @@ const FROM_LABEL = { override: 'Override for this loan', lender: "From the lende
 
 export function SettlementCard({ loanId, organizationId }: { loanId: string; organizationId: string }) {
   const file = useLoanFile(loanId)
-  const partners = usePartners()
   const saveTeam = useSaveTeamMember(loanId, organizationId)
   const nums = useLoanNumbers(loanId)
   const lenders = useLenders()
@@ -45,7 +43,6 @@ export function SettlementCard({ loanId, organizationId }: { loanId: string; org
         {/* The insurance agent role exists once the partner requests script has run. */}
         {SLOTS.filter((slot) => slot.role !== 'insurance_agent' || n?.ready).map((slot) => {
           const r = file.data?.team.find((t) => t.role === slot.role) ?? null
-          const p = r?.partnerId ? (partners.data ?? []).find((x) => x.id === r.partnerId) : null
           return (
             <div key={slot.role} className="flex flex-wrap items-start justify-between gap-2 border-b pb-3 last:border-0">
               <div className="min-w-0 text-sm">
@@ -54,7 +51,6 @@ export function SettlementCard({ loanId, organizationId }: { loanId: string; org
                   <>
                     <p className="font-medium">
                       {[r.company, r.name].filter(Boolean).join(' · ')}
-                      {p?.details?.emailViaGmail && <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[0.65rem] font-semibold text-muted-foreground">GMAIL ONLY</span>}
                     </p>
                     <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
                       {r.email && (
@@ -158,7 +154,7 @@ export function SettlementCard({ loanId, organizationId }: { loanId: string; org
                 onSuccess: (partnerId) => {
                   toast.success(`${editing.label} saved`)
                   setEditing(null)
-                  // A partner new on this file (Gmail partners are skipped: no GoHighLevel, no text).
+                  // A partner new on this file: add them to GoHighLevel and offer the intro text.
                   if (partnerId) void afterPartnerJoined(organizationId, loanId, partnerId)
                 },
                 onError: (e) => toast.error(e.message),

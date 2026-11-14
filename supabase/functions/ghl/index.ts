@@ -522,7 +522,6 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
       .maybeSingle()
     if (partner.error) throw new Error(partner.error.message)
     if (!partner.data) throw new UserError('That partner was not found.')
-    if ((partner.data as { email_via_gmail?: boolean }).email_via_gmail) throw new UserError(`${(partner.data as { name: string }).name} emails through Gmail: send from Messages, not GoHighLevel.`)
     const pt = partner.data as Omit<Recipient, 'first_name' | 'last_name'> & { name: string }
     const name = splitName(pt.name)
     p = { ...pt, first_name: name.first, last_name: name.last }
@@ -906,8 +905,6 @@ async function linkPartner(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   if (found.error) throw new Error(found.error.message)
   const partner = found.data as { id: string; name: string; kind: string; email: string | null; phone: string | null; ghl_contact_id: string | null; assigned_lo_id?: string | null; ghl_opportunity_id?: string | null } | null
   if (!partner) throw new UserError('That partner was not found.')
-  // Title and insurance partners who email through Gmail live only in MPS HQ.
-  if ((partner as { email_via_gmail?: boolean }).email_via_gmail) return { skipped: `${partner.name} emails through Gmail, so MPS HQ keeps them out of GoHighLevel.` }
 
   // * so this works before the realtor pipeline script too.
   const settings = await admin.from('messaging_settings').select('*').eq('organization_id', organizationId).maybeSingle()

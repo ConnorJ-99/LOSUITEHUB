@@ -1,5 +1,5 @@
 // Insurance agents and title partners (Connor, 2026-11-13): the extra fields,
-// the "Email via Gmail" default and the company email domain. Mirrors
+// and the company email domain. Mirrors
 // 20270125000000_loan_numbers_partners_clauses.sql. Pure, no imports.
 
 export const INSURANCE_LINES = [
@@ -19,9 +19,6 @@ export function emailDomain(email: string | null | undefined): string | null {
   return d && !PUBLIC_EMAIL_DOMAINS.has(d) ? d : null
 }
 
-/** Title and insurance email through Gmail unless turned off; everyone else through GoHighLevel. */
-export const defaultViaGmail = (kind: string) => kind === 'title' || kind === 'insurance'
-
 /** "a@x.com, b@x.com; c@x.com" → three lowercased emails (blank and repeats dropped). */
 export function splitEmails(text: string): string[] {
   const out: string[] = []
@@ -37,7 +34,6 @@ export interface PartnerDetails {
   extraEmails: string[]
   officeAddress: string | null
   preferred: boolean
-  emailViaGmail: boolean
   emailDomain: string | null
   agency: string | null
   carriers: string[]

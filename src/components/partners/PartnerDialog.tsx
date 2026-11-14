@@ -9,7 +9,7 @@ import { useAuth } from '@/lib/auth/context'
 import { formatIsoDate } from '@/lib/dates'
 import { looksLikeEmail, matchPartner, PARTNER_KINDS, type PartnerKind } from '@/lib/partners/match'
 import { PARTNER_STAGES, type PartnerStage } from '@/lib/partners/stages'
-import { defaultViaGmail, emailDomain, INSURANCE_LINES, splitEmails, type InsuranceLine } from '@/lib/partners/details'
+import { INSURANCE_LINES, splitEmails, type InsuranceLine } from '@/lib/partners/details'
 
 /** Recorded yes, recorded no, or not recorded (press the same chip again). */
 function ConsentField({ label, value, optedOutAt, onChange }: { label: string; value: boolean | null; optedOutAt: string | null; onChange: (v: boolean | null) => void }) {
@@ -54,8 +54,6 @@ export function PartnerDialog({ partner, partners, onClose }: { partner: Partner
     extraEmails: (partner?.details?.extraEmails ?? []).join(', '),
     officeAddress: partner?.details?.officeAddress ?? '',
     preferred: partner?.details?.preferred ?? false,
-    emailViaGmail: partner?.details ? partner.details.emailViaGmail : defaultViaGmail(partner?.kind ?? 'realtor'),
-    gmailTouched: !!partner,
     agency: partner?.details?.agency ?? '',
     carriers: (partner?.details?.carriers ?? []).join(', '),
     licenseNumber: partner?.details?.licenseNumber ?? '',
@@ -72,7 +70,6 @@ export function PartnerDialog({ partner, partners, onClose }: { partner: Partner
   const stagesReady = partner ? partner.stage !== undefined : partners.some((p) => p.stage !== undefined)
   // The insurance / title fields exist once the partner requests script has run.
   const detailsReady = partner ? partner.details !== undefined : partners.some((p) => p.details !== undefined)
-  const domain = emailDomain(form.email)
   const match = matchPartner({ email: form.email, phone: form.phone }, partners, partner?.id)
   const emailTaken = match.by === 'email' ? match.partner : null
 
@@ -105,7 +102,6 @@ export function PartnerDialog({ partner, partners, onClose }: { partner: Partner
               extraEmails: splitEmails(form.extraEmails),
               officeAddress: form.officeAddress,
               preferred: form.preferred,
-              emailViaGmail: form.emailViaGmail,
               agency: form.agency,
               carriers: form.carriers.split(',').map((c) => c.trim()).filter(Boolean),
               licenseNumber: form.licenseNumber,
@@ -130,7 +126,7 @@ export function PartnerDialog({ partner, partners, onClose }: { partner: Partner
       }}
     >
       <FormGrid>
-        <Select label="Kind" value={form.kind} options={PARTNER_KINDS.filter((k) => k.value !== 'insurance' || detailsReady).map((k) => ({ value: k.value, label: k.label }))} onChange={(kind) => set({ kind, ...(!form.gmailTouched && { emailViaGmail: defaultViaGmail(kind) }) })} span={2} />
+        <Select label="Kind" value={form.kind} options={PARTNER_KINDS.filter((k) => k.value !== 'insurance' || detailsReady).map((k) => ({ value: k.value, label: k.label }))} onChange={(kind) => set({ kind })} span={2} />
         <Input label="Name" required value={form.name} onChange={(name) => set({ name })} span={2} />
         <Input label="Company" value={form.company} onChange={(company) => set({ company })} span={2} />
         <Input label="Email" type="email" value={form.email} onChange={(email) => set({ email })} span={3} error={emailTaken ? `${emailTaken.name} already has this email` : undefined} />
@@ -152,17 +148,10 @@ export function PartnerDialog({ partner, partners, onClose }: { partner: Partner
           <>
             <Input label="Role / title" value={form.role} onChange={(role) => set({ role })} placeholder="e.g. Escrow officer, Agent" span={2} />
             <Input label="Other emails" value={form.extraEmails} onChange={(extraEmails) => set({ extraEmails })} placeholder="Separate with commas" span={2} />
-            <Input label="Company email domain" value={domain ?? ''} readOnly hint={domain ? 'New emails from this domain can be matched to them' : 'From the email (public mailboxes like gmail.com never count)'} span={2} />
             <Input label="Office address" value={form.officeAddress} onChange={(officeAddress) => set({ officeAddress })} span={4} />
             <div className="flex flex-wrap items-end gap-2 sm:col-span-2 lg:col-span-2">
               <ToggleChip label="Preferred" pressed={form.preferred} onChange={(preferred) => set({ preferred })} />
-              <ToggleChip label="Email via Gmail" pressed={form.emailViaGmail} onChange={(emailViaGmail) => set({ emailViaGmail, gmailTouched: true })} />
             </div>
-            <p className="text-xs text-muted-foreground sm:col-span-2 lg:col-span-6">
-              {form.emailViaGmail
-                ? 'Emails go from your Gmail. They stay in MPS HQ only: never added to GoHighLevel, and no texts.'
-                : 'Texts and emails go through GoHighLevel.'}
-            </p>
             {form.kind === 'insurance' && (
               <>
                 <Input label="Agency" value={form.agency} onChange={(agency) => set({ agency })} span={2} />
@@ -210,11 +199,7 @@ export function PartnerDialog({ partner, partners, onClose }: { partner: Partner
         {partner && (
           <div className="flex flex-wrap items-center justify-between gap-2 sm:col-span-2 lg:col-span-6">
             <span className="text-sm">GoHighLevel</span>
-            {partner.details?.emailViaGmail ? (
-              <span className="text-xs text-muted-foreground">Emails through Gmail · not in GoHighLevel</span>
-            ) : (
-              <AddToGhl target={{ kind: 'partner', partnerId: partner.id }} linked={!!partner.ghlContactId} name={partner.name} pipelineMissing={partner.kind === 'realtor' && !partner.ghlOpportunityId} />
-            )}
+            <AddToGhl target={{ kind: 'partner', partnerId: partner.id }} linked={!!partner.ghlContactId} name={partner.name} pipelineMissing={partner.kind === 'realtor' && !partner.ghlOpportunityId} />
           </div>
         )}
       </FormGrid>

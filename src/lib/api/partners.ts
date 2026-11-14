@@ -34,7 +34,7 @@ export interface Partner {
   files: (PartnerFile & { stage: PipelineStage })[]
   /** When their latest website partner form came in. */
   lastInquiryAt: string | null
-  /** Insurance / title fields and the Gmail switch. Undefined until the partner requests script has run. */
+  /** Insurance / title fields. Undefined until the partner requests script has run. */
   details?: PartnerDetails
 }
 
@@ -69,7 +69,6 @@ interface PartnerRow {
     } | null
   }[]
   inquiries: { received_at: string }[]
-  email_via_gmail?: boolean | null
   role?: string | null
   extra_emails?: string[]
   office_address?: string | null
@@ -89,13 +88,12 @@ interface PartnerRow {
 }
 
 function toDetails(r: PartnerRow): PartnerDetails | undefined {
-  if (r.email_via_gmail === undefined) return undefined
+  if (r.extra_emails === undefined) return undefined
   return {
     role: r.role ?? null,
     extraEmails: r.extra_emails ?? [],
     officeAddress: r.office_address ?? null,
     preferred: !!r.preferred,
-    emailViaGmail: !!r.email_via_gmail,
     emailDomain: r.email_domain ?? null,
     agency: r.agency ?? null,
     carriers: r.carriers ?? [],
@@ -214,7 +212,6 @@ export function useSavePartner() {
           extra_emails: p.details.extraEmails,
           office_address: blank(p.details.officeAddress),
           preferred: p.details.preferred,
-          email_via_gmail: p.details.emailViaGmail,
           agency: blank(p.details.agency),
           carriers: p.details.carriers.map((c) => c.trim()).filter(Boolean),
           license_number: blank(p.details.licenseNumber),
