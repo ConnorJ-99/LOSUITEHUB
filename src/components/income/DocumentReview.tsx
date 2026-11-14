@@ -87,6 +87,10 @@ export function DocumentReview({
       { onSuccess: () => toast.success(`${missingEmployer} added to ${borrower.person.firstName}'s 1003 as a current job`), onError: (e) => toast.error(e.message) },
     )
 
+  const jumpTo = (s: { page?: number; quote: string; value: string | number | null }) => {
+    setTarget((t) => ({ page: s.page ?? null, quote: s.quote, value: s.value, nonce: (t?.nonce ?? 0) + 1 }))
+    setTab('document')
+  }
   const jump = (f: ReadField) => {
     setTarget((t) => ({ page: f.page ?? null, quote: f.quote, value: f.value, nonce: (t?.nonce ?? 0) + 1 }))
     setTab('document')
@@ -181,6 +185,7 @@ export function DocumentReview({
                     open={openId === w.id || (openId === null && fromThis[0].id === w.id)}
                     onToggle={() => setOpenId((id) => (id === w.id ? '' : w.id))}
                     onPdf={onPdf}
+                    onSource={(s) => (s.documentId === doc.id ? jumpTo(s) : undefined)}
                   />
                 ))}
               </ul>

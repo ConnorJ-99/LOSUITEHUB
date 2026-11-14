@@ -39,9 +39,9 @@ describe('W-2 job', () => {
     expect(d[0].data.inputs).toEqual({ frequency: 'biweekly', amount: 2000 })
     expect(d[0].notes).toContain('No W-2 analyzed yet for this job')
   })
-  it('a pace well below last year’s W-2 is noted', () => {
+  it('the pace and the latest W-2 are noted (a falling pace is a warning, from reconcile.ts)', () => {
     const d = incomeDrafts({ docs: [stub(), w2(2025, 70000)], jobs: [excel], today })
-    expect(d[0].notes).toContain("This year's pace is 23% below the 2025 W-2: the underwriter will ask why")
+    expect(d[0].notes).toContain("2025 W-2: $70,000; this year's pace: $54,000")
   })
   it("documents from another employer, or a job that isn't current, don't count, and are named", () => {
     const old: IncomeJob = { ...excel, id: 'old', employerName: 'Old Co', current: false }

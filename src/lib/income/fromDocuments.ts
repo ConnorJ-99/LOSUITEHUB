@@ -166,15 +166,11 @@ function wageDrafts(job: IncomeJob, docs: IncomeDoc[], today: string): IncomeDra
       inputSources = sourcesFrom([['amount', sourceOf(stub, num(f.ytd_base) != null ? 'ytd_base' : 'ytd_gross', ytdMonthly, `${money(ytdBase!)} ÷ ${ytdMonths} months through ${shortDate(paid)}`)]])
       notes.push(stated != null ? `YTD base average ${money(ytdMonthly!)}/mo (${money(ytdBase!)} over ${ytdMonths} months) is lower than the stated ${money(stated)}/mo, so the YTD average is used` : `YTD base ${money(ytdBase!)} over ${ytdMonths} months (no pay rate on the stub)`)
     }
-    // Pace vs the latest W-2: a falling income needs a look.
+    // Pace vs the latest W-2 (a pace well below it is a warning from reconcile.ts, shown on the worksheet).
     const lastW2 = w2s[0]
     const ytdGross = num(f.ytd_gross)
     if (lastW2 && num(lastW2.fields.w2_wages) && ytdGross != null && ytdMonths > 0) {
-      const pace = (ytdGross / ytdMonths) * 12
-      const w2 = num(lastW2.fields.w2_wages)!
-      const change = (pace - w2) / w2
-      notes.push(`${num(lastW2.fields.tax_year)} W-2: ${money(w2)}; this year's pace: ${money(pace)}`)
-      if (change < -0.05) notes.push(`This year's pace is ${Math.round(-change * 100)}% below the ${num(lastW2.fields.tax_year)} W-2: the underwriter will ask why`)
+      notes.push(`${num(lastW2.fields.tax_year)} W-2: ${money(num(lastW2.fields.w2_wages)!)}; this year's pace: ${money((ytdGross / ytdMonths) * 12)}`)
     } else if (w2s.length === 0) notes.push('No W-2 analyzed yet for this job')
     out.push({ data: { kind: 'salary', inputs }, label: suggestedLabel('salary', job, null), employmentId: job.id, sourceDocumentIds: sources, notes, inputSources })
   }

@@ -41,4 +41,16 @@ describe('Income Analysis PDF contents', () => {
   it('a safe file name', () => {
     expect(view.fileName).toBe('Income Analysis - Pat TEST - Salary · Excel.pdf')
   })
+  it('v2: sources table with quotes cut to about 60 characters, changes, reviewed by', () => {
+    const v = incomeAnalysisView({
+      borrowerName: 'Pat TEST', label: 'Salary · Excel', typeLabel: 'Salary', where: 'Excel', lines: [], monthly: 4000, warnings: [], notes: [], sources: [], draft: false, pushedOn: null, preparedOn: '2026-11-13',
+      figureSources: [{ figure: 'Pay amount', document: 'oct-stub.pdf', page: 1, quote: 'Regular Pay 80.00 30.00 2,400.00 and a lot more words that run long' }],
+      changes: [{ figure: 'Pay amount', aiValue: '$2,400.00', newValue: '$2,450.00' }],
+      reviewed: { name: 'Connor Jacquart', on: '2026-11-13' },
+    })
+    expect(v.figureSources[0]).toEqual({ figure: 'Pay amount', document: 'oct-stub.pdf', page: '1', quote: 'Regular Pay 80.00 30.00 2,400.00 and a lot more words that…' })
+    expect(v.showQuotes).toBe(true)
+    expect(v.changes).toEqual(['Pay amount: AI read $2,400.00 → $2,450.00'])
+    expect(v.reviewed).toBe('Reviewed by Connor Jacquart on Nov 13, 2026')
+  })
 })

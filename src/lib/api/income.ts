@@ -278,3 +278,16 @@ export function useSaveIncomeDrafts(loanId: string, organizationId: string) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.worksheets(loanId) }),
   })
 }
+
+/** Ticks (or unticks) one AI figure as checked: saved on the worksheet's input_sources right away (Stage 4d-2). */
+export function useSaveInputSources(loanId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, inputSources }: { id: string; inputSources: InputSources }) => {
+      const r = await db().from('income_worksheets').update({ input_sources: inputSources }).eq('id', id).select('id')
+      if (r.error) throw new Error(missingTable(r.error.message) ? 'Run the income review script in Supabase first.' : r.error.message)
+      if (!r.data?.length) throw new Error('You do not have permission to edit this worksheet.')
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.worksheets(loanId) }),
+  })
+}

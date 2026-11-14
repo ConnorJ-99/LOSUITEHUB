@@ -4,7 +4,15 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { FormGrid, Input, Select } from '@/components/shared'
-import { useDeleteWorksheet, usePushWorksheet, useSaveWorksheet, type IncomeWorksheet, type WorksheetDraft } from '@/lib/api/income'
+import { useDeleteWorksheet, usePushWorksheet, useSaveInputSources, useSaveWorksheet, type IncomeWorksheet, type WorksheetDraft } from '@/lib/api/income'
+import { useAuth } from '@/lib/auth/context'
+import type { InputSource } from '@/lib/income/fromDocuments'
+import { checkProgress, figureLabel, figures, withChecked } from '@/lib/income/review'
+import { reconcileJob } from '@/lib/income/reconcile'
+import { useAnalyses } from '@/lib/api/analyses'
+import { todayIso } from '@/lib/dates'
+import { SourceChip } from './SourceChip'
+import { SourceContext } from './sourceContext'
 import type { Property } from '@/lib/api/types'
 import type { ApplicationBorrower } from '@/lib/api/urla'
 import { relativeTime } from '@/lib/dates'
@@ -38,7 +46,13 @@ export interface IncomePdfRequest {
   sources: string[]
   draft: boolean
   pushedOn: string | null
+  /** v2 (Stage 4d-3): each figure's source, what was changed, and who checked it. */
+  figureSources: { figure: string; document: string; page: number | null; quote: string }[]
+  changes: { figure: string; aiValue: string; newValue: string }[]
+  reviewedBy: { id: string; at: string } | null
 }
+
+const figureText = (v: unknown) => (typeof v === 'number' ? (Math.abs(v) >= 100 ? formatCurrency(v) : String(v)) : String(v ?? '—'))
 
 interface Draft {
   label: string
@@ -66,6 +80,7 @@ export function WorksheetCard({
   open,
   onToggle,
   onPdf,
+  onSource,
 }: {
   worksheet: IncomeWorksheet
   borrower: ApplicationBorrower
@@ -76,8 +91,14 @@ export function WorksheetCard({
   onToggle: () => void
   /** Saves the one-page Income Analysis PDF (Stage 4). */
   onPdf?: (v: IncomePdfRequest) => void
+  /** Shows a figure on its document (the review screen); else the document opens in a new tab on that page. */
+  onSource?: (s: InputSource) => void
 }) {
   const save = useSaveWorksheet(worksheet.loanId)
+  const saveSources = useSaveInputSources(worksheet.loanId)
+  const analyses = useAnalyses(worksheet.loanId)
+  const { state } = useAuth()
+  const me = state.status === 'signedIn' ? state.user.id : 'me'
   const push = usePushWorksheet(worksheet.loanId, organizationId)
   const remove = useDeleteWorksheet(worksheet.loanId)
   const [draft, setDraft] = useState<Draft>(() => toDraft(worksheet))
@@ -87,6 +108,25 @@ export function WorksheetCard({
   const sources = worksheet.sourceDocumentIds.map((id) => docs.data?.find((d) => d.id === id)).filter((d): d is NonNullable<typeof d> => !!d)
 
   const result = computeWorksheet(draft.data)
+  // Stage 4d-2: the figures read from documents, each checked or changed before Accept.
+  const figs = figures(worksheet.inputSources, draft.data.inputs)
+  const progress = checkProgress(figs)
+  const recentYear = (draft.data.inputs as { recentYear?: number | null }).recentYear ?? null
+  // Stage 4d-3: the job's pay stubs and W-2s this worksheet used, compared (warnings never block Accept).
+  const job = borrower.employments.find((e) => e.id === draft.employmentId) ?? null
+  const usedDocs = worksheet.sourceDocumentIds.flatMap((id) => {
+    const d = docs.data?.find((x) => x.id === id)
+    const a = analyses.data?.get(id)
+    return d && a ? [{ documentId: id, fileName: d.fileName, kind: d.kind !== 'other' ? d.kind : (a.suggestedKind ?? 'other'), fields: a.fields }] : []
+  })
+  const docWarnings = job && !job.isSelfEmployed && usedDocs.length ? reconcileJob({ docs: usedDocs, job: { employerName: job.employerName, startDate: job.startDate }, today: todayIso() }) : []
+  const showSource = (s: InputSource) => {
+    if (onSource) return onSource(s)
+    const d = docs.data?.find((x) => x.id === s.documentId)
+    if (d) void openDocument(d, s.page).catch((e: Error) => toast.error(e.message))
+  }
+  const tick = (path: string, checked: boolean) =>
+    saveSources.mutate({ id: worksheet.id, inputSources: withChecked(worksheet.inputSources, path, checked, me, new Date().toISOString()) }, { onError: (e) => toast.error(e.message) })
   const target = pushTarget(draft.data)
   const value = pushValue(draft.data, result)
   const jobs = borrower.employments.filter((e) => e.status === 'current')
@@ -231,7 +271,33 @@ export function WorksheetCard({
             </div>
           )}
 
-          <WorksheetInputs data={draft.data} onChange={(inputs) => setDraft((d) => ({ ...d, data: { ...d.data, inputs } as WorksheetData }))} />
+          <SourceContext.Provider value={{ sources: worksheet.inputSources, inputs: draft.data.inputs, onOpen: showSource }}>
+            <WorksheetInputs data={draft.data} onChange={(inputs) => setDraft((d) => ({ ...d, data: { ...d.data, inputs } as WorksheetData }))} />
+
+            {isDraft && figs.length > 0 && (
+              <div className="rounded-lg border p-3">
+                <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                  <p className="text-sm font-semibold">Figures from documents</p>
+                  <p className={cn('text-xs', progress.ready ? 'text-nurture' : 'text-amber-700')}>
+                    {progress.done} of {progress.total} checked
+                  </p>
+                </div>
+                <ul className="divide-y text-sm">
+                  {figs.map((f) => (
+                    <li key={f.path} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5">
+                      <label className="flex min-w-0 flex-1 items-center gap-2">
+                        <input type="checkbox" className="size-4 accent-primary" checked={f.checked} disabled={f.changed || saveSources.isPending} onChange={(e) => tick(f.path, e.target.checked)} />
+                        <span className="min-w-0 truncate">{figureLabel(f.path, recentYear)}</span>
+                      </label>
+                      <span className="font-medium tabular-nums">{typeof f.current === 'number' ? (Math.abs(f.current) >= 100 ? formatCurrency(f.current) : f.current) : String(f.current ?? '—')}</span>
+                      <SourceChip path={f.path} className="mt-0" />
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-[11px] text-muted-foreground">Tick each figure once you've compared it with the document. Changing a figure counts as checking it.</p>
+              </div>
+            )}
+          </SourceContext.Provider>
 
           <div className="grid gap-3 lg:grid-cols-2">
             <CalcLines lines={result.lines} />
@@ -240,7 +306,7 @@ export function WorksheetCard({
           {isRental && property?.id === subjectPropertyId && (
             <Warnings warnings={["This is the subject property: its rent isn't counted in DTI here (only other retained properties are)."]} />
           )}
-          <Warnings warnings={result.warnings} />
+          <Warnings warnings={[...result.warnings, ...docWarnings]} />
 
           {/* Where the result goes, and whether the 1003 already has it. */}
           <div className={cn('rounded-lg border p-3 text-sm', differs ? 'border-primary/30 bg-primary/5' : 'bg-muted/40')}>
@@ -292,7 +358,22 @@ export function WorksheetCard({
                   size="sm"
                   variant="outline"
                   title="Save a one-page Income Analysis PDF of this worksheet to Documents"
-                  onClick={() => onPdf({ label: draft.label || kindLabel(draft.data.kind), typeLabel: kindLabel(draft.data.kind), where: where ?? null, result, notes: worksheet.sourceNotes, sources: sources.map((d) => d.fileName), draft: isDraft, pushedOn: worksheet.pushedAt?.slice(0, 10) ?? null })}
+                  onClick={() => {
+                    const lastCheck = figs.map((f) => f.source).filter((s) => s.checkedBy && s.checkedAt).sort((a, b) => b.checkedAt!.localeCompare(a.checkedAt!))[0]
+                    onPdf({
+                      label: draft.label || kindLabel(draft.data.kind),
+                      typeLabel: kindLabel(draft.data.kind),
+                      where: where ?? null,
+                      result: { ...result, warnings: [...result.warnings, ...docWarnings] },
+                      notes: worksheet.sourceNotes,
+                      sources: sources.map((d) => d.fileName),
+                      draft: isDraft,
+                      pushedOn: worksheet.pushedAt?.slice(0, 10) ?? null,
+                      figureSources: figs.map((f) => ({ figure: figureLabel(f.path, recentYear), document: docs.data?.find((d) => d.id === f.source.documentId)?.fileName ?? 'Document', page: f.source.page ?? null, quote: f.source.quote })),
+                      changes: figs.filter((f) => f.changed).map((f) => ({ figure: figureLabel(f.path, recentYear), aiValue: figureText(f.source.value), newValue: figureText(f.current) })),
+                      reviewedBy: lastCheck ? { id: lastCheck.checkedBy!, at: lastCheck.checkedAt!.slice(0, 10) } : null,
+                    })
+                  }}
                 >
                   <FileTextIcon />
                   PDF
@@ -303,7 +384,8 @@ export function WorksheetCard({
                   {save.isPending ? 'Saving…' : 'Save'}
                 </Button>
               )}
-              <Button size="sm" onClick={onPush} disabled={push.isPending || missingTarget || !!blocked || (!isDraft && !differs && !dirty)}>
+              {isDraft && !progress.ready && <span className="self-center text-xs text-amber-700">{progress.done} of {progress.total} figures checked</span>}
+              <Button size="sm" onClick={onPush} disabled={push.isPending || missingTarget || !!blocked || (!isDraft && !differs && !dirty) || (isDraft && !progress.ready)} title={isDraft && !progress.ready ? 'Check every figure from the documents first' : undefined}>
                 <SendIcon />
                 {push.isPending ? 'Pushing…' : isDraft ? 'Accept and push to 1003' : 'Push to 1003'}
               </Button>

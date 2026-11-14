@@ -6,6 +6,18 @@ import { formatCurrency } from '@/lib/format'
 import type { InputsByKind, SalaryFrequency, VariableType, WorksheetData } from '@/lib/income/worksheets'
 import { SubHeading } from '@/components/urla/parts'
 import { CalcLines } from './CalcLines'
+import { SourceChip } from './SourceChip'
+
+/** The source chips for some inputs, as a full-width row under them (nothing when none came from a document). */
+function Sources({ paths }: { paths: string[] }) {
+  return (
+    <div className="col-span-full -mt-2 flex flex-wrap gap-x-3 empty:hidden">
+      {paths.map((p) => (
+        <SourceChip key={p} path={p} />
+      ))}
+    </div>
+  )
+}
 
 interface FieldDef<T> {
   key: keyof T & string
@@ -120,7 +132,12 @@ function YearTable<Y extends object>({
               value: values[i][f.key] as number | null,
               onChange: (v: number | null) => onChange(i, { ...values[i], [f.key]: v }),
             }
-            return f.type === 'percent' ? <PercentInput key={i} {...props} maxDecimals={2} /> : <CurrencyInput key={i} {...props} />
+            return (
+              <div key={i} className="min-w-0">
+                {f.type === 'percent' ? <PercentInput {...props} maxDecimals={2} /> : <CurrencyInput {...props} />}
+                <SourceChip path={`${i === 0 ? 'older' : 'recent'}.${f.key}`} />
+              </div>
+            )
           })}
         </div>
       ))}
@@ -158,6 +175,7 @@ export function WorksheetInputs({ data, onChange }: { data: WorksheetData; onCha
         <FormGrid>
           <Select label="Paid" value={v.frequency} options={FREQUENCIES} onChange={(frequency) => onChange({ ...v, frequency })} span={3} />
           <CurrencyInput label={v.frequency === 'annual' ? 'Annual salary' : 'Gross pay per check'} value={v.amount} onChange={(amount) => onChange({ ...v, amount })} span={3} hint="From the latest pay stub" />
+          <Sources paths={['frequency', 'amount']} />
         </FormGrid>
       )
     }
@@ -189,6 +207,7 @@ export function WorksheetInputs({ data, onChange }: { data: WorksheetData; onCha
             <NumberInput label="Months covered by YTD" value={v.ytdMonths} onChange={(ytdMonths) => onChange({ ...v, ytdMonths })} hint="e.g. 9.5 for mid-October" span={2} />
             <CurrencyInput label={`${thisYear - 1} total`} value={v.priorYear1} onChange={(priorYear1) => onChange({ ...v, priorYear1 })} span={1} hint="W-2 or WVOE" />
             <CurrencyInput label={`${thisYear - 2} total`} value={v.priorYear2} onChange={(priorYear2) => onChange({ ...v, priorYear2 })} span={1} />
+            <Sources paths={['ytdAmount', 'ytdMonths']} />
           </FormGrid>
         </div>
       )
@@ -215,6 +234,7 @@ export function WorksheetInputs({ data, onChange }: { data: WorksheetData; onCha
         <div className="space-y-3">
           <FormGrid>
             <Select label="Most recent tax return" value={String(recent)} options={years} onChange={(y) => onChange({ ...v, recentYear: Number(y) })} span={2} />
+            <Sources paths={['recentYear']} />
           </FormGrid>
           {data.kind !== 'schedule_c' && (
             <p className="text-xs text-muted-foreground">K-1 lines come from the borrower's K-1. The business lines come from the company's return. W-2 wages the company pays the borrower go on a separate Salary worksheet.</p>
@@ -252,6 +272,7 @@ export function WorksheetInputs({ data, onChange }: { data: WorksheetData; onCha
               <PercentInput label="Expense factor" value={v.expenseRatioPct} onChange={(expenseRatioPct) => onChange({ ...v, expenseRatioPct })} maxDecimals={2} span={1} />
             )}
             <PercentInput label="Ownership" value={v.ownershipPct} onChange={(ownershipPct) => onChange({ ...v, ownershipPct })} maxDecimals={2} span={1} />
+            <Sources paths={['totalDeposits']} />
           </FormGrid>
         </div>
       )

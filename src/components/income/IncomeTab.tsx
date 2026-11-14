@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, EmptyState, SummaryBar, ToggleChip } from '@/components/shared'
 import { useCreateWorksheet, useWorksheets } from '@/lib/api/income'
+import { useOrgMembers } from '@/lib/api/loans'
 import { useProperties } from '@/lib/api/properties'
 import type { LoanProfile } from '@/lib/api/types'
 import { useApplication } from '@/lib/api/urla'
@@ -32,6 +33,7 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const calc = useCalculateIncome(loan)
+  const members = useOrgMembers()
   const pdf = useSavePdf(loan)
 
   if (app.isLoading || worksheets.isLoading || properties.isLoading) return <p className="py-12 text-center text-sm text-muted-foreground">Loading income…</p>
@@ -52,8 +54,36 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
 
   /** Saves the one-page Income Analysis PDF for a worksheet. */
   const savePdf = (v: IncomePdfRequest) => {
-    const view = incomeAnalysisView({ borrowerName: fullName(borrower.person), label: v.label, typeLabel: v.typeLabel, where: v.where, lines: v.result.lines, monthly: v.result.monthly, warnings: v.result.warnings, notes: v.notes, sources: v.sources, draft: v.draft, pushedOn: v.pushedOn, preparedOn: todayIso() })
-    void pdf.save({ fileName: view.fileName, kind: 'income_analysis', propertyId: null, templateVersion: INCOME_ANALYSIS_TEMPLATE, tooLong: 'Shorten the label or notes.', render: (lib, brand) => lib.incomeAnalysisPdf(view, brand) })
+    const reviewer = v.reviewedBy ? (members.data?.find((m) => m.id === v.reviewedBy!.id)?.name ?? 'the loan officer') : null
+    const view = incomeAnalysisView({
+      borrowerName: fullName(borrower.person),
+      label: v.label,
+      typeLabel: v.typeLabel,
+      where: v.where,
+      lines: v.result.lines,
+      monthly: v.result.monthly,
+      warnings: v.result.warnings,
+      notes: v.notes,
+      sources: v.sources,
+      draft: v.draft,
+      pushedOn: v.pushedOn,
+      preparedOn: todayIso(),
+      figureSources: v.figureSources,
+      changes: v.changes,
+      reviewed: reviewer && v.reviewedBy ? { name: reviewer, on: v.reviewedBy.at } : null,
+    })
+    void pdf.save({
+      fileName: view.fileName,
+      kind: 'income_analysis',
+      propertyId: null,
+      templateVersion: INCOME_ANALYSIS_TEMPLATE,
+      tooLong: 'Shorten the label or notes.',
+      // One page: if it won't fit, the quotes column goes first.
+      render: async (lib, brand) => {
+        const full = await lib.incomeAnalysisPdf(view, brand)
+        return full.ok || !view.figureSources.length ? full : lib.incomeAnalysisPdf({ ...view, showQuotes: false }, brand)
+      },
+    })
   }
 
   /** Starts a worksheet, pointed at the most likely job or property, and opens it. */

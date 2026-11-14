@@ -39,12 +39,41 @@ export function IncomeAnalysisPdf({ analysis: a, brand, scale = 1 }: { analysis:
             <View style={{ marginBottom: z(8) }}>{list(a.notes)}</View>
           </>
         )}
-        {a.sources.length > 0 && (
+        {a.figureSources.length > 0 ? (
           <>
-            <Text style={s.h2}>Documents used</Text>
-            <View style={{ marginBottom: z(8) }}>{list(a.sources, COLORS.muted)}</View>
+            <Text style={s.h2}>Sources</Text>
+            <View style={{ marginBottom: z(8) }}>
+              <View style={{ flexDirection: 'row', borderBottomWidth: 0.5, borderColor: COLORS.muted, paddingBottom: z(2), marginBottom: z(2) }}>
+                <Text style={{ flex: 2.2, color: COLORS.muted }}>Figure</Text>
+                <Text style={{ flex: 2, color: COLORS.muted }}>Document</Text>
+                <Text style={{ width: z(26), color: COLORS.muted }}>Page</Text>
+                {a.showQuotes && <Text style={{ flex: 3, color: COLORS.muted }}>Read from</Text>}
+              </View>
+              {a.figureSources.map((f, i) => (
+                <View key={i} style={{ flexDirection: 'row', marginBottom: z(1.5) }}>
+                  <Text style={{ flex: 2.2 }}>{f.figure}</Text>
+                  <Text style={{ flex: 2, color: COLORS.muted }}>{f.document}</Text>
+                  <Text style={{ width: z(26), color: COLORS.muted }}>{f.page}</Text>
+                  {a.showQuotes && <Text style={{ flex: 3, color: COLORS.muted }}>"{f.quote}"</Text>}
+                </View>
+              ))}
+            </View>
+          </>
+        ) : (
+          a.sources.length > 0 && (
+            <>
+              <Text style={s.h2}>Documents used</Text>
+              <View style={{ marginBottom: z(8) }}>{list(a.sources, COLORS.muted)}</View>
+            </>
+          )
+        )}
+        {a.changes.length > 0 && (
+          <>
+            <Text style={s.h2}>Changed by the loan officer</Text>
+            <View style={{ marginBottom: z(8) }}>{list(a.changes)}</View>
           </>
         )}
+        {a.reviewed && <Text style={{ marginBottom: z(6), fontWeight: 700 }}>{a.reviewed}</Text>}
 
         <Text style={s.tiny}>{a.disclaimer}</Text>
         <EhoFooter brand={brand} s={s} />

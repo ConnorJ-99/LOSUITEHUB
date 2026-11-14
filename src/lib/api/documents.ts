@@ -161,8 +161,8 @@ export function useDeleteDocument(loanId: string) {
   })
 }
 
-/** Opens a document in a new tab through a link that works for one minute. */
-export async function openDocument(doc: LoanDocument) {
+/** Opens a document in a new tab through a link that works for one minute (on a page of a PDF when given). */
+export async function openDocument(doc: Pick<LoanDocument, 'storagePath'>, page?: number) {
   // Open the tab first so the browser doesn't treat it as a pop-up.
   const tab = window.open('', '_blank')
   const { data, error } = await db().storage.from(LOAN_FILES_BUCKET).createSignedUrl(doc.storagePath, 60)
@@ -170,8 +170,9 @@ export async function openDocument(doc: LoanDocument) {
     tab?.close()
     throw new Error(error?.message ?? 'Could not open the file.')
   }
-  if (tab) tab.location.href = data.signedUrl
-  else window.location.href = data.signedUrl
+  const url = page ? `${data.signedUrl}#page=${page}` : data.signedUrl
+  if (tab) tab.location.href = url
+  else window.location.href = url
 }
 
 /** The file itself, for viewing it inside MPS HQ (the Income tab's review). */
