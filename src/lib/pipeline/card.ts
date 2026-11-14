@@ -7,6 +7,7 @@ import { formatCompactCurrency } from '@/lib/format'
 import { leadTypeFor, type LeadTypeFacts, type LeadTypeId } from './leadType'
 import { columnFor, pipelineFor, type PipelineColumn } from './pipelines'
 import type { LoanPurpose, PipelineStage } from './stages'
+import { readyLabel, timelineChoice } from './timeline'
 
 export interface CardFile extends LeadTypeFacts {
   id: string
@@ -26,6 +27,8 @@ export interface CardFile extends LeadTypeFacts {
   /** The approved maximum price (pre-approved files). */
   maxPrice: number | null
   timeline: string | null
+  /** loans.ready_on: when they expect to be ready (undefined before the ready date script has run). */
+  readyOn?: string | null
   contractDate: string | null
   closingDate: string | null
   preapprovalExpiresOn: string | null
@@ -72,15 +75,37 @@ export function amountLine(f: CardFile): string | null {
   return amount ? `${formatCompactCurrency(amount)} est.` : null
 }
 
-/** "Lead Oct 3 · target 1–3 months", "Approved Oct 20 · exp Jan 18", "Contract Oct 28 · close Nov 30". */
+/** "Lead Oct 3" (the time frame has its own chip), "Approved Oct 20 · exp Jan 18", "Contract Oct 28 · close Nov 30". */
 export function timelineLine(f: CardFile): string | null {
   if (LATE.includes(f.stage)) {
     const parts = [f.contractDate ? `Contract ${short(f.contractDate)}` : null, f.closingDate ? `close ${short(f.closingDate)}` : null].filter(Boolean)
     return parts.length ? parts.join(' · ') : null
   }
   if (APPROVED.includes(f.stage)) return [`Approved ${short(dayOf(f.stageChangedAt))}`, f.preapprovalExpiresOn ? `exp ${short(f.preapprovalExpiresOn)}` : null].filter(Boolean).join(' · ')
-  return [`Lead ${short(dayOf(f.createdAt))}`, f.timeline ? `target ${f.timeline}` : null].filter(Boolean).join(' · ')
+  return `Lead ${short(dayOf(f.createdAt))}`
 }
+
+/** Whether the card shows the time frame chip: until the file is under contract. */
+export const showsReady = (f: Pick<CardFile, 'stage'>) => !LATE.includes(f.stage)
+
+/**
+ * The time frame chip: "Ready Feb 2027" with the time frame picked ("3 months"),
+ * "Ready now" once the month has come, the words typed elsewhere as they are,
+ * null when no time frame is set. `today` is YYYY-MM-DD (Central).
+ */
+export function readyChip(f: Pick<CardFile, 'timeline' | 'readyOn'>, today: string): { label: string; detail: string | null; now: boolean } | null {
+  const words = f.timeline?.trim() || null
+  if (f.readyOn) {
+    const label = readyLabel(f.readyOn, today)
+    return { label, detail: words, now: label === 'Ready now' }
+  }
+  if (!words) return null
+  if (timelineChoice(words) === 'Just looking') return { label: 'Just looking', detail: null, now: false }
+  return { label: words, detail: null, now: false }
+}
+
+/** Today in Central time, YYYY-MM-DD. */
+export const centralToday = (now: Date) => centralDay.format(now)
 
 export const cardType = (f: CardFile): LeadTypeId => leadTypeFor(f)
 

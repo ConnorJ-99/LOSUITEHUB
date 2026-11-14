@@ -9,8 +9,9 @@ import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { useSetLeadType, useSetStep, type BoardFile } from '@/lib/api/board'
-import { amountLine, cardType, daysInStage, OCCUPANCY_LABEL, stepInfo, timelineLine } from '@/lib/pipeline/card'
+import { useSetLeadType, useSetStep, useSetTimeline, type BoardFile } from '@/lib/api/board'
+import { amountLine, cardType, centralToday, daysInStage, OCCUPANCY_LABEL, readyChip, showsReady, stepInfo, timelineLine } from '@/lib/pipeline/card'
+import { TIMELINE_OPTIONS, timelineChoice } from '@/lib/pipeline/timeline'
 import { LEAD_TYPES, leadTypeInfo } from '@/lib/pipeline/leadType'
 
 /** Keeps a click on a control from opening the file or starting a drag. */
@@ -46,6 +47,47 @@ function TypeTag({ file, editable }: { file: BoardFile; editable: boolean }) {
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => setType.mutate({ id: file.id, leadType: null }, { onError: (e) => toast.error(e.message) })}>From the file (automatic)</DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** When they'll be ready (Connor, 2026-11-14): "Ready Feb 2027 · 3 months"; click to pick the time frame. */
+function ReadyTag({ file, now, editable }: { file: BoardFile; now: Date; editable: boolean }) {
+  const setTimeline = useSetTimeline()
+  const chip = readyChip(file, centralToday(now))
+  const choice = timelineChoice(file.timeline)
+  const label = chip ? (
+    <span className={cn('inline-flex max-w-full items-center gap-1 truncate rounded px-1.5 py-0.5 text-[11px] font-semibold', chip.now ? 'bg-emerald-50 text-emerald-800' : 'bg-indigo-50 text-indigo-900')}>
+      {chip.label}
+      {chip.detail && <span className="font-normal opacity-75">· {chip.detail}</span>}
+    </span>
+  ) : (
+    <span className="rounded border border-dashed border-[#d1d5db] px-1.5 py-0.5 text-[11px] text-muted-foreground">Time frame?</span>
+  )
+  if (!editable) return chip ? label : null
+  const pick = (timeline: string | null) => setTimeline.mutate({ id: file.id, timeline }, { onError: (e) => toast.error(e.message) })
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild {...stop}>
+        <button type="button" className="min-w-0 self-start rounded text-left hover:opacity-80" title="When they expect to be ready">
+          {label}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" {...stop}>
+        <DropdownMenuLabel>Ready to buy or refinance in</DropdownMenuLabel>
+        {TIMELINE_OPTIONS.map((o) => (
+          <DropdownMenuItem key={o} onSelect={() => pick(o)}>
+            {o}
+            {choice === o && <span className="ml-auto text-xs text-muted-foreground">set</span>}
+          </DropdownMenuItem>
+        ))}
+        {file.timeline && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => pick(null)}>Clear</DropdownMenuItem>
           </>
         )}
       </DropdownMenuContent>
@@ -153,6 +195,7 @@ export function LeadCard({ file, compact, mini, now, className, dragging }: Lead
         </div>
       )}
       {!step && <p className="text-xs text-[#4b5563]">{days}d in stage</p>}
+      {showsReady(file) && <ReadyTag file={file} now={now} editable={!mini} />}
       {!mini && when && <p className="text-xs text-[#4b5563]">{when}</p>}
       {!mini && file.nextTask && (
         <p className="truncate text-xs text-[#374151]">

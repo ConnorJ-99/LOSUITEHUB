@@ -5,7 +5,9 @@
 // their own, so the pages work before the pipeline redesign script has run.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CardFile } from '@/lib/pipeline/card'
+import { centralToday } from '@/lib/pipeline/card'
 import type { LeadTypeId } from '@/lib/pipeline/leadType'
+import { readyOnFor } from '@/lib/pipeline/timeline'
 import { db, keys, num, unwrap } from './client'
 import { useLoanNumberIndex } from './loanNumbers'
 import { usePipeline } from './loans'
@@ -28,6 +30,7 @@ interface FactsRow {
 // Under ['pipeline'] so anything that refreshes the pipeline (a stage move) refreshes these too.
 const factsKey = ['pipeline', 'facts'] as const
 const stepsKey = ['pipeline', 'steps'] as const
+const readyKey = ['pipeline', 'ready'] as const
 
 function useCardFacts() {
   return useQuery({
@@ -58,6 +61,19 @@ function useCardSteps() {
   })
 }
 
+/** Each file's ready date (loans.ready_on); null before the ready date script has run. */
+function useCardReady() {
+  return useQuery({
+    queryKey: readyKey,
+    retry: false,
+    queryFn: async () => {
+      const r = await db().from('loans').select('id, ready_on')
+      if (r.error) return null
+      return new Map((r.data as { id: string; ready_on: string | null }[]).map((x) => [x.id, x.ready_on]))
+    },
+  })
+}
+
 /** A file on the overview or a board: the card's facts plus what the page shows around it. */
 export interface BoardFile extends CardFile {
   loan: PipelineLoan
@@ -73,6 +89,7 @@ export function useBoardFiles() {
   const pipeline = usePipeline()
   const facts = useCardFacts()
   const steps = useCardSteps()
+  const ready = useCardReady()
   const tasks = useOpenTasks()
   const numbers = useLoanNumberIndex()
   const loading = pipeline.isLoading || facts.isLoading || steps.isLoading
@@ -101,6 +118,8 @@ export function useBoardFiles() {
             homeValue: num(f?.home?.estimated_value ?? null),
             maxPrice: num(f?.preapproval_max_price ?? null),
             timeline: l.timeline,
+            // Undefined until the ready date script has run (the chip then shows the time frame alone).
+            readyOn: ready.data ? (ready.data.get(l.id) ?? null) : undefined,
             contractDate: f?.contract_date ?? null,
             closingDate: l.closingDate,
             preapprovalExpiresOn: f?.preapproval_expires_on ?? null,
@@ -149,8 +168,36 @@ export function useSetLeadType() {
   })
 }
 
+/** Sets a file's time frame from its card; the database works out the ready date (shown at once here). */
+export function useSetTimeline() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, timeline }: { id: string; timeline: string | null }) => {
+      const r = await db().from('loans').update({ timeline }).eq('id', id).select('id')
+      if (r.error) throw new Error(r.error.message)
+      if (!r.data?.length) throw new Error('You do not have permission to change this file.')
+    },
+    onMutate: async ({ id, timeline }) => {
+      await queryClient.cancelQueries({ queryKey: keys.pipeline })
+      const loans = queryClient.getQueryData<PipelineLoan[]>(keys.pipeline)
+      const readyBefore = queryClient.getQueryData<Map<string, string | null> | null>(readyKey)
+      queryClient.setQueryData<PipelineLoan[]>(keys.pipeline, (all) => all?.map((l) => (l.id === id ? { ...l, timeline } : l)))
+      if (readyBefore) queryClient.setQueryData(readyKey, new Map(readyBefore).set(id, readyOnFor(timeline, centralToday(new Date()))))
+      return { loans, readyBefore }
+    },
+    onError: (_e, _v, c) => {
+      if (c?.loans) queryClient.setQueryData(keys.pipeline, c.loans)
+      if (c?.readyBefore) queryClient.setQueryData(readyKey, c.readyBefore)
+    },
+    onSettled: (_d, _e, v) => {
+      queryClient.invalidateQueries({ queryKey: keys.pipeline })
+      queryClient.invalidateQueries({ queryKey: keys.loan(v.id) })
+    },
+  })
+}
+
 /** The card facts refresh with the pipeline (a stage move changes them). */
-export const BOARD_KEYS = [factsKey, stepsKey]
+export const BOARD_KEYS = [factsKey, stepsKey, readyKey]
 
 /** One file's lead type as set (null = automatic), for the profile's picker; no data before the script has run. */
 export function useLoanLeadType(loanId: string) {

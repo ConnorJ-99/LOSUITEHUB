@@ -43,8 +43,8 @@ describe('the card', () => {
     expect(amountLine({ ...base, stage: 'under_contract', loanAmount: 380000, purchasePrice: 400000, homeValue: 410000 })).toBe('$380K · 95% LTV')
     expect(amountLine(base)).toBeNull()
   })
-  it('timeline: lead and target, approved and expiry, contract and close', () => {
-    expect(timelineLine({ ...base, timeline: '1–3 months' })).toBe('Lead Oct 3 · target 1–3 months')
+  it('timeline: lead date, approved and expiry, contract and close', () => {
+    expect(timelineLine({ ...base, timeline: '1–3 months' })).toBe('Lead Oct 3')
     expect(timelineLine({ ...base, stage: 'pre_approved', stageChangedAt: '2026-10-20T18:00:00Z', preapprovalExpiresOn: '2027-01-18' })).toBe('Approved Oct 20 · exp Jan 18')
     expect(timelineLine({ ...base, stage: 'processing', contractDate: '2026-10-28', closingDate: '2026-11-30' })).toBe('Contract Oct 28 · close Nov 30')
     expect(timelineLine({ ...base, stage: 'processing' })).toBeNull()
