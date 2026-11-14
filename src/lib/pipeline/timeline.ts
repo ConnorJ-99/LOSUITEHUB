@@ -88,3 +88,49 @@ export function readyLabel(readyOn: string, today: string): string {
   const name = MONTH_NAMES[Number(readyOn.slice(5, 7)) - 1]
   return readyOn.slice(0, 4) === today.slice(0, 4) ? `Ready ${name}` : `Ready ${name} ${readyOn.slice(0, 4)}`
 }
+
+// ---------------------------------------------------------------------------
+// Custom dates typed on the card (Connor, 2026-11-14): "3/15", "03/15/2027"
+// or "03/2027". Saved as the time frame ("03/15/2027", "03/2027") with its
+// own ready date, which the database leaves alone.
+// ---------------------------------------------------------------------------
+
+const pad = (n: number) => String(n).padStart(2, '0')
+const daysIn = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate()
+
+/** A typed date → what to save; null when it isn't a real date. "3/15" is the next March 15 (this year or next). */
+export function parseCustomReady(text: string, today: string): { timeline: string; readyOn: string } | null {
+  const t = text.trim().replace(/[-.]/g, '/')
+  const [ty, tm, td] = today.split('-').map(Number)
+  let m = t.match(/^(\d{1,2})\/(\d{4})$/)
+  if (m) {
+    const month = Number(m[1])
+    const year = Number(m[2])
+    if (month < 1 || month > 12 || year < 2000 || year > 2100) return null
+    return { timeline: `${pad(month)}/${year}`, readyOn: `${year}-${pad(month)}-01` }
+  }
+  m = t.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/)
+  if (!m) return null
+  const month = Number(m[1])
+  const day = Number(m[2])
+  let year = m[3] ? Number(m[3].length === 2 ? `20${m[3]}` : m[3]) : ty
+  if (!m[3] && (month < tm || (month === tm && day < td))) year += 1
+  if (month < 1 || month > 12 || day < 1 || day > daysIn(year, month) || year < 2000 || year > 2100) return null
+  return { timeline: `${pad(month)}/${pad(day)}/${year}`, readyOn: `${year}-${pad(month)}-${pad(day)}` }
+}
+
+/** Whether a saved time frame is a custom date: "day" (03/15/2027), "month" (03/2027) or null. */
+export function customKind(saved: string | null): 'day' | 'month' | null {
+  const t = saved?.trim() ?? ''
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(t)) return 'day'
+  if (/^\d{1,2}\/\d{4}$/.test(t)) return 'month'
+  return null
+}
+
+/** "Ready Mar 15" / "Ready Mar 15, 2027" for a custom day; "Ready now" once it has come. */
+export function readyDayLabel(readyOn: string, today: string): string {
+  if (readyOn <= today) return 'Ready now'
+  const name = MONTH_NAMES[Number(readyOn.slice(5, 7)) - 1]
+  const day = Number(readyOn.slice(8, 10))
+  return readyOn.slice(0, 4) === today.slice(0, 4) ? `Ready ${name} ${day}` : `Ready ${name} ${day}, ${readyOn.slice(0, 4)}`
+}

@@ -4,6 +4,7 @@
 // card keeps a light border. Clicking the step line moves to the next step
 // (with Undo); clicking the type label changes the type. Clicking the card
 // opens the file. All the wording comes from src/lib/pipeline/card.ts.
+import { useState } from 'react'
 import type * as React from 'react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
@@ -11,7 +12,7 @@ import { cn } from 'cn'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useSetLeadType, useSetStep, useSetTimeline, type BoardFile } from '@/lib/api/board'
 import { amountLine, cardType, centralToday, daysInStage, OCCUPANCY_LABEL, readyChip, showsReady, stepInfo, timelineLine } from '@/lib/pipeline/card'
-import { TIMELINE_OPTIONS, timelineChoice } from '@/lib/pipeline/timeline'
+import { customKind, parseCustomReady, TIMELINE_OPTIONS, timelineChoice } from '@/lib/pipeline/timeline'
 import { LEAD_TYPES, leadTypeInfo } from '@/lib/pipeline/leadType'
 
 /** Keeps a click on a control from opening the file or starting a drag. */
@@ -57,7 +58,9 @@ function TypeTag({ file, editable }: { file: BoardFile; editable: boolean }) {
 /** When they'll be ready (Connor, 2026-11-14): "Ready Feb 2027 · 3 months"; click to pick the time frame. */
 function ReadyTag({ file, now, editable }: { file: BoardFile; now: Date; editable: boolean }) {
   const setTimeline = useSetTimeline()
-  const chip = readyChip(file, centralToday(now))
+  const today = centralToday(now)
+  const chip = readyChip(file, today)
+  const [typing, setTyping] = useState<string | null>(null)
   const choice = timelineChoice(file.timeline)
   const label = chip ? (
     <span className={cn('inline-flex max-w-full items-center gap-1 truncate rounded px-1.5 py-0.5 text-[11px] font-semibold', chip.now ? 'bg-emerald-50 text-emerald-800' : 'bg-indigo-50 text-indigo-900')}>
@@ -68,7 +71,34 @@ function ReadyTag({ file, now, editable }: { file: BoardFile; now: Date; editabl
     <span className="rounded border border-dashed border-[#d1d5db] px-1.5 py-0.5 text-[11px] text-muted-foreground">Time frame?</span>
   )
   if (!editable) return chip ? label : null
-  const pick = (timeline: string | null) => setTimeline.mutate({ id: file.id, timeline }, { onError: (e) => toast.error(e.message) })
+  const pick = (timeline: string | null, readyOn?: string) => setTimeline.mutate({ id: file.id, timeline, readyOn }, { onError: (e) => toast.error(e.message) })
+  if (typing !== null) {
+    const saveTyped = () => {
+      const parsed = parseCustomReady(typing, today)
+      if (!parsed) return toast.error('Type a date like 03/15 or 03/2027')
+      pick(parsed.timeline, parsed.readyOn)
+      setTyping(null)
+    }
+    return (
+      <div className="flex items-center gap-1" {...stop}>
+        <input
+          autoFocus
+          value={typing}
+          onChange={(e) => setTyping(e.target.value)}
+          onKeyDown={(e) => {
+            e.stopPropagation()
+            if (e.key === 'Enter') saveTyped()
+            if (e.key === 'Escape') setTyping(null)
+          }}
+          placeholder="mm/dd or mm/yyyy"
+          aria-label="Ready date"
+          className="h-6 w-28 rounded border border-input bg-card px-1.5 text-[11px] focus:ring-1 focus:ring-ring focus:outline-none"
+        />
+        <button type="button" onClick={saveTyped} className="rounded bg-primary px-1.5 py-0.5 text-[11px] font-semibold text-primary-foreground">Save</button>
+        <button type="button" onClick={() => setTyping(null)} className="px-1 text-[11px] text-muted-foreground hover:text-foreground">Cancel</button>
+      </div>
+    )
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild {...stop}>
@@ -84,12 +114,12 @@ function ReadyTag({ file, now, editable }: { file: BoardFile; now: Date; editabl
             {choice === o && <span className="ml-auto text-xs text-muted-foreground">set</span>}
           </DropdownMenuItem>
         ))}
-        {file.timeline && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => pick(null)}>Clear</DropdownMenuItem>
-          </>
-        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => setTyping(customKind(file.timeline) ? file.timeline! : '')}>
+          Pick a date…
+          {customKind(file.timeline) && <span className="ml-auto text-xs text-muted-foreground">set</span>}
+        </DropdownMenuItem>
+        {file.timeline && <DropdownMenuItem onSelect={() => pick(null)}>Clear</DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>
   )

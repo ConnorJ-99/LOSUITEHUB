@@ -7,7 +7,7 @@ import { formatCompactCurrency } from '@/lib/format'
 import { leadTypeFor, type LeadTypeFacts, type LeadTypeId } from './leadType'
 import { columnFor, pipelineFor, type PipelineColumn } from './pipelines'
 import type { LoanPurpose, PipelineStage } from './stages'
-import { readyLabel, timelineChoice } from './timeline'
+import { customKind, readyDayLabel, readyLabel, timelineChoice } from './timeline'
 
 export interface CardFile extends LeadTypeFacts {
   id: string
@@ -95,9 +95,11 @@ export const showsReady = (f: Pick<CardFile, 'stage'>) => !LATE.includes(f.stage
  */
 export function readyChip(f: Pick<CardFile, 'timeline' | 'readyOn'>, today: string): { label: string; detail: string | null; now: boolean } | null {
   const words = f.timeline?.trim() || null
+  const custom = customKind(words)
   if (f.readyOn) {
-    const label = readyLabel(f.readyOn, today)
-    return { label, detail: words, now: label === 'Ready now' }
+    // A custom date says it all; a picked time frame shows next to its month.
+    const label = custom === 'day' ? readyDayLabel(f.readyOn, today) : readyLabel(f.readyOn, today)
+    return { label, detail: custom ? null : words, now: label === 'Ready now' }
   }
   if (!words) return null
   if (timelineChoice(words) === 'Just looking') return { label: 'Just looking', detail: null, now: false }

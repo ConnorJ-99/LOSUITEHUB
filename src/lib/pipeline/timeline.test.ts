@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readyChip, showsReady } from './card'
-import { readyLabel, readyOnFor, timelineMonths } from './timeline'
+import { customKind, parseCustomReady, readyDayLabel, readyLabel, readyOnFor, timelineMonths } from './timeline'
 
 describe('lead ready dates', () => {
   it('counts months from the time frame', () => {
@@ -33,6 +33,25 @@ describe('lead ready dates', () => {
     expect(readyChip({ timeline: 'after the lease ends', readyOn: null }, '2026-11-14')).toEqual({ label: 'after the lease ends', detail: null, now: false })
     expect(readyChip({ timeline: 'just looking', readyOn: null }, '2026-11-14')).toEqual({ label: 'Just looking', detail: null, now: false })
     expect(readyChip({ timeline: null, readyOn: undefined }, '2026-11-14')).toBeNull()
+  })
+  it('reads a custom date', () => {
+    expect(parseCustomReady('3/15', '2026-11-14')).toEqual({ timeline: '03/15/2027', readyOn: '2027-03-15' })
+    expect(parseCustomReady('12/20', '2026-11-14')).toEqual({ timeline: '12/20/2026', readyOn: '2026-12-20' })
+    expect(parseCustomReady('03/2027', '2026-11-14')).toEqual({ timeline: '03/2027', readyOn: '2027-03-01' })
+    expect(parseCustomReady('3/15/27', '2026-11-14')).toEqual({ timeline: '03/15/2027', readyOn: '2027-03-15' })
+    expect(parseCustomReady('2/30', '2026-11-14')).toBeNull()
+    expect(parseCustomReady('13/2027', '2026-11-14')).toBeNull()
+    expect(parseCustomReady('soon', '2026-11-14')).toBeNull()
+    expect(customKind('03/15/2027')).toBe('day')
+    expect(customKind('03/2027')).toBe('month')
+    expect(customKind('3 months')).toBeNull()
+  })
+  it('labels a custom date on the card', () => {
+    expect(readyDayLabel('2026-12-20', '2026-11-14')).toBe('Ready Dec 20')
+    expect(readyDayLabel('2027-03-15', '2026-11-14')).toBe('Ready Mar 15, 2027')
+    expect(readyChip({ timeline: '03/15/2027', readyOn: '2027-03-15' }, '2026-11-14')).toEqual({ label: 'Ready Mar 15, 2027', detail: null, now: false })
+    expect(readyChip({ timeline: '03/2027', readyOn: '2027-03-01' }, '2026-11-14')).toEqual({ label: 'Ready Mar 2027', detail: null, now: false })
+    expect(readyChip({ timeline: '11/14/2026', readyOn: '2026-11-14' }, '2026-11-14')?.now).toBe(true)
   })
   it('shows until the file is under contract', () => {
     expect(showsReady({ stage: 'lead' })).toBe(true)

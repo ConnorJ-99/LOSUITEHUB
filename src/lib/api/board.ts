@@ -172,17 +172,18 @@ export function useSetLeadType() {
 export function useSetTimeline() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, timeline }: { id: string; timeline: string | null }) => {
-      const r = await db().from('loans').update({ timeline }).eq('id', id).select('id')
+    // readyOn: a custom date typed on the card (sent with the time frame; the database keeps it).
+    mutationFn: async ({ id, timeline, readyOn }: { id: string; timeline: string | null; readyOn?: string }) => {
+      const r = await db().from('loans').update({ timeline, ...(readyOn && { ready_on: readyOn }) }).eq('id', id).select('id')
       if (r.error) throw new Error(r.error.message)
       if (!r.data?.length) throw new Error('You do not have permission to change this file.')
     },
-    onMutate: async ({ id, timeline }) => {
+    onMutate: async ({ id, timeline, readyOn }) => {
       await queryClient.cancelQueries({ queryKey: keys.pipeline })
       const loans = queryClient.getQueryData<PipelineLoan[]>(keys.pipeline)
       const readyBefore = queryClient.getQueryData<Map<string, string | null> | null>(readyKey)
       queryClient.setQueryData<PipelineLoan[]>(keys.pipeline, (all) => all?.map((l) => (l.id === id ? { ...l, timeline } : l)))
-      if (readyBefore) queryClient.setQueryData(readyKey, new Map(readyBefore).set(id, readyOnFor(timeline, centralToday(new Date()))))
+      if (readyBefore) queryClient.setQueryData(readyKey, new Map(readyBefore).set(id, readyOn ?? readyOnFor(timeline, centralToday(new Date()))))
       return { loans, readyBefore }
     },
     onError: (_e, _v, c) => {

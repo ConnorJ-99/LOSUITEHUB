@@ -61,8 +61,10 @@ end;
 $$;
 revoke all on function public.timeline_months(text) from public;
 do $$ begin
-  revoke all on function public.timeline_months(text) from anon, authenticated;
+  revoke all on function public.timeline_months(text) from anon;
 exception when undefined_object then null; end $$;
+-- The ready date trigger runs as the person saving (fixed 2026-11-14).
+grant execute on function public.timeline_months(text) to authenticated, service_role;
 
 -- A new or changed time frame sets the ready date, unless the same save sets the date itself.
 create or replace function public.set_ready_on()
