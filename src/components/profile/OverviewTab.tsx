@@ -8,7 +8,6 @@ import { Card, confirmAction, CurrencyInput, DateInput, FormGrid, Input, Percent
 import { AriveLink } from '@/components/loanfile/AriveLink'
 import { offerMilestoneUpdate } from '@/components/messaging/fileTextRequests'
 import { StageBadge } from '@/components/pipeline/StageBadge'
-import { lastContact, useNotes } from '@/lib/api/notes'
 import { useLenders } from '@/lib/api/lenders'
 import { useContactLoans, useUpdateLead, useUpdateLoanDetails } from '@/lib/api/loans'
 import { useEstimates } from '@/lib/api/estimates'
@@ -17,12 +16,11 @@ import { useProperties, useSaveHomeFigures, type HomeFigures } from '@/lib/api/p
 import type { Lien, LoanDetails, LoanProfile, Property } from '@/lib/api/types'
 import { approvalFunds, computeScenario, concessionLimit, dscrTransaction, lenderComp, loanRevenue, planFor, texasHomeEquityFlags, type DscrTransaction, type ScenarioResult } from '@/lib/calc'
 import { useCompPlans } from '@/lib/api/compPlans'
-import { formatIsoDate, relativeTime, todayIso } from '@/lib/dates'
+import { formatIsoDate, todayIso } from '@/lib/dates'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { formatPhone } from '@/lib/pipeline/helpers'
 import { purposeLabel } from '@/lib/pipeline/stages'
-import { noteKindLabel, OCCUPANCY_OPTIONS, TERM_OPTIONS } from './options'
-import { TasksCard } from './TasksCard'
+import { OCCUPANCY_OPTIONS, TERM_OPTIONS } from './options'
 import { WebFormsCard } from './WebFormsCard'
 import { ProposedUpdatesCard } from '@/components/pages/ProposedUpdatesCard'
 import { SendFormCard } from '@/components/pages/SendFormCard'
@@ -30,7 +28,6 @@ import { ApplicationCard } from '@/components/applications/ApplicationCard'
 import { SettlementCard } from '@/components/loanfile/SettlementCard'
 import { PortalCard } from '@/components/portal/PortalCard'
 import { LeadTypePicker } from '@/components/pipeline/LeadTypePicker'
-import { ReadinessCard, useSavedReadiness } from '@/components/prequal/Readiness'
 import { TexasFlags } from './TexasFlags'
 import { ActionQueueCard } from '@/components/queue/ActionQueueCard'
 import { loanScenarioInput } from '@/lib/urla/summary'
@@ -255,9 +252,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
   const activeEstimates = (estimates.data ?? []).filter((e) => !e.archivedAt)
   const selectedEstimate = activeEstimates.find((e) => e.id === loan.details.pricingScenarioId) ?? null
   const est = selectedEstimate?.figures ?? null
-  const notes = useNotes(loan.borrower?.id)
   const updateDetails = useUpdateLoanDetails(loan.id)
-  const readinessResult = useSavedReadiness(loan)
   const saved = editable(loan.details)
   const [form, setForm] = useState<EditableDetails>(saved)
   const [dscrPick, setDscrPick] = useState<DscrTransaction | null>(null)
@@ -373,7 +368,6 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
     }))
   }
   const isSecond = purpose === 'heloc' || purpose === 'heloan'
-  const contact = lastContact(notes.data)
   const b = loan.borrower
   const termValue = form.termMonths ? (String(form.termMonths) as (typeof TERM_OPTIONS)[number]['value']) : null
   const items = summaryItems(loan, form, result, subject, texasCapBreached, est)
@@ -386,8 +380,8 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
 
   return (
     <>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
+      <div className="grid gap-4">
+        <div className="space-y-4">
           <ActionQueueCard loan={loan} />
           <TexasFlags flags={texasFlags} />
 
@@ -598,56 +592,6 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
 
           <Card title="Other loans for this person">
             <OtherLoans loan={loan} />
-          </Card>
-        </div>
-
-        <div className="order-first space-y-4 lg:order-none">
-          {/* Readiness matters until the file is pre-approved. */}
-          {['lead', 'contacted', 'pre_qualified', 'nurture'].includes(loan.stage) && <ReadinessCard loan={loan} view={readinessResult} compact />}
-          <TasksCard loanId={loan.id} organizationId={loan.organizationId} />
-          <Card title="At a glance">
-            <dl className="space-y-3">
-              <Detail label="Last contact">
-                {contact ? (
-                  <button type="button" onClick={() => onGoToTab('notes')} className="text-left hover:underline">
-                    {noteKindLabel(contact.kind)} · {relativeTime(contact.createdAt)}
-                    {contact.author && <span className="text-muted-foreground"> · {contact.author.name}</span>}
-                    <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">{contact.body}</span>
-                  </button>
-                ) : (
-                  <button type="button" onClick={() => onGoToTab('notes')} className="text-muted-foreground hover:underline">
-                    None logged. Log a call or text in Notes.
-                  </button>
-                )}
-              </Detail>
-              <Detail label={`Estimates (${activeEstimates.length})`}>
-                <button type="button" onClick={() => onGoToTab('estimates')} className="text-left hover:underline">
-                  {selectedEstimate ? (
-                    <>
-                      Selected: {selectedEstimate.name}
-                      {est && <span className="block text-xs text-muted-foreground">{formatCurrency(est.pitia)}/mo · {formatCurrency(Math.abs(est.cashToClose))} {est.cashToClose < 0 ? 'back' : 'to close'}</span>}
-                    </>
-                  ) : activeEstimates.length ? (
-                    'None selected yet. Open Scenarios & Estimate.'
-                  ) : (
-                    'None yet. Build estimates.'
-                  )}
-                </button>
-              </Detail>
-              <Detail label="Assigned LO">{loan.assignedLo?.name ?? 'Unassigned'}</Detail>
-              <Detail label="Referral source">{loan.referralSource ?? '—'}</Detail>
-              <Detail label="Subject property">
-                {subject ? (
-                  <button type="button" onClick={() => onGoToTab('properties')} className="text-left hover:underline">
-                    {subject.addressLine}
-                    {subject.city && `, ${subject.city}`}
-                  </button>
-                ) : (
-                  '—'
-                )}
-              </Detail>
-              <Detail label="Created">{formatIsoDate(loan.createdAt.slice(0, 10))}</Detail>
-            </dl>
           </Card>
         </div>
       </div>
