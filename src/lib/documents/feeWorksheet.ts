@@ -3,7 +3,7 @@
 // out what it's given. It is titled "Fee Worksheet", never "Loan Estimate":
 // Arive sends the official TRID Loan Estimate. Pure.
 
-import { cltv, round, type FeeLine, type FeeSection, type SectionTotals } from '@/lib/calc'
+import { borrowerPart, cltv, round, type FeeLine, type FeeSection, type SectionTotals } from '@/lib/calc'
 import type { CashFigure, ScenarioDraft, ScenarioFigures } from '@/lib/pricing/scenario'
 import type { MortgageType, Occupancy, PropertyType } from '@/lib/api/types'
 import { purposeLabel, type LoanPurpose } from '@/lib/pipeline/stages'
@@ -119,7 +119,12 @@ const ESCROWS = { none: 'Taxes & insurance', taxes: 'Insurance only', insurance:
 function section(letter: FeeSection, lines: FeeLine[], totals: SectionTotals): WorksheetSection {
   const rows = lines
     .filter((l) => l.section === letter && round(l.atClosing + l.beforeClosing) !== 0)
-    .map((l): WorksheetRow => ({ label: l.name, note: l.paidBy === 'B' ? null : PAID_BY_NOTE[l.paidBy], amount: round(l.atClosing + l.beforeClosing) }))
+    .map((l): WorksheetRow =>
+      // A split with the seller: the borrower's part, with the seller's share noted.
+      l.paidBy === 'B' && l.sellerPaid
+        ? { label: l.name, note: `seller pays ${formatCurrency(l.sellerPaid)} of ${formatCurrency(l.atClosing + l.beforeClosing)}`, amount: borrowerPart(l) }
+        : { label: l.name, note: l.paidBy === 'B' ? null : PAID_BY_NOTE[l.paidBy], amount: round(l.atClosing + l.beforeClosing) },
+    )
   return { letter, title: SECTION_TITLE[letter], total: totals[letter], rows }
 }
 

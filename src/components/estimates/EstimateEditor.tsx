@@ -33,6 +33,7 @@ import {
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { purposeLabel } from '@/lib/pipeline/stages'
 import { useEstimatePdf } from './useEstimatePdf'
+import { DpaFields } from './DpaFields'
 import { draftOf, type EstimateData } from './useEstimateData'
 
 export type SaveState = 'saved' | 'saving' | 'unsaved' | 'waiting'
@@ -431,7 +432,8 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
                 <PayLine label="HOA" value={f.hoa}>
                   <CurrencyInput label="HOA per month" hideLabel value={draft.monthlyHoa} onChange={set('monthlyHoa')} placeholder="per month" />
                 </PayLine>
-                <PayLine label={draft.otherPaymentLabel || 'Other'} value={round(f.otherMonthly)}>
+                {r.dpaMonthly > 0 && <PayLine label="DPA payment" value={r.dpaMonthly} />}
+                <PayLine label={draft.otherPaymentLabel || 'Other'} value={round(f.otherMonthly - r.dpaMonthly)}>
                   <CurrencyInput label="Other per month" hideLabel value={draft.otherPaymentMonthly} onChange={set('otherPaymentMonthly')} placeholder="per month" />
                 </PayLine>
               </dl>
@@ -447,6 +449,7 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
                 <Input label="Lender credit" value={formatCurrency(r.lenderCredit)} readOnly hint="Set in Program & pricing" />
                 <Input label="Gifts (1003)" value={formatCurrency(round(facts.assets.filter((a) => a.type === 'gift_cash' || a.type === 'grant').reduce((s, a) => s + a.amount, 0)))} readOnly />
               </FormGrid>
+              {isPurchase && draft.dpa !== undefined && <DpaFields value={draft.dpa ?? null} onChange={(dpa) => setDraft((d) => ({ ...d, dpa }))} monthly={r.dpaMonthly} cltvPct={r.cltvPct} />}
             </Card>
           </section>
 
@@ -460,7 +463,8 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
                 {r.cash.sellerCredits > 0 && <Line label="Seller credit" value={-r.cash.sellerCredits} />}
                 {r.cash.lenderCredit > 0 && <Line label="Lender credit" value={-r.cash.lenderCredit} />}
                 {r.cash.earnestMoney > 0 && <Line label="Earnest money" value={-r.cash.earnestMoney} />}
-                {r.cash.otherCredits > 0 && <Line label="Gift of equity / other credits" value={-r.cash.otherCredits} />}
+                {r.dpaAmount > 0 && <Line label={draft.dpa?.kind === 'gift' ? 'Gift / grant' : 'Down payment assistance'} value={-r.dpaAmount} />}
+                {r.cash.otherCredits - r.dpaAmount > 0 && <Line label="Gift of equity / other credits" value={-round(r.cash.otherCredits - r.dpaAmount)} />}
               </dl>
               <div className="mt-2 flex items-baseline justify-between border-t pt-3">
                 <span className="font-semibold">{r.cash.label}</span>

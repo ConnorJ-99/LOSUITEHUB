@@ -128,3 +128,27 @@ describe('fee math', () => {
 function round2(n: number) {
   return Math.round(n * 100) / 100
 }
+
+describe('title insurance and splitting a fee with the seller (Connor, 2026-11-14)', () => {
+  const noTitle = templates.filter((x) => x.key !== 'title_policy')
+  it('adds title insurance at 0.65% of the loan when the fee list has no title policy', () => {
+    const line = feeSheet(noTitle, [], ctx).find((l) => l.key === 'title_insurance')
+    expect(line).toMatchObject({ section: 'C', name: 'Title insurance', atClosing: 3022.5, paidBy: 'B' })
+    // $650 per $100,000.
+    expect(feeSheet(noTitle, [], { ...ctx, loanAmount: 100000 }).find((l) => l.key === 'title_insurance')!.atClosing).toBe(650)
+  })
+  it("doesn't add it when the fee list has a title policy (settlement and tax certificate fees don't count)", () => {
+    expect(feeSheet(templates, [], ctx).some((l) => l.key === 'title_insurance')).toBe(false)
+    expect(feeSheet(noTitle, [], ctx).some((l) => l.key === 'title_insurance')).toBe(true)
+  })
+  it("the seller's share of a split comes off the borrower's total", () => {
+    const before = sectionTotals(feeSheet(noTitle, [], ctx)).C
+    const split = feeSheet(noTitle, [{ key: 'title_insurance', section: 'C', name: 'Title insurance', atClosing: null, beforeClosing: null, paidBy: 'B', apr: false, paidTo: null, custom: false, sellerPaid: 1511.25 }], ctx)
+    expect(split.find((l) => l.key === 'title_insurance')).toMatchObject({ atClosing: 3022.5, sellerPaid: 1511.25 })
+    expect(sectionTotals(split).C).toBe(round2(before - 1511.25))
+    // Never more than the fee.
+    const all = feeSheet(noTitle, [{ key: 'title_insurance', section: 'C', name: 'Title insurance', atClosing: null, beforeClosing: null, paidBy: 'B', apr: false, paidTo: null, custom: false, sellerPaid: 9999 }], ctx)
+    expect(all.find((l) => l.key === 'title_insurance')!.sellerPaid).toBe(3022.5)
+    expect(sectionTotals(all).C).toBe(round2(before - 3022.5))
+  })
+})

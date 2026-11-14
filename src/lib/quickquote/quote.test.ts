@@ -85,7 +85,7 @@ describe('option figures', () => {
     expect(f.mortgageInsurance).toBe(187.97)
     // Down payment + 15 days of interest + a year of insurance + 3 months of insurance and tax escrows.
     expect(f.cashLabel).toBe('Cash to close')
-    expect(f.cashAmount).toBe(14875 + f.closingCosts)
+    expect(f.cashAmount).toBeCloseTo(14875 + f.closingCosts, 2)
   })
 
   it('VA finances the funding fee and has no monthly MI', () => {

@@ -96,6 +96,7 @@ const draft = (over: Partial<EstimateDraft> = {}): EstimateDraft => ({
   pricedAt: null,
   feesGeneratedAt: null,
   fromLoanId: null,
+  dpa: null,
   ...over,
 })
 
@@ -247,5 +248,26 @@ describe('compare', () => {
     expect(w.cashToClose).toBe('a')
     expect(w.fundsLeft).toBe('a')
     expect(w.pitia).toBe('b')
+  })
+})
+
+describe('down payment assistance on an estimate (Connor, 2026-11-14)', () => {
+  const base = computeEstimate(draft(), [], templates, facts)
+  it('a forgivable DPA lowers cash to close, adds no payment and counts in CLTV', () => {
+    const r = computeEstimate(draft({ dpa: { kind: 'forgivable', amount: 10000, ratePct: null, termMonths: null, name: 'TDHCA' } }), [], templates, facts)
+    expect(r.cash.cashToClose).toBe(Math.round((base.cash.cashToClose - 10000) * 100) / 100)
+    expect(r.saved.pitia).toBe(base.saved.pitia)
+    expect(r.dpaAmount).toBe(10000)
+    expect(r.cltvPct).toBeGreaterThan(base.saved.ltvPct ?? 0)
+  })
+  it('a repayable DPA adds its monthly payment', () => {
+    const r = computeEstimate(draft({ dpa: { kind: 'repayable', amount: 10000, ratePct: 7, termMonths: 360, name: null } }), [], templates, facts)
+    expect(r.dpaMonthly).toBe(66.53)
+    expect(r.saved.pitia).toBe(Math.round((base.saved.pitia + 66.53) * 100) / 100)
+  })
+  it('a zero amount is no DPA', () => {
+    const r = computeEstimate(draft({ dpa: { kind: 'gift', amount: 0, ratePct: null, termMonths: null, name: null } }), [], templates, facts)
+    expect(r.cash.cashToClose).toBe(base.cash.cashToClose)
+    expect(r.saved.dpaAmount).toBeUndefined()
   })
 })

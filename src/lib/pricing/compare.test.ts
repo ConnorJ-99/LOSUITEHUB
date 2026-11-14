@@ -41,8 +41,8 @@ describe('"Use fee sheet"', () => {
   it("runs the scenario's fees at the quote's rate and points", () => {
     const withFees = { ...ctx, templates: fees, scenario: { ...tbd, estimatedFundingDate: null } }
     const q = { ...quotes[0], closingCosts: null, closingCostsFromFeeSheet: true, pointsPct: 1 }
-    // 1% of $380,000 = $3,800 points + $650 appraisal + a year of insurance prepaid ($1,800) + 3 months each of insurance ($450) and taxes (3 × $733.33) in escrow.
-    expect(quoteClosingCosts(q, withFees)).toBe(8899.99)
-    expect(quoteClosingCosts({ ...q, pointsPct: 0 }, withFees)).toBe(5099.99)
+    // 1% of $380,000 = $3,800 points + $650 appraisal + $2,470 title insurance (0.65% of the loan; the fee list has no title policy) + a year of insurance prepaid ($1,800) + 3 months each of insurance ($450) and taxes (3 × $733.33) in escrow.
+    expect(quoteClosingCosts(q, withFees)).toBe(11369.99)
+    expect(quoteClosingCosts({ ...q, pointsPct: 0 }, withFees)).toBe(7569.99)
   })
 })

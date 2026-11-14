@@ -4,7 +4,7 @@ import type { Estimate, EstimateDraft, EstimateProgram } from '@/lib/estimates/e
 import type { ProductFamily } from '@/lib/products/taxonomy'
 import type { ScenarioDraft } from '@/lib/pricing/scenario'
 import { db, keys, num, unwrap } from './client'
-import { SCENARIO_SELECT, scenarioRow, toScenario } from './pricing'
+import { scenarioRow, toScenario } from './pricing'
 
 // Estimates (Scenarios & Estimate): pricing_scenarios rows with their
 // program, credits, saved fee rules, results and loan snapshot.
@@ -23,9 +23,11 @@ const EXTRA_COLUMNS: Record<ExtraKey, [string, 'text' | 'number' | 'json']> = {
   pricedAt: ['priced_at', 'text'],
   feesGeneratedAt: ['fees_generated_at', 'text'],
   fromLoanId: ['from_loan_id', 'text'],
+  dpa: ['dpa', 'json'],
 }
 
-const ESTIMATE_SELECT = `${SCENARIO_SELECT}, ${Object.values(EXTRA_COLUMNS).map(([c]) => c).join(', ')}, created_at, updated_at, option:loan_program_options(program_id, program:programs(name, product_family, lender:lenders(id, name, short_name)))`
+// * so estimates load before a script adds a column (dpa).
+const ESTIMATE_SELECT = `*, option:loan_program_options(program_id, program:programs(name, product_family, lender:lenders(id, name, short_name)))`
 
 interface OptionJoin {
   program_id: string
@@ -40,6 +42,8 @@ function toEstimate(row: Record<string, unknown>): Estimate {
   const program: EstimateProgram | null = o?.program
     ? { programId: o.program_id, programName: o.program.name, family: o.program.product_family, lenderId: o.program.lender?.id ?? '', lenderName: o.program.lender?.name ?? '', lenderShortName: o.program.lender?.short_name ?? null }
     : null
+  // undefined = the dpa column isn't there yet (the screen hides DPA).
+  extras.dpa = 'dpa' in row ? ((row.dpa as Estimate['dpa']) ?? null) : undefined
   return { ...toScenario(row), ...extras, program, createdAt: row.created_at as string, updatedAt: row.updated_at as string }
 }
 
@@ -48,6 +52,8 @@ export function estimateRow(changes: Partial<EstimateDraft>): Record<string, unk
   const base: Partial<ScenarioDraft> = {}
   const extra: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(changes)) {
+    // dpa is undefined before the DPA script has run: never written then.
+    if (key === 'dpa' && value === undefined) continue
     if (key in EXTRA_COLUMNS) extra[EXTRA_COLUMNS[key as ExtraKey][0]] = value
     else (base as Record<string, unknown>)[key] = value
   }
@@ -95,6 +101,7 @@ interface FeeRow {
   apr: boolean
   paid_to: string | null
   is_custom: boolean
+  seller_paid?: unknown
 }
 
 export const loanFeesKey = (loanId: string) => ['loanFees', loanId] as const
@@ -102,11 +109,11 @@ export const loanFeesKey = (loanId: string) => ['loanFees', loanId] as const
 /** Each estimate's fee edits, by estimate id. */
 /** Every fee edit on a file's estimates, by estimate (the Estimate tool and the assistant). */
 export async function fetchLoanFees(loanId: string): Promise<Map<string, FeeOverride[]>> {
-      const rows = unwrap<FeeRow[]>(await db().from('loan_fees').select('pricing_scenario_id, fee_key, section, name, at_closing, before_closing, paid_by, apr, paid_to, is_custom').eq('loan_id', loanId).order('created_at'))
+      const rows = unwrap<FeeRow[]>(await db().from('loan_fees').select('*').eq('loan_id', loanId).order('created_at'))
       const out = new Map<string, FeeOverride[]>()
       for (const r of rows) {
         const list = out.get(r.pricing_scenario_id) ?? []
-        list.push({ key: r.fee_key, section: r.section, name: r.name, atClosing: num(r.at_closing), beforeClosing: num(r.before_closing), paidBy: r.paid_by, apr: r.apr, paidTo: r.paid_to, custom: r.is_custom })
+        list.push({ key: r.fee_key, section: r.section, name: r.name, atClosing: num(r.at_closing), beforeClosing: num(r.before_closing), paidBy: r.paid_by, apr: r.apr, paidTo: r.paid_to, custom: r.is_custom, ...(r.seller_paid !== undefined && { sellerPaid: num(r.seller_paid) }) })
         out.set(r.pricing_scenario_id, list)
       }
       return out
@@ -139,6 +146,8 @@ export async function saveFees(estimate: { id: string; loanId: string }, organiz
           apr: o.apr,
           paid_to: o.paidTo,
           is_custom: o.custom,
+          // Only once the split script has run (the column comes back on reads).
+          ...(o.sellerPaid !== undefined && { seller_paid: o.sellerPaid && o.sellerPaid > 0 ? o.sellerPaid : null }),
         })),
         { onConflict: 'pricing_scenario_id,fee_key' },
       )

@@ -5,6 +5,7 @@
 // here is pure; the payment and fee math is in '@/lib/pricing/scenario' and
 // '@/lib/calc'.
 
+import { activeDpa, cltvWithDpa, dpaMonthly, type Dpa } from '@/lib/calc/dpa'
 import {
   breakEven,
   cashToClose,
@@ -50,6 +51,8 @@ export interface Estimate extends PricingScenario {
   pricedAt: string | null
   feesGeneratedAt: string | null
   fromLoanId: string | null
+  /** Down payment assistance or a gift / grant on this estimate (purchases); null = none, undefined = before the DPA script. */
+  dpa?: Dpa | null
   createdAt: string
   updatedAt: string
 }
@@ -161,6 +164,10 @@ export interface SavedFigures {
   reservesMonths: number | null
   dtiFront: number | null
   dtiBack: number | null
+  /** Down payment assistance / gift funds, its monthly payment (in otherMonthly) and CLTV with its lien. Missing on estimates saved before DPA. */
+  dpaAmount?: number
+  dpaMonthly?: number
+  cltvPct?: number | null
 }
 
 /** The scenario as the fee engine prices it: negative points become a lender credit. */
@@ -172,6 +179,10 @@ export function pricingDraft(e: ScenarioDraft): ScenarioDraft {
 
 export interface EstimateResult {
   priced: ReturnType<typeof priceScenario>
+  /** Down payment assistance / gift funds at closing, its monthly payment and CLTV with its lien. */
+  dpaAmount: number
+  dpaMonthly: number
+  cltvPct: number | null
   /** Lender credit in dollars, including negative points. */
   lenderCredit: number
   sellerCredits: number
@@ -188,13 +199,19 @@ export interface EstimateResult {
 
 /** Every figure for one estimate, from its own inputs, fee rules and edits and the loan facts it was priced from. */
 export function computeEstimate(e: EstimateDraft, overrides: FeeOverride[], templates: FeeTemplate[], facts: LoanFacts): EstimateResult {
+  const isPurchase = facts.purpose === 'purchase'
+  // DPA / gift funds (purchases): they lower cash to close; a repayable DPA adds its payment.
+  const dpa = isPurchase ? activeDpa(e.dpa) : null
+  const dpaPayment = dpaMonthly(dpa)
   const priceAt = pricingDraft({ ...e, upfrontFeePct: facts.upfrontFeePct ?? null, miRatePct: facts.miRatePct ?? null })
-  const priced = priceScenario(priceAt, facts.purpose, e.feeRules ?? activeRules(templates, null), overrides, facts.otherFinancing, smartFeeContext(e, facts))
+  const priced = priceScenario(priceAt, facts.purpose, e.feeRules ?? activeRules(templates, null), overrides, round(facts.otherFinancing + dpaPayment), smartFeeContext(e, facts))
   const f = priced.figures
   const lenderCredit = priceAt.lenderCredit
   const sellerCredits = e.sellerCredits ?? facts.sellerCredits
   const earnestMoney = e.earnestMoney ?? facts.earnestMoney
-  const isPurchase = facts.purpose === 'purchase'
+  const dpaAmount = dpa ? round(dpa.amount) : 0
+  const value = e.purchasePrice && e.propertyValue ? Math.min(e.purchasePrice, e.propertyValue) : (e.purchasePrice ?? e.propertyValue)
+  const cltvPct = dpa ? cltvWithDpa(f.totalLoanAmount, dpa, value) : null
   const gross = round(priced.closingCosts + lenderCredit)
   const cash = cashToClose({
     isPurchase,
@@ -204,7 +221,7 @@ export function computeEstimate(e: EstimateDraft, overrides: FeeOverride[], temp
     lenderCredit,
     earnestMoney: isPurchase ? earnestMoney : 0,
     sellerCredits: isPurchase ? sellerCredits : 0,
-    otherCredits: isPurchase ? creditAssets(facts.assets) : 0,
+    otherCredits: isPurchase ? round(creditAssets(facts.assets) + dpaAmount) : 0,
     debtsPaidAtClosing: debtsPaidAtClosing(facts.debts),
     mortgagePayoffs: facts.mortgagePayoffs,
     cashGifts: cashGifts(facts.assets),
@@ -245,8 +262,9 @@ export function computeEstimate(e: EstimateDraft, overrides: FeeOverride[], temp
     reservesMonths,
     dtiFront: q.dti.front,
     dtiBack: q.dti.back,
+    ...(dpa && { dpaAmount, dpaMonthly: dpaPayment, cltvPct }),
   }
-  return { priced, lenderCredit, sellerCredits, earnestMoney, cash, availableFunds: funds, fundsLeft, reservesMonths, dti: q.dti, income: q.totalIncome, otherDebts: q.otherDebts, saved }
+  return { priced, dpaAmount, dpaMonthly: dpaPayment, cltvPct, lenderCredit, sellerCredits, earnestMoney, cash, availableFunds: funds, fundsLeft, reservesMonths, dti: q.dti, income: q.totalIncome, otherDebts: q.otherDebts, saved }
 }
 
 // ---------------------------------------------------------------------------

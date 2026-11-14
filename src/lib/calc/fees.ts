@@ -11,6 +11,13 @@ export type FeeSection = 'A' | 'B' | 'C' | 'E' | 'F' | 'G' | 'H'
 export type PaidBy = 'B' | 'S' | 'L' | 'O'
 export type ImpoundWaiver = 'none' | 'taxes' | 'insurance' | 'all'
 
+/**
+ * Title insurance when the fee list has no title policy that applies: a
+ * percent of the loan amount (Connor, 2026-11-14: $650 per $100,000). It can
+ * be split with the seller like any fee.
+ */
+export const TITLE_INSURANCE_PCT = 0.65
+
 /** Prepaid interest uses a 360-day year (Connor's choice, 2026-10-26). */
 export const INTEREST_DAYS_IN_YEAR = 360
 
@@ -142,6 +149,8 @@ export interface FeeOverride {
   apr: boolean
   paidTo: string | null
   custom: boolean
+  /** The seller's share of a borrower fee, in dollars (a split); null or missing = none. */
+  sellerPaid?: number | null
 }
 
 export interface FeeLine {
@@ -160,6 +169,8 @@ export interface FeeLine {
   calculated: number | null
   /** Where the amount came from ("Fee list: Appraisal (FHA)", "TDI rate · $385,000"). */
   source?: string
+  /** The seller's share of a borrower fee (a split), never more than the fee. */
+  sellerPaid?: number
 }
 
 export interface FeeContext {
@@ -285,6 +296,18 @@ export function ruleSource(t: FeeTemplate, c: FeeContext): string {
   return when.length ? when.join(' · ') : `Fee list${t.amountType === 'tiered' ? ' (tiered)' : ''}`
 }
 
+/**
+ * A fee-list rule that is title insurance (then the built-in title insurance
+ * line isn't added): a Texas title formula, or a fee named for title that
+ * isn't a settlement, escrow, closing, search, exam, endorsement, courier,
+ * wire or tax certificate fee.
+ */
+export const isTitlePolicyRule = (t: FeeTemplate) => {
+  if (t.amountType === 'formula' && (t.formula === 'title_owner_tx' || t.formula === 'title_lender_tx')) return true
+  const words = `${t.key} ${t.name}`.toLowerCase()
+  return words.includes('title') && !/(settle|escrow|closing|search|exam|endorse|courier|wire|tax|notary|recording|cpl|protection letter)/.test(words)
+}
+
 /** The engine's own lines: points, fee list, prepaids and escrows (before any edits). */
 export function calculatedLines(templates: FeeTemplate[], c: FeeContext): Omit<FeeLine, 'edited' | 'calculated'>[] {
   const line = (key: string, section: FeeSection, name: string, atClosing: number, paidBy: PaidBy = 'B', apr = false, source?: string) => ({ key, section, name, atClosing: round(atClosing), beforeClosing: 0, paidBy, apr, paidTo: null, custom: false, source })
@@ -293,6 +316,7 @@ export function calculatedLines(templates: FeeTemplate[], c: FeeContext): Omit<F
   const rules = matchingRules(templates, c)
   // A financed FHA/VA/USDA fee shows as its own line, paid by "Other" (the loan), so it isn't cash. A fee-list formula for it takes its place.
   const financedRule = rules.some((t) => t.amountType === 'formula' && t.formula && FORMULA_FINANCED.has(t.formula) && templateAmount(t, c) > 0)
+  const titleRule = rules.some(isTitlePolicyRule)
   return [
     line('points', 'A', `${c.pointsPct.toFixed(3)}% of Loan Amount (Points)`, pointsAmount(c.pointsPct, c.loanAmount), 'B', true),
     ...(c.financedFee && !financedRule ? [line('financed_fee', 'B', c.financedFeeName ?? 'Upfront fee (financed)', c.financedFee, 'O', true, 'Calculated · financed into the loan')] : []),
@@ -300,6 +324,7 @@ export function calculatedLines(templates: FeeTemplate[], c: FeeContext): Omit<F
       const financed = t.amountType === 'formula' && !!t.formula && FORMULA_FINANCED.has(t.formula)
       return { key: t.key, section: t.section as FeeSection, name: t.name, atClosing: templateAmount(t, c), beforeClosing: 0, paidBy: financed ? ('O' as PaidBy) : t.paidBy, apr: t.apr, paidTo: t.paidTo, custom: false, source: ruleSource(t, c) }
     }),
+    ...(titleRule || c.loanAmount <= 0 ? [] : [line('title_insurance', 'C', 'Title insurance', round((c.loanAmount * TITLE_INSURANCE_PCT) / 100), 'B', false, `${TITLE_INSURANCE_PCT}% of ${money(c.loanAmount)} loan`)]),
     line('prepaid_interest', 'F', `Prepaid interest (${c.prepaidInterestDays} days)`, prepaidInterest(c.loanAmount, c.ratePct, c.prepaidInterestDays), 'B', true, `${c.prepaidInterestDays} days · ${INTEREST_DAYS_IN_YEAR}-day year`),
     line('prepaid_hoi', 'F', `Homeowner's insurance (${c.hoiPrepaidMonths} months)`, c.monthlyHoi * c.hoiPrepaidMonths),
     line('prepaid_taxes', 'F', `Property taxes (${c.taxPrepaidMonths} months)`, c.monthlyTaxes * c.taxPrepaidMonths),
@@ -335,16 +360,27 @@ export function taxReserveMonths(firstPaymentIso: string): number {
   return Math.min(Math.max(12 - deposits, 0) + ESCROW_CUSHION_MONTHS, 12 + ESCROW_CUSHION_MONTHS)
 }
 
+/** A split: the seller's share of a borrower fee, capped at the fee. */
+function sellerShare(o: FeeOverride, amount: number): { sellerPaid?: number } {
+  if (o.paidBy !== 'B' || !o.sellerPaid || o.sellerPaid <= 0) return {}
+  return { sellerPaid: round(Math.min(o.sellerPaid, amount)) }
+}
+
+/** What the borrower pays of a line (all of it, less the seller's share of a split; nothing when someone else pays). */
+export const borrowerPart = (l: Pick<FeeLine, 'paidBy' | 'atClosing' | 'beforeClosing' | 'sellerPaid'>) => (l.paidBy !== 'B' ? 0 : l.sellerPaid ? round(Math.max(l.atClosing + l.beforeClosing - l.sellerPaid, 0)) : round(l.atClosing + l.beforeClosing))
+
 /** The fee sheet: engine lines with this file's edits applied, plus custom fees, in section order. */
 export function feeSheet(templates: FeeTemplate[], overrides: FeeOverride[], c: FeeContext): FeeLine[] {
   const byKey = new Map(overrides.map((o) => [o.key, o]))
   const lines: FeeLine[] = calculatedLines(templates, c).map((l) => {
     const o = byKey.get(l.key)
     if (!o) return { ...l, edited: false, calculated: l.atClosing }
-    return { ...l, name: o.name || l.name, atClosing: o.atClosing ?? l.atClosing, beforeClosing: o.beforeClosing ?? 0, paidBy: o.paidBy, apr: o.apr, paidTo: o.paidTo, edited: true, calculated: l.atClosing }
+    const atClosing = o.atClosing ?? l.atClosing
+    const beforeClosing = o.beforeClosing ?? 0
+    return { ...l, name: o.name || l.name, atClosing, beforeClosing, paidBy: o.paidBy, apr: o.apr, paidTo: o.paidTo, edited: true, calculated: l.atClosing, ...sellerShare(o, atClosing + beforeClosing) }
   })
   for (const o of overrides.filter((x) => x.custom)) {
-    lines.push({ key: o.key, section: o.section, name: o.name, atClosing: o.atClosing ?? 0, beforeClosing: o.beforeClosing ?? 0, paidBy: o.paidBy, apr: o.apr, paidTo: o.paidTo, edited: false, custom: true, calculated: null })
+    lines.push({ key: o.key, section: o.section, name: o.name, atClosing: o.atClosing ?? 0, beforeClosing: o.beforeClosing ?? 0, paidBy: o.paidBy, apr: o.apr, paidTo: o.paidTo, edited: false, custom: true, calculated: null, ...sellerShare(o, (o.atClosing ?? 0) + (o.beforeClosing ?? 0)) })
   }
   const order: FeeSection[] = ['A', 'B', 'C', 'E', 'F', 'G', 'H']
   return lines.sort((a, b) => order.indexOf(a.section) - order.indexOf(b.section))
@@ -352,10 +388,10 @@ export function feeSheet(templates: FeeTemplate[], overrides: FeeOverride[], c: 
 
 export type SectionTotals = Record<FeeSection, number>
 
-/** Totals of what the borrower pays, by section (seller-, lender- and other-paid fees don't count against the borrower). */
+/** Totals of what the borrower pays, by section (seller-, lender- and other-paid fees, and the seller's share of a split, don't count against the borrower). */
 export function sectionTotals(lines: FeeLine[]): SectionTotals {
   const totals: SectionTotals = { A: 0, B: 0, C: 0, E: 0, F: 0, G: 0, H: 0 }
-  for (const l of lines) if (l.paidBy === 'B') totals[l.section] = round(totals[l.section] + l.atClosing + l.beforeClosing)
+  for (const l of lines) if (l.paidBy === 'B') totals[l.section] = round(totals[l.section] + borrowerPart(l))
   return totals
 }
 

@@ -55,13 +55,15 @@ export function ReviewFees<D extends ScenarioDraft>({ purpose, draft, setDraft, 
   const reset = { isPending: pending, mutate: (key: string) => run(() => onResetFee(key)) }
 
   /** Saves a change to one line. Amounts not typed keep following the calculation. */
-  const change = (line: FeeLine, patch: Partial<Pick<FeeOverride, 'atClosing' | 'beforeClosing' | 'paidBy'>>) => {
+  // Purchases can split a borrower fee with the seller (Connor, 2026-11-14: title insurance).
+  const canSplit = purpose === 'purchase'
+  const change = (line: FeeLine, patch: Partial<Pick<FeeOverride, 'atClosing' | 'beforeClosing' | 'paidBy' | 'sellerPaid'>>) => {
     if (line.key === 'points') {
       if (patch.atClosing !== undefined) set('pointsPct')(pointsPct(patch.atClosing ?? 0, totalLoanAmount))
       return
     }
     const existing = overrides.find((o) => o.key === line.key)
-    const base: FeeOverride = existing ?? { key: line.key, section: line.section, name: line.name, atClosing: null, beforeClosing: null, paidBy: line.paidBy, apr: line.apr, paidTo: line.paidTo, custom: line.custom }
+    const base: FeeOverride = existing ?? { key: line.key, section: line.section, name: line.name, atClosing: null, beforeClosing: null, paidBy: line.paidBy, apr: line.apr, paidTo: line.paidTo, custom: line.custom, ...(line.sellerPaid ? { sellerPaid: line.sellerPaid } : {}) }
     run(() => onSaveFee({ ...base, ...patch }))
   }
 
@@ -140,13 +142,31 @@ export function ReviewFees<D extends ScenarioDraft>({ purpose, draft, setDraft, 
                             {l.key === 'points' ? (
                               <span className="text-xs">Borrower</span>
                             ) : (
-                              <select aria-label={`${l.name} paid by`} value={l.paidBy} onChange={(e) => change(l, { paidBy: e.target.value as PaidBy })} className="h-8 rounded-md border bg-transparent px-1.5 text-xs text-foreground">
-                                {PAID_BY.map((p) => (
-                                  <option key={p} value={p}>
-                                    {PAID_BY_LABEL[p]}
-                                  </option>
-                                ))}
-                              </select>
+                              <div className="flex flex-col gap-1">
+                                <select
+                                  aria-label={`${l.name} paid by`}
+                                  value={l.sellerPaid ? 'split' : l.paidBy}
+                                  onChange={(e) =>
+                                    e.target.value === 'split'
+                                      ? change(l, { paidBy: 'B', sellerPaid: Math.round(((l.atClosing + l.beforeClosing) / 2) * 100) / 100 })
+                                      : change(l, { paidBy: e.target.value as PaidBy, ...(l.sellerPaid ? { sellerPaid: null } : {}) })
+                                  }
+                                  className="h-8 rounded-md border bg-transparent px-1.5 text-xs text-foreground"
+                                >
+                                  {PAID_BY.map((p) => (
+                                    <option key={p} value={p}>
+                                      {PAID_BY_LABEL[p]}
+                                    </option>
+                                  ))}
+                                  {canSplit && <option value="split">Split with seller</option>}
+                                </select>
+                                {!!l.sellerPaid && (
+                                  <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                    Seller pays
+                                    <MoneyCell label={`${l.name} seller's share`} value={l.sellerPaid} onCommit={(v) => change(l, { sellerPaid: v && v > 0 ? v : null })} />
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </td>
                           <td className="py-1 pr-2 text-right">
