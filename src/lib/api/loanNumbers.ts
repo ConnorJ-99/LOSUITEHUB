@@ -60,6 +60,7 @@ export function useSaveLoanNumbers(loanId: string) {
   return useMutation({
     mutationFn: (c: LoanNumberChanges) => saveLoanNumbers(loanId, c),
     onSuccess: () => {
+      // keys.loan: the lender's name on the Overview follows the lender picked here (database trigger).
       for (const k of [loanNumbersKey(loanId), keys.loan(loanId), keys.pipeline, loanNumberIndexKey]) queryClient.invalidateQueries({ queryKey: k })
     },
   })

@@ -9,6 +9,7 @@ import { AriveLink } from '@/components/loanfile/AriveLink'
 import { offerMilestoneUpdate } from '@/components/messaging/fileTextRequests'
 import { StageBadge } from '@/components/pipeline/StageBadge'
 import { useLenders } from '@/lib/api/lenders'
+import { useLoanNumbers } from '@/lib/api/loanNumbers'
 import { useContactLoans, useUpdateLead, useUpdateLoanDetails } from '@/lib/api/loans'
 import { useEstimates } from '@/lib/api/estimates'
 import type { SavedFigures } from '@/lib/estimates/estimate'
@@ -123,12 +124,16 @@ function editable({ subjectPropertyId, ...rest }: LoanDetails): EditableDetails 
  */
 function LenderFields({ loan, lenderName, programName, onLender, onProgram }: { loan: LoanProfile; lenderName: string | null; programName: string | null; onLender: (v: string) => void; onProgram: (v: string) => void }) {
   const lenders = useLenders()
+  const nums = useLoanNumbers(loan.id)
+  // The lender loan # is the one at the top of the file (Lender chip), shown here so both always match.
+  const loanNo = nums.data?.ready ? <Input label="Lender loan #" value={nums.data.lenderLoanNumber ?? ''} readOnly placeholder="Not set" hint="Change it with the Lender chip at the top" span={2} /> : null
   // An estimate Selected for the file names its lender and program (written to the loan when it was selected).
   if (loan.details.pricingScenarioId && (loan.details.programId || loan.details.lenderName))
     return (
       <>
         <Input label="Lender" value={loan.details.lenderName ?? ''} readOnly hint="From the selected estimate (Scenarios & Estimate)" span={2} />
         <Input label="Program" value={loan.details.programName ?? ''} readOnly span={2} />
+        {loanNo}
       </>
     )
   const lender = lenders.data?.find((l) => l.name.toLowerCase() === (lenderName ?? '').trim().toLowerCase())
@@ -146,6 +151,7 @@ function LenderFields({ loan, lenderName, programName, onLender, onProgram }: { 
           <option key={p.id} value={p.name} />
         ))}
       </datalist>
+      {loanNo}
     </>
   )
 }
@@ -255,6 +261,12 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
   const updateDetails = useUpdateLoanDetails(loan.id)
   const saved = editable(loan.details)
   const [form, setForm] = useState<EditableDetails>(saved)
+  // The lender picked at the top of the file saves straight away; show it here unless it's being typed over.
+  const [lastLender, setLastLender] = useState(saved.lenderName)
+  if (saved.lenderName !== lastLender) {
+    setLastLender(saved.lenderName)
+    if (form.lenderName === lastLender) setForm((f) => ({ ...f, lenderName: saved.lenderName }))
+  }
   const [dscrPick, setDscrPick] = useState<DscrTransaction | null>(null)
   const set = <K extends keyof EditableDetails>(key: K) => (value: EditableDetails[K]) => setForm((f) => ({ ...f, [key]: value }))
 

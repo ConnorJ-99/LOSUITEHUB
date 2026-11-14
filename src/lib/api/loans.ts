@@ -538,6 +538,8 @@ export function useUpdateLoanDetails(loanId: string) {
     mutationFn: (changes: Partial<LoanDetails>) => saveLoanDetails(loanId, changes),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.loan(loanId) })
+      // The lender typed here also sets the lender at the top of the file (database trigger).
+      queryClient.invalidateQueries({ queryKey: ['loan-numbers', loanId] })
       queryClient.invalidateQueries({ queryKey: keys.pipeline })
     },
   })
