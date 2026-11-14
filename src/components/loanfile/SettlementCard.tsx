@@ -12,6 +12,7 @@ import { Card, TextArea } from '@/components/shared'
 import { TeamMemberDialog } from '@/components/partners/TeamMemberDialog'
 import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
 import type { RequestKind } from '@/lib/partners/requestEmail'
+import { PartnerMessages } from './PartnerMessages'
 import { PartnerRequestDialog } from './PartnerRequestDialog'
 import { lenderClause, useLenders } from '@/lib/api/lenders'
 import { useLoanFile, useSaveTeamMember, type TeamRole } from '@/lib/api/loanfile'
@@ -70,6 +71,8 @@ export function SettlementCard({ loanId, organizationId }: { loanId: string; org
                         </span>
                       )}
                     </p>
+                    {/* The requests sent and their replies (saved from GoHighLevel). */}
+                    {r.partnerId && <PartnerMessages loanId={loanId} partnerId={r.partnerId} />}
                   </>
                 ) : (
                   <p className="text-muted-foreground">Not picked yet</p>

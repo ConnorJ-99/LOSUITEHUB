@@ -42,6 +42,7 @@ import {
 } from '../assistant/replyDraft.ts'
 import { CHECKS, GHL_BASE, classify, logEndpoint, type CheckKey, type CheckResult } from '../ghl/checks.ts'
 import { matchContact, phone10, type Candidate, type MatchResult } from '../ghl/match.ts'
+import { partnerFileFor, type PartnerFile } from './partnerFile.ts'
 import {
   isEmailUnsubscribe,
   isStopReply,
@@ -177,6 +178,60 @@ async function matchPerson(db: SupabaseClient, orgId: string, contact: GhlContac
   return result
 }
 
+/**
+ * A partner (title, insurance, realtor…) this GHL contact is (Connor, 2026-11-14):
+ * by the GHL id saved when they were added to GHL, else (byEmail) the one
+ * partner with this email, who is then linked. Never by name.
+ */
+async function partnerFor(db: SupabaseClient, orgId: string, contact: GhlContact, byEmail: boolean): Promise<{ id: string; by: 'ghl_id' | 'email' } | null> {
+  const byId = await db.from('partners').select('id').eq('organization_id', orgId).eq('ghl_contact_id', contact.id).limit(2)
+  if (byId.error) throw new Error(byId.error.message)
+  if (byId.data?.length === 1) return { id: (byId.data[0] as { id: string }).id, by: 'ghl_id' }
+  const email = contact.email?.trim().toLowerCase()
+  if (!byEmail || !email || byId.data?.length) return null
+  const found = await db.from('partners').select('id, ghl_contact_id').eq('organization_id', orgId).eq('email', email).limit(2)
+  if (found.error) throw new Error(found.error.message)
+  const rows = (found.data ?? []) as { id: string; ghl_contact_id: string | null }[]
+  // Two partners with this email, or one linked to a different GHL contact: an admin decides.
+  if (rows.length !== 1 || rows[0].ghl_contact_id) return null
+  const link = await db.from('partners').update({ ghl_contact_id: contact.id }).eq('id', rows[0].id).eq('organization_id', orgId).is('ghl_contact_id', null)
+  if (link.error) throw new Error(link.error.message)
+  return { id: rows[0].id, by: 'email' }
+}
+
+/** The files a partner is on, with what names them (borrowers, loan numbers), and the file we last wrote to them from. */
+async function partnerFiles(db: SupabaseClient, partnerId: string): Promise<{ files: PartnerFile[]; lastSentLoanId: string | null }> {
+  const [team, last] = await Promise.all([
+    db.from('loan_team_members').select('loan:loans!loan_team_members_loan_id_fkey ( *, borrowers:loan_borrowers ( contact:contacts!loan_borrowers_contact_id_fkey ( first_name, last_name ) ) )').eq('partner_id', partnerId),
+    db.from('messages').select('loan_id').eq('partner_id', partnerId).eq('direction', 'outbound').not('loan_id', 'is', null).order('sent_at', { ascending: false }).limit(1),
+  ])
+  if (team.error || last.error) throw new Error((team.error ?? last.error)!.message)
+  type LoanRow = { id: string; stage: string; created_at: string; arive_loan_number: string | null; lender_loan_number?: string | null; title_file_number?: string | null; borrowers: { contact: { first_name: string | null; last_name: string | null } | null }[] }
+  const seen = new Set<string>()
+  const files: PartnerFile[] = []
+  for (const t of (team.data ?? []) as unknown as { loan: LoanRow | null }[]) {
+    const l = t.loan
+    if (!l || seen.has(l.id)) continue
+    seen.add(l.id)
+    files.push({
+      loanId: l.id,
+      borrowerNames: l.borrowers.flatMap((b) => (b.contact ? [[b.contact.first_name, b.contact.last_name].filter(Boolean).join(' ')] : [])),
+      loanNumbers: [l.arive_loan_number, l.lender_loan_number ?? null, l.title_file_number ?? null].filter((n): n is string => !!n),
+      open: !['closed', 'lost'].includes(l.stage),
+      createdAt: l.created_at,
+    })
+  }
+  return { files, lastSentLoanId: ((last.data ?? [])[0] as { loan_id: string } | undefined)?.loan_id ?? null }
+}
+
+/** Turns a partner's texts or emails off (a STOP reply or GHL's Do Not Disturb). */
+async function partnerOptOut(db: SupabaseClient, orgId: string, partnerId: string, channel: 'text' | 'email'): Promise<boolean> {
+  const field = channel === 'text' ? 'sms' : 'email'
+  const u = await db.from('partners').update({ [`${field}_opted_out_at`]: new Date().toISOString(), [`${field}_consent`]: false }).eq('id', partnerId).eq('organization_id', orgId).is(`${field}_opted_out_at`, null).select('id')
+  if (u.error) throw new Error(u.error.message)
+  return !!u.data?.length
+}
+
 /** Copies one conversation's latest texts and emails into LOSuite. */
 async function syncConversation(db: SupabaseClient, g: Ghl, company: Company, conversationId: string, ghlContactId: string, cache: Map<string, GhlContact | null>, s: Summary) {
   const orgId = company.organization_id
@@ -206,8 +261,15 @@ async function syncConversation(db: SupabaseClient, g: Ghl, company: Company, co
   const all = pickMessages(list.body)
   const messages = company.inbound_mode === 'test_only' ? all.filter((m) => keepInTestMode(m, company.testLinks.get(contact.id) ?? null)) : all
 
-  const match = await matchPerson(db, orgId, contact)
-  const personId = match.kind === 'matched' ? match.contactId : null
+  // A partner linked by GHL id is theirs; else a borrower; else one partner with this email.
+  let partner = await partnerFor(db, orgId, contact, false)
+  const match: MatchResult = partner ? { kind: 'needs_matching', reason: 'no_match', candidateIds: [] } : await matchPerson(db, orgId, contact)
+  if (!partner && match.kind !== 'matched') partner = await partnerFor(db, orgId, contact, true)
+  const personId = !partner && match.kind === 'matched' ? match.contactId : null
+  if (partner) {
+    if (contact.dndText && (await partnerOptOut(db, orgId, partner.id, 'text'))) s.optOuts++
+    if (contact.dndEmail && (await partnerOptOut(db, orgId, partner.id, 'email'))) s.optOuts++
+  }
 
   // GHL's Do Not Disturb turns consent off (a person turns it back on, with a note).
   if (personId) {
@@ -237,11 +299,25 @@ async function syncConversation(db: SupabaseClient, g: Ghl, company: Company, co
   }
 
   const rows = []
-  for (const m of fresh) rows.push(await messageRow(g, orgId, m, contact, conversationId, match, loanId))
+  if (partner) {
+    // A partner's message goes on the file it's about (the borrower or loan number in it, else the file we last wrote from).
+    const pf = await partnerFiles(db, partner.id)
+    for (const m of fresh) {
+      const row = await messageRow(g, orgId, m, contact, conversationId, match, null)
+      rows.push({ ...row, contact_id: null, partner_id: partner.id, loan_id: partnerFileFor(`${row.subject ?? ''}\n${row.body ?? ''}`, pf.files, pf.lastSentLoanId), match_status: 'matched', matched_by: partner.by, match_reason: null, candidate_ids: [] })
+    }
+  } else for (const m of fresh) rows.push(await messageRow(g, orgId, m, contact, conversationId, match, loanId))
   const saved = await db.from('messages').upsert(rows, { onConflict: 'organization_id,ghl_message_id', ignoreDuplicates: true }).select('ghl_message_id')
   if (saved.error) throw new Error(saved.error.message)
   s.saved += saved.data?.length ?? 0
-  if (!personId) s.needsMatching += saved.data?.length ?? 0
+  if (!personId && !partner) s.needsMatching += saved.data?.length ?? 0
+
+  // A partner's STOP or unsubscribe turns that channel off for them (no reply drafts for partners).
+  if (partner) {
+    if (fresh.some((m) => m.channel === 'text' && m.direction === 'inbound' && isStopReply(m.body)) && (await partnerOptOut(db, orgId, partner.id, 'text'))) s.optOuts++
+    if (rows.some((r) => r.channel === 'email' && r.direction === 'inbound' && isEmailUnsubscribe(r.body)) && (await partnerOptOut(db, orgId, partner.id, 'email'))) s.optOuts++
+    return
+  }
 
   // A STOP reply turns texting off.
   if (personId && fresh.some((m) => m.channel === 'text' && m.direction === 'inbound' && isStopReply(m.body))) {

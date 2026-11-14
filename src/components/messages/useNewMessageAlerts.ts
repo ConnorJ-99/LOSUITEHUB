@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { useNewMessages, type FreshMessage } from '@/lib/api/messages'
 
-/** Where a new message opens: its file's Messages tab, else the Inbox. */
-export const fileLink = (m: FreshMessage) => (m.loanId ? `/loans/${m.loanId}?tab=messages` : '/inbox')
+/** Where a new message opens: its file's Messages tab (a partner's: the file's Overview, with the Settlement card), else the Inbox. */
+export const fileLink = (m: FreshMessage) => (m.loanId ? (m.partnerId ? `/loans/${m.loanId}` : `/loans/${m.loanId}?tab=messages`) : '/inbox')
 
 /**
  * A pop-up for each text or email that arrives while LOSuite is open, on any

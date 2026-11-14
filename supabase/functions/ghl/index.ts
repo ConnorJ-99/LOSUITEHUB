@@ -918,7 +918,7 @@ async function linkPartner(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   if (link.error) throw new Error(link.error.message)
   const assignTo = (link.data as { ghl_user_id: string } | null)?.ghl_user_id ?? null
 
-  // Already linked: just make sure a realtor is in the realtor pipeline.
+  // Already linked: just make sure a realtor, title or insurance partner is in the partner pipeline.
   if (partner.ghl_contact_id) return { linked: true, created: false, pipeline: await ensureRealtorOpportunity(admin, g, organizationId, partner, partner.ghl_contact_id, assignTo, s) }
 
   if (!partner.email?.trim() && !e164(partner.phone)) throw new UserError(`${partner.name} needs an email or a 10-digit phone before LOSuite can add them to GHL.`)
@@ -964,11 +964,14 @@ async function linkPartner(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
 }
 
 /**
- * A realtor's opportunity in the realtor pipeline picked in Settings → GHL
- * pipelines: the one saved, else one they already have in that pipeline,
- * else a new one in the picked stage (named after them, assigned to their
- * loan officer). Never a second one. Other partners (title, builders…) are
- * left alone. Says what happened, or why not, in words.
+ * A partner's opportunity in the partner pipeline picked in Settings → GHL
+ * pipelines (Connor's "Partner Pipeline": stages Realtor, Insurance, Title):
+ * the one saved, else one they already have in that pipeline, else a new one
+ * (named after them, assigned to their loan officer). Realtors start in the
+ * stage picked in Settings; title and insurance in the pipeline's stage named
+ * "Title" / "Insurance" (Connor, 2026-11-14). Never a second one. Other
+ * partners (builders, referral partners) are left alone. Says what happened,
+ * or why not, in words.
  */
 async function ensureRealtorOpportunity(
   admin: SupabaseClient,
@@ -979,9 +982,20 @@ async function ensureRealtorOpportunity(
   assignTo: string | null,
   s: { realtor_pipeline_id?: string | null; realtor_stage_id?: string | null; realtor_label?: string | null } | null,
 ): Promise<string | null> {
-  if (partner.kind !== 'realtor') return null
-  if (partner.ghl_opportunity_id) return 'Already in the realtor pipeline.'
-  if (!s?.realtor_pipeline_id || !s.realtor_stage_id) return 'Pick the realtor pipeline in Settings → GHL pipelines to add them to it.'
+  if (!['realtor', 'title', 'insurance'].includes(partner.kind)) return null
+  const label = s?.realtor_label ?? 'the partner pipeline'
+  if (partner.ghl_opportunity_id) return `Already in ${label}.`
+  if (!s?.realtor_pipeline_id || !s.realtor_stage_id) return 'Pick the partner pipeline in Settings → GHL pipelines to add them to it.'
+  let stageId: string = s.realtor_stage_id
+  if (partner.kind !== 'realtor') {
+    // Title and insurance: the stage with that name in the partner pipeline. GET /opportunities/pipelines (opportunities.readonly).
+    const want = partner.kind === 'title' ? 'title' : 'insurance'
+    const list = await g.call(plan('opportunities_read'), `/opportunities/pipelines?locationId=${encodeURIComponent(g.locationId)}`)
+    if (list.outcome.result !== 'works') return `GHL's pipelines couldn't be read: ${list.outcome.detail}`
+    const stage = pickPipelines(list.body).find((p) => p.id === s.realtor_pipeline_id)?.stages.find((st) => st.name.trim().toLowerCase().startsWith(want))
+    if (!stage) return `Add a "${want === 'title' ? 'Title' : 'Insurance'}" stage to ${label} in GoHighLevel to add them to it.`
+    stageId = stage.id
+  }
   // Their opportunities: GET /opportunities/search (opportunities.readonly).
   const search = await g.call(plan('opportunities_read'), `/opportunities/search?location_id=${encodeURIComponent(g.locationId)}&contact_id=${encodeURIComponent(ghlContactId)}&status=all&limit=20`)
   if (search.outcome.result !== 'works') return `GHL's opportunities couldn't be read: ${search.outcome.detail}`
@@ -993,18 +1007,18 @@ async function ensureRealtorOpportunity(
       locationId: g.locationId,
       contactId: ghlContactId,
       pipelineId: s.realtor_pipeline_id,
-      pipelineStageId: s.realtor_stage_id,
+      pipelineStageId: stageId,
       name: partner.name,
       status: 'open',
       ...(assignTo ? { assignedTo: assignTo } : {}),
     })
     opportunityId = pickOpportunity((made.body as { opportunity?: Record<string, unknown> } | null)?.opportunity)?.id ?? null
-    if (made.outcome.result !== 'works' || !opportunityId) return `GHL didn't add them to the realtor pipeline: ${made.outcome.detail}`
+    if (made.outcome.result !== 'works' || !opportunityId) return `GHL didn't add them to ${label}: ${made.outcome.detail}`
     added = true
   }
   const saved = await admin.from('partners').update({ ghl_opportunity_id: opportunityId }).eq('id', partner.id).eq('organization_id', organizationId)
   if (saved.error) return saved.error.code === '23505' ? 'That GHL opportunity is already linked to another partner. An admin should check.' : saved.error.message
-  return added ? `Added to ${s.realtor_label ?? 'the realtor pipeline'}.` : 'Linked to their opportunity in the realtor pipeline.'
+  return added ? `Added to ${label}.` : `Linked to their opportunity in ${label}.`
 }
 
 /**

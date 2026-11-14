@@ -3,10 +3,12 @@
 // file's loan officer or an admin approves this exact email
 // (approve_partner_send), then the ghl function sends only that, with every
 // check (email consent, opt-outs, Do Not Disturb, sending hours, test mode).
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+// Their replies come back through ghl-inbound, saved on the file they are about.
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FunctionsHttpError } from '@supabase/supabase-js'
 import { useAuth } from '@/lib/auth/context'
 import { db, keys, unwrap } from './client'
+import { MESSAGE_SELECT, toMessage, type Message, type MessageRow } from './messages'
 
 export function useSendPartnerEmail(loanId: string) {
   const queryClient = useQueryClient()
@@ -31,6 +33,33 @@ export function useSendPartnerEmail(loanId: string) {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: keys.partners })
       queryClient.invalidateQueries({ queryKey: ['messages'] })
+    },
+  })
+}
+
+export interface PartnerMessage extends Message {
+  partnerId: string
+}
+
+/** Every text and email with partners (title, insurance, realtors) saved on this file, newest first. */
+export function usePartnerMessages(loanId: string) {
+  return useQuery({
+    // Under ['messages'] so new ones show the moment they're saved (useMessagesLive).
+    queryKey: ['messages', 'partner', loanId],
+    queryFn: async (): Promise<PartnerMessage[]> =>
+      unwrap<(MessageRow & { partner_id: string })[]>(
+        await db().from('messages').select(`${MESSAGE_SELECT}, partner_id`).eq('loan_id', loanId).not('partner_id', 'is', null).order('sent_at', { ascending: false }).limit(200),
+      ).map((r) => ({ ...toMessage(r), partnerId: r.partner_id })),
+  })
+}
+
+/** Marks a partner's received messages on this file read (opening them does this). */
+export function useMarkPartnerRead(loanId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (partnerId: string) => unwrap<number>(await db().rpc('mark_partner_messages_read', { p_loan_id: loanId, p_partner_id: partnerId })),
+    onSuccess: (n) => {
+      if (n > 0) queryClient.invalidateQueries({ queryKey: ['messages'] })
     },
   })
 }

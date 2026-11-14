@@ -16,7 +16,7 @@ type Target = { kind: 'borrower'; loanId: string; contactId: string } | { kind: 
  * assigned to the file's loan officer). Linked: a "Linked to GoHighLevel"
  * chip. Skipped or failed: the reason and Retry. The reason isn't saved, so
  * it shows until the page is left. pipelineMissing: a linked realtor not yet
- * in GHL's realtor pipeline gets "Add to realtor pipeline".
+ * in GHL's partner pipeline (realtors, title, insurance) gets "Add to partner pipeline".
  */
 export function AddToGhl({ target, linked, name, pipelineMissing = false }: { target: Target; linked: boolean; name: string; pipelineMissing?: boolean }) {
   const { state } = useAuth()
@@ -39,7 +39,7 @@ export function AddToGhl({ target, linked, name, pipelineMissing = false }: { ta
       if ('skipped' in r) setProblem(r.skipped)
       else if (linked && !pipelineOk) setProblem(r.pipeline!)
       else {
-        toast.success(linked ? `${name}: realtor pipeline` : r.created ? `${name} added to GoHighLevel` : `${name} linked to their GoHighLevel contact`, r.pipeline ? { description: r.pipeline } : undefined)
+        toast.success(linked ? `${name}: partner pipeline` : r.created ? `${name} added to GoHighLevel` : `${name} linked to their GoHighLevel contact`, r.pipeline ? { description: r.pipeline } : undefined)
         for (const key of [['messages', 'people'], ['partners'], ['closedLoans']]) queryClient.invalidateQueries({ queryKey: key })
         // A borrower: offer the intro text with the work number and personal cell.
         if (target.kind === 'borrower') void offerBorrowerIntro(target.loanId, target.contactId)
@@ -64,8 +64,8 @@ export function AddToGhl({ target, linked, name, pipelineMissing = false }: { ta
       ) : linked ? (
         <span className="inline-flex flex-wrap items-center gap-1.5">
           <span className={TONE_CLASS.ok}>Linked to GoHighLevel</span>
-          <Button size="xs" variant="outline" disabled={busy} onClick={run} title="Adds their opportunity to the realtor pipeline picked in Settings → GHL pipelines (once)">
-            {busy ? 'Adding…' : 'Add to realtor pipeline'}
+          <Button size="xs" variant="outline" disabled={busy} onClick={run} title="Adds their opportunity to the partner pipeline picked in Settings → GHL pipelines (once)">
+            {busy ? 'Adding…' : 'Add to partner pipeline'}
           </Button>
         </span>
       ) : (

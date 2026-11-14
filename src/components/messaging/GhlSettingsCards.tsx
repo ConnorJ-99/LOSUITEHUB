@@ -513,7 +513,7 @@ export function GhlPipelinesCard({ canEdit }: { canEdit: boolean }) {
           <div className="divide-y">
             {row('When a loan closes', "The borrower's opportunity moves here (made, if they have none). Nothing in GHL fires on it.", s.closedStage, 'closedStage')}
             {row('When a closed client comes back', '"Copy to a new lead" moves the same opportunity here, reopened.', s.comebackStage, 'comebackStage')}
-            {row('When a realtor is added to GoHighLevel', 'Their opportunity starts here (once; never a second one). Title and other partners are left out.', s.realtorStage, 'realtorStage')}
+            {row('Partner pipeline: where a realtor starts', 'A realtor\'s opportunity starts here (once; never a second one). Title and insurance partners go in this pipeline\'s "Title" and "Insurance" stages. Builders and referral partners are left out.', s.realtorStage, 'realtorStage')}
           </div>
           {s.testMode && <p className="text-xs text-muted-foreground">Test mode: only people with TEST in their name are changed in GHL.</p>}
           <p className="border-t pt-2 text-xs text-muted-foreground">

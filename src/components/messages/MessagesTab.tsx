@@ -25,6 +25,8 @@ import { relativeTime } from '@/lib/dates'
 import { consentChip, dayLabel, groupByDay, sharedPhoneIds, timeOfDay } from '@/lib/messaging/thread'
 import { formatPhone } from '@/lib/pipeline/helpers'
 import { AddToGhl } from '@/components/messaging/AddToGhl'
+import { PartnerMessages } from '@/components/loanfile/PartnerMessages'
+import { usePartnerMessages } from '@/lib/api/partnerRequests'
 import { Composer } from './Composer'
 import { FailedSendActions } from './FailedSend'
 import { TONE_CLASS } from './tone'
@@ -267,6 +269,17 @@ function GhlPanel({ loan, people, messages, canCheck }: { loan: LoanProfile; peo
 }
 
 /** The borrower's texts and emails from GHL in one thread, a composer to send through GHL, and consent and GHL status beside it. */
+/** Title, insurance and realtor emails on this file (Connor, 2026-11-14); hidden when there are none. */
+function PartnerMessagesCard({ loanId }: { loanId: string }) {
+  const list = usePartnerMessages(loanId)
+  if (!list.data?.length) return null
+  return (
+    <Card title="Partners (title, insurance, realtors)">
+      <PartnerMessages loanId={loanId} />
+    </Card>
+  )
+}
+
 export function MessagesTab({ loan }: { loan: LoanProfile }) {
   const { state } = useAuth()
   const role = state.status === 'signedIn' ? state.user.role : null
@@ -341,6 +354,7 @@ export function MessagesTab({ loan }: { loan: LoanProfile }) {
         {people.data && people.data.length > 0 && <Composer loan={loan} people={people.data} />}
       </Card>
       <div className="space-y-4">
+        <PartnerMessagesCard loanId={loan.id} />
         {people.data && <ContactConsentCard people={people.data} />}
         {people.data && <GhlPanel loan={loan} people={people.data} messages={messages} canCheck={canCheck} />}
       </div>

@@ -71,10 +71,10 @@ export interface Message {
   failureClearedAt: string | null
 }
 
-const MESSAGE_SELECT =
+export const MESSAGE_SELECT =
   'id, contact_id, loan_id, channel, direction, subject, body, from_address, to_address, status, sent_at, read_at, match_status, matched_by, match_reason, candidate_ids, ghl_contact_id, ghl_contact_name, ghl_contact_email, ghl_contact_phone, attachments, send_error, failure_cleared_at'
 
-interface MessageRow {
+export interface MessageRow {
   id: string
   contact_id: string | null
   loan_id: string | null
@@ -100,7 +100,7 @@ interface MessageRow {
   failure_cleared_at: string | null
 }
 
-const toMessage = (r: MessageRow): Message => ({
+export const toMessage = (r: MessageRow): Message => ({
   id: r.id,
   contactId: r.contact_id,
   loanId: r.loan_id,
@@ -447,7 +447,9 @@ export function useMessagesLive() {
 
 export interface FreshMessage {
   id: string
-  contactId: string
+  /** A borrower's message; null for a partner's (title, insurance, realtor). */
+  contactId: string | null
+  partnerId: string | null
   loanId: string | null
   name: string
   channel: MessageChannel
@@ -464,10 +466,11 @@ export function useNewMessages() {
     enabled: state.status === 'signedIn',
     refetchInterval: LIVE_MS,
     queryFn: async () => {
-      const rows = unwrap<(MessageRow & { contact: { first_name: string; last_name: string } | null })[]>(
+      // Partners' messages too (title and insurance replies, Connor 2026-11-14).
+      const rows = unwrap<(MessageRow & { partner_id: string | null; contact: { first_name: string; last_name: string } | null; partner: { name: string; company: string | null } | null })[]>(
         await db()
           .from('messages')
-          .select(`${MESSAGE_SELECT}, contact:contacts!messages_contact_id_fkey ( first_name, last_name )`)
+          .select(`${MESSAGE_SELECT}, partner_id, contact:contacts!messages_contact_id_fkey ( first_name, last_name ), partner:partners!messages_partner_id_fkey ( name, company )`)
           .eq('direction', 'inbound')
           .eq('match_status', 'matched')
           .is('read_at', null)
@@ -476,14 +479,15 @@ export function useNewMessages() {
       )
       return rows.flatMap((r): FreshMessage[] => {
         const m = toMessage(r)
-        if (!m.contactId) return []
-        const text = (m.channel === 'email' && m.subject ? m.subject : m.body ?? '').replace(/s+/g, ' ').trim()
+        if (!m.contactId && !r.partner_id) return []
+        const text = (m.channel === 'email' && m.subject ? m.subject : m.body ?? '').replace(/\s+/g, ' ').trim()
         return [
           {
             id: m.id,
             contactId: m.contactId,
+            partnerId: r.partner_id,
             loanId: m.loanId,
-            name: [r.contact?.first_name, r.contact?.last_name].filter(Boolean).join(' ') || 'Unknown',
+            name: r.partner ? r.partner.company || r.partner.name : [r.contact?.first_name, r.contact?.last_name].filter(Boolean).join(' ') || 'Unknown',
             channel: m.channel,
             preview: text.length > 90 ? `${text.slice(0, 89)}…` : text,
             sentAt: m.sentAt,
