@@ -2,23 +2,26 @@
 // file's title company and insurance agent (picked from the Partner center
 // or added here; contract intake's "Add to team" fills title in), and the
 // mortgagee clause the insurance agent needs: the loan's override if set,
-// else the lender's clause, plus "Loan # {lender loan #}".
+// else the lender's clause, plus "Loan # {lender loan #}". "Send request"
+// emails the title or insurance request through GoHighLevel (PartnerRequestDialog).
 import { useState } from 'react'
-import { CopyIcon, MailIcon, PhoneIcon } from 'lucide-react'
+import { CopyIcon, MailIcon, PhoneIcon, SendIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, TextArea } from '@/components/shared'
 import { TeamMemberDialog } from '@/components/partners/TeamMemberDialog'
 import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
+import type { RequestKind } from '@/lib/partners/requestEmail'
+import { PartnerRequestDialog } from './PartnerRequestDialog'
 import { lenderClause, useLenders } from '@/lib/api/lenders'
 import { useLoanFile, useSaveTeamMember, type TeamRole } from '@/lib/api/loanfile'
 import { useLoanNumbers, useSaveLoanNumbers } from '@/lib/api/loanNumbers'
 import { resolveLender } from '@/lib/loans/numbers'
 import { mortgageeClause } from '@/lib/loans/mortgagee'
 
-const SLOTS: { role: TeamRole; label: string }[] = [
-  { role: 'title', label: 'Title company' },
-  { role: 'insurance_agent', label: 'Insurance agent' },
+const SLOTS: { role: TeamRole; label: string; request: RequestKind }[] = [
+  { role: 'title', label: 'Title company', request: 'title' },
+  { role: 'insurance_agent', label: 'Insurance agent', request: 'insurance' },
 ]
 
 const FROM_LABEL = { override: 'Override for this loan', lender: "From the lender's clause", legacy: "From the lender's one-line clause" } as const
@@ -31,6 +34,7 @@ export function SettlementCard({ loanId, organizationId }: { loanId: string; org
   const saveNums = useSaveLoanNumbers(loanId)
   const [editing, setEditing] = useState<{ role: TeamRole; label: string } | null>(null)
   const [override, setOverride] = useState<string | null>(null)
+  const [request, setRequest] = useState<{ kind: RequestKind; partnerId: string } | null>(null)
 
   const n = nums.data
   const lender = n ? resolveLender(n, lenders.data ?? []) : null
@@ -71,9 +75,21 @@ export function SettlementCard({ loanId, organizationId }: { loanId: string; org
                   <p className="text-muted-foreground">Not picked yet</p>
                 )}
               </div>
-              <Button size="xs" variant="outline" onClick={() => setEditing(slot)}>
-                {r ? 'Change' : 'Pick or add'}
-              </Button>
+              <div className="flex flex-wrap gap-1.5">
+                {r && (
+                  <Button
+                    size="xs"
+                    // Only a saved partner (linked by email or phone) can be emailed through GoHighLevel.
+                    onClick={() => (r.partnerId ? setRequest({ kind: slot.request, partnerId: r.partnerId }) : toast.error(`Add ${r.company || r.name || "their"} email with Change first, so they are saved as a partner.`))}
+                  >
+                    <SendIcon />
+                    Send {slot.request} request
+                  </Button>
+                )}
+                <Button size="xs" variant="outline" onClick={() => setEditing(slot)}>
+                  {r ? 'Change' : 'Pick or add'}
+                </Button>
+              </div>
             </div>
           )
         })}
@@ -138,6 +154,10 @@ export function SettlementCard({ loanId, organizationId }: { loanId: string; org
           </div>
         )}
       </div>
+
+      {request && (
+        <PartnerRequestDialog kind={request.kind} loanId={loanId} partnerId={request.partnerId} clause={clause?.text ?? null} lenderLoanNumber={n?.lenderLoanNumber ?? null} onClose={() => setRequest(null)} />
+      )}
 
       {editing && (
         <TeamMemberDialog
