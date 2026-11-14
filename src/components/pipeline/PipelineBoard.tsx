@@ -37,7 +37,7 @@ interface BoardProps {
 }
 
 /** All loans: a column for every stage. */
-const STAGE_COLUMNS: PipelineColumn[] = STAGES.map((s) => ({ id: s.value, label: s.label, stages: [s.value], dropStage: s.value }))
+const STAGE_COLUMNS: PipelineColumn[] = STAGES.map((s) => ({ id: s.value, label: s.label, stages: [s.value], dropStage: s.value, steps: [] }))
 
 function DraggableCard({ loan, showLo, onRequestChange, tasks }: { loan: PipelineLoan; showLo: boolean; onRequestChange: RequestChange; tasks?: Task[] }) {
   const navigate = useNavigate()

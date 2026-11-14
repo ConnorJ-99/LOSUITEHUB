@@ -46,12 +46,10 @@ describe('pipeline tiles', () => {
       now,
     )
     expect(tiles).toEqual([
-      { id: 'new_leads', count: 1, total: 300000 },
-      { id: 'purchase', count: 2, total: 780000 },
-      { id: 'refinance', count: 0, total: 0 },
-      { id: 'investment', count: 0, total: 0 },
+      { id: 'purchase', count: 3, total: 1080000 },
+      { id: 'refinance', count: 1, total: 250000 },
       { id: 'heloc', count: 0, total: 0 },
-      { id: 'in_process', count: 1, total: 250000 },
+      { id: 'closed', count: 1, total: 999999 },
       { id: 'nurture', count: 0, total: 0 },
       { id: 'lost', count: 1, total: 50000 },
     ])

@@ -238,7 +238,7 @@ export function IncomeTab({ loan }: { loan: LoanProfile }) {
           { label: 'Housing / mo', value: formatCurrency(summary.housing) },
           { label: 'Debts / mo', value: formatCurrency(q.otherDebts) },
           { label: 'DTI', value: q.dti.front === null ? '—' : `${formatPercent(q.dti.front, 1)} / ${formatPercent(q.dti.back, 1)}`, warning: (q.dti.back ?? 0) > 50 },
-          ...(loan.purpose === 'investment_dscr' ? [{ label: 'DSCR', value: summary.scenario.dscr?.toFixed(2) ?? '—', warning: summary.scenario.dscr !== null && summary.scenario.dscr < 1 }] : []),
+          ...(loan.purpose === 'investment_dscr' || loan.details.incomeDocType === 'dscr' || loan.details.occupancy === 'investment' ? [{ label: 'DSCR', value: summary.scenario.dscr?.toFixed(2) ?? '—', warning: summary.scenario.dscr !== null && summary.scenario.dscr < 1 }] : []),
         ]}
       />
     </>

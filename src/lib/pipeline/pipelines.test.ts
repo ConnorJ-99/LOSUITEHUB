@@ -21,32 +21,28 @@ describe('stages match the database', () => {
 })
 
 describe('which pipeline a file shows in', () => {
-  it('every loan type has a pipeline while the file is active', () => {
-    expect(PURPOSES.map((p) => purposePipeline(p.value))).toEqual(['purchase', 'refinance', 'refinance', 'heloc', 'heloc', 'investment'])
+  it('every loan type has a board; Investment is no longer one (an old Investment purpose reads as Purchase)', () => {
+    expect(PURPOSES.map((p) => purposePipeline(p.value))).toEqual(['purchase', 'refinance', 'refinance', 'heloc', 'heloc'])
+    expect(purposePipeline('investment_dscr')).toBe('purchase')
+    expect(PIPELINES.map((p) => p.id)).toEqual(['purchase', 'refinance', 'heloc', 'closed', 'nurture', 'lost'])
   })
-  it('new leads, then the loan type, then In Process', () => {
-    expect(pipelineFor(file('heloc', 'lead'), now)).toBe('new_leads')
+  it('active files stay on their loan type board through Clear to Close', () => {
+    expect(pipelineFor(file('heloc', 'lead'), now)).toBe('heloc')
     expect(pipelineFor(file('purchase', 'home_search'), now)).toBe('purchase')
-    expect(pipelineFor(file('refinance_cash_out', 'processing'), now)).toBe('in_process')
-    expect(pipelineFor(file('purchase', 'clear_to_close'), now)).toBe('in_process')
+    expect(pipelineFor(file('refinance_cash_out', 'processing'), now)).toBe('refinance')
+    expect(pipelineFor(file('purchase', 'clear_to_close'), now)).toBe('purchase')
   })
-  it('closed files stay in In Process for 30 days', () => {
-    expect(pipelineFor(file('purchase', 'closed', 30), now)).toBe('in_process')
-    expect(pipelineFor(file('purchase', 'closed', 31), now)).toBeNull()
-  })
-  it('Nurture and Lost go straight to the Nurture or Lost pipeline, not their loan type board', () => {
+  it('Closed, Nurture and Lost have their own pages', () => {
+    expect(pipelineFor(file('purchase', 'closed', 90), now)).toBe('closed')
     expect(pipelineFor(file('purchase', 'nurture', 0), now)).toBe('nurture')
-    expect(pipelineFor(file('purchase', 'nurture', 30), now)).toBe('nurture')
     expect(pipelineFor(file('refinance_rate_term', 'lost', 0), now)).toBe('lost')
     expect(columnFor(file('purchase', 'nurture', 0), 'purchase')).toBeNull()
-    expect(columnFor(file('investment_dscr', 'lost', 0), 'investment')).toBeNull()
   })
-  it('every file that shows in a pipeline has exactly one column there', () => {
-    for (const p of PURPOSES)
+  it('every file has exactly one column on its pipeline', () => {
+    for (const p of [...PURPOSES, { value: 'investment_dscr' as LoanPurpose }])
       for (const s of STAGES) {
         const f = file(p.value, s.value, 2)
-        const where = pipelineFor(f, now)
-        if (where) expect(columnFor(f, where), `${p.value} ${s.value}`).not.toBeNull()
+        expect(columnFor(f, pipelineFor(f, now)), `${p.value} ${s.value}`).not.toBeNull()
       }
   })
   it('no stage is in two columns of one pipeline, and drops go to a stage the column shows', () => {
@@ -59,25 +55,35 @@ describe('which pipeline a file shows in', () => {
 })
 
 describe('columns and totals', () => {
-  it('Purchase keeps Pre-Approved and adds Home Search; refinances end at Application', () => {
-    expect(PIPELINES.find((p) => p.id === 'purchase')!.columns.map((c) => c.label)).toEqual(['Contacted', 'Pre-Qualified', 'Pre-Approved', 'Home Search', 'Under Contract'])
-    expect(PIPELINES.find((p) => p.id === 'refinance')!.columns.map((c) => c.label)).toEqual(['Contacted', 'Pre-Qualified', 'Application'])
+  it("Connor's stages, each with its steps", () => {
+    expect(PIPELINES.find((p) => p.id === 'purchase')!.columns.map((c) => `${c.label} (${c.steps.length})`)).toEqual([
+      'New lead (3)',
+      'Prequal (3)',
+      'Pre-approved (3)',
+      'Under contract (4)',
+      'Processing (3)',
+      'Underwriting (3)',
+      'Clear to close (3)',
+    ])
+    expect(PIPELINES.find((p) => p.id === 'refinance')!.columns.map((c) => c.label)).toEqual(['New lead', 'Quoted', 'Application', 'Processing', 'Underwriting', 'Clear to close'])
+    expect(PIPELINES.find((p) => p.id === 'heloc')!.columns.map((c) => c.label)).toEqual(['New lead', 'Quoted', 'Application', 'Underwriting', 'Closing'])
     expect(stageLabelFor('under_contract', 'refinance_cash_out', 'Under Contract')).toBe('Application')
-    expect(stageLabelFor('under_contract', 'purchase', 'Under Contract')).toBe('Under Contract')
+    expect(stageLabelFor('pre_qualified', 'heloc', 'Pre-Qualified')).toBe('Quoted')
+    expect(stageLabelFor('under_contract', 'purchase', 'Under Contract')).toBe('Under contract')
   })
   it('cards show the loan amount, else the price; columns add them up', () => {
     expect(cardAmount({ loanAmount: 380000, purchasePrice: 400000 })).toBe(380000)
     expect(cardAmount({ loanAmount: null, purchasePrice: 400000 })).toBe(400000)
     expect(cardAmount({ loanAmount: null, purchasePrice: null })).toBeNull()
     const files = [
-      { ...file('purchase', 'contacted'), loanAmount: 150000, purchasePrice: null },
+      { ...file('purchase', 'lead'), loanAmount: 150000, purchasePrice: null },
       { ...file('purchase', 'contacted'), loanAmount: null, purchasePrice: 192000 },
       { ...file('purchase', 'pre_qualified'), loanAmount: null, purchasePrice: null },
       { ...file('refinance_rate_term', 'contacted'), loanAmount: 999999, purchasePrice: null },
     ]
-    expect(columnTotals(files, 'purchase', now).slice(0, 2)).toEqual([
-      { column: 'contacted', count: 2, total: 342000 },
-      { column: 'pre_qualified', count: 1, total: 0 },
+    expect(columnTotals(files, 'purchase').slice(0, 2)).toEqual([
+      { column: 'new_lead', count: 2, total: 342000 },
+      { column: 'prequal', count: 1, total: 0 },
     ])
   })
 })

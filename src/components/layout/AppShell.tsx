@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Outlet } from 'react-router'
+import { Outlet, useLocation } from 'react-router'
 import { MenuIcon, TriangleAlertIcon } from 'lucide-react'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -36,6 +36,9 @@ function writeCollapsed(value: boolean) {
 
 export function AppShell({ user, preview }: { user: CurrentUser; preview: boolean }) {
   const [collapsed, setCollapsed] = useState(readCollapsed)
+  // The pipeline overview and boards use the whole width (Connor, 2026-11-13); the closing calendar keeps the usual page.
+  const { pathname } = useLocation()
+  const fullWidth = /^\/pipeline(\/(purchase|refinance|heloc))?\/?$/.test(pathname)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [newLeadOpen, setNewLeadOpen] = useState(false)
   const [newLeadPreset, setNewLeadPreset] = useState<NewLeadPreset | null>(null)
@@ -101,8 +104,8 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
             </div>
           )}
 
-          <main className="flex-1 px-4 py-6 md:px-6">
-            <div className="mx-auto max-w-7xl">
+          <main className={fullWidth ? "flex-1 px-4 py-4" : "flex-1 px-4 py-6 md:px-6"}>
+            <div className={fullWidth ? "" : "mx-auto max-w-7xl"}>
               <Outlet />
             </div>
           </main>

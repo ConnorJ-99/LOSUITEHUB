@@ -28,6 +28,7 @@ import { ProposedUpdatesCard } from '@/components/pages/ProposedUpdatesCard'
 import { SendFormCard } from '@/components/pages/SendFormCard'
 import { ApplicationCard } from '@/components/applications/ApplicationCard'
 import { PortalCard } from '@/components/portal/PortalCard'
+import { LeadTypePicker } from '@/components/pipeline/LeadTypePicker'
 import { ReadinessCard, useSavedReadiness } from '@/components/prequal/Readiness'
 import { TexasFlags } from './TexasFlags'
 import { ActionQueueCard } from '@/components/queue/ActionQueueCard'
@@ -55,6 +56,7 @@ function summaryItems(loan: LoanProfile, form: EditableDetails, r: ScenarioResul
         { label: 'Down', value: r.downPayment ? `${formatCurrency(r.downPayment.amount)} (${formatPercent(r.downPayment.percent, 2)})` : '—' },
         { label: 'LTV', value: formatPercent(r.ltv) },
         { label: 'Est. PITI', value: formatCurrency(est?.pitia ?? r.payment?.total) },
+        ...(r.dscr != null ? [{ label: 'DSCR', value: r.dscr.toFixed(2), warning: r.dscr < 1 }] : []),
         ...cash,
       ]
     case 'refinance_rate_term':
@@ -66,6 +68,7 @@ function summaryItems(loan: LoanProfile, form: EditableDetails, r: ScenarioResul
         { label: 'CLTV', value: formatPercent(r.cltv), warning: texasCapBreached },
         { label: 'New P&I', value: formatCurrency(est?.principalAndInterest ?? r.payment?.principalAndInterest) },
         { label: 'Savings / mo', value: formatCurrency(r.refinance?.monthlySavings), warning: (r.refinance?.monthlySavings ?? 0) < 0 },
+        ...(r.dscr != null ? [{ label: 'DSCR', value: r.dscr.toFixed(2), warning: r.dscr < 1 }] : []),
         ...cash,
       ]
     case 'heloc':
@@ -356,6 +359,8 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
 
   const purpose = loan.purpose
   const isRefi = purpose === 'refinance_rate_term' || purpose === 'refinance_cash_out'
+  // Investment is the occupancy now, not a pipeline (Connor, 2026-11-13): a purchase or refinance of a rental, or a DSCR file, gets the rent / DSCR / cross-collateral fields.
+  const investmentFile = purpose === 'investment_dscr' || form.occupancy === 'investment' || form.incomeDocType === 'dscr'
   // Investment / DSCR can be a purchase or a refinance; the pick holds until saved (a purchase with no price yet would otherwise read as a refi).
   const dscrKind: DscrTransaction = dscrPick ?? dscrTransaction(form.purchasePrice, form.cashOutAmount)
   const pickDscr = (kind: DscrTransaction) => {
@@ -488,6 +493,11 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
                   {dscrKind === 'cash_out' && <CurrencyInput label="Cash-out amount" value={form.cashOutAmount} onChange={set('cashOutAmount')} hint="Cash to the borrower at closing" span={2} />}
                   <PercentInput label="LTV" value={result.ltv} readOnly hint={result.otherCollateralCount ? 'Over the combined value' : 'Calculated'} span={2} />
                   {dscrKind !== 'purchase' && !loan.details.crossCollateral && <PercentInput label="CLTV" value={result.cltv} readOnly hint="Calculated" span={2} />}
+                </>
+              )}
+
+              {investmentFile && (
+                <>
                   <div className="col-span-full">
                     <ToggleChip
                       label="Cross-collateralized"
@@ -527,6 +537,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
                 <Select label="Term" value={termValue} onChange={(v) => set('termMonths')(Number(v))} options={TERM_OPTIONS} />
               )}
               <Select label="Occupancy" value={form.occupancy} onChange={set('occupancy')} options={OCCUPANCY_OPTIONS} required span={2} />
+              <LeadTypePicker loan={loan} />
               <DateInput label="Closing date" value={form.closingDate} onChange={set('closingDate')} span={2} />
               <div className="col-span-full">
                 <ToggleChip

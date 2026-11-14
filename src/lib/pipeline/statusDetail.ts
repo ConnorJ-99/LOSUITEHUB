@@ -19,6 +19,7 @@ const CHOICES: Record<PipelineStage, Choice[]> = {
   home_search: [{ label: 'Just started looking', purchaseOnly: true }, { label: 'Touring homes', purchaseOnly: true }, { label: 'Making offers', purchaseOnly: true }, { label: 'Offer accepted', purchaseOnly: true }],
   under_contract: [{ label: 'Option period', purchaseOnly: true }, { label: 'Application sent' }, { label: 'Disclosures sent' }, { label: 'Appraisal ordered' }, { label: 'Waiting on documents' }],
   processing: [{ label: 'Submitted' }, { label: 'In underwriting' }, { label: 'Conditions out' }, { label: 'Conditions submitted' }],
+  underwriting: [{ label: 'In underwriting' }, { label: 'Conditions out' }, { label: 'Conditions submitted' }, { label: 'Final review' }],
   clear_to_close: [{ label: 'Scheduling closing' }, { label: 'Closing scheduled' }, { label: 'Docs out' }],
   closed: [{ label: 'Waiting on funding' }, { label: 'Funded' }, { label: 'Review requested' }],
   nurture: [{ label: 'Working on credit' }, { label: 'Saving for down payment' }, { label: 'Waiting on lease or job' }, { label: 'Not ready yet' }],

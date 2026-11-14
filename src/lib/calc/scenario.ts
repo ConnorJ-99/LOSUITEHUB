@@ -23,6 +23,8 @@ export interface ScenarioLien {
 
 export interface ScenarioInput {
   purpose: LoanPurposeKind
+  /** An investment property or a DSCR file (the occupancy or income documentation, now that Investment isn't a purpose): works out the DSCR. */
+  investment?: boolean
   purchasePrice: number | null
   loanAmount: number | null
   noteRatePct: number | null
@@ -155,7 +157,7 @@ export function computeScenario(input: ScenarioInput): ScenarioResult {
     downPayment: usesPrice && hasPrice && loanAmount !== null ? downPayment(purchasePrice, amount) : null,
     payment,
     mi,
-    dscr: purpose === 'investment_dscr' && payment && rent ? dscr(rent, payment.total) : null,
+    dscr: (purpose === 'investment_dscr' || input.investment) && payment && rent ? dscr(rent, payment.total) : null,
     refinance,
     rent,
     otherCollateralCount: other?.count ?? 0,

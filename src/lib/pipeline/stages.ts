@@ -10,6 +10,7 @@ export type PipelineStage =
   | 'home_search'
   | 'under_contract'
   | 'processing'
+  | 'underwriting'
   | 'clear_to_close'
   | 'closed'
   | 'nurture'
@@ -38,6 +39,7 @@ export const STAGES: readonly StageInfo[] = [
   { value: 'home_search', label: 'Home Search', kind: 'main' },
   { value: 'under_contract', label: 'Under Contract', kind: 'main' },
   { value: 'processing', label: 'Submitted / Processing', kind: 'main' },
+  { value: 'underwriting', label: 'Underwriting', kind: 'main' },
   { value: 'clear_to_close', label: 'Approved / CTC', kind: 'main' },
   { value: 'closed', label: 'Closed', kind: 'main' },
   { value: 'nurture', label: 'Nurture', kind: 'side' },
@@ -50,11 +52,13 @@ export const PURPOSES: readonly { value: LoanPurpose; label: string }[] = [
   { value: 'refinance_cash_out', label: 'Cash-Out Refi' },
   { value: 'heloc', label: 'HELOC' },
   { value: 'heloan', label: 'HELOAN' },
-  { value: 'investment_dscr', label: 'Investment / DSCR' },
 ]
 
+/** Investment / DSCR was a purpose until 2026-11-13; now Investment is the occupancy and DSCR the income documentation. Kept only to label old records (the database moves any new one to Purchase or Refinance). */
+const LEGACY_PURPOSES: readonly { value: LoanPurpose; label: string }[] = [{ value: 'investment_dscr', label: 'Investment / DSCR' }]
+
 const stageLabels = Object.fromEntries(STAGES.map((s) => [s.value, s.label])) as Record<PipelineStage, string>
-const purposeLabels = Object.fromEntries(PURPOSES.map((p) => [p.value, p.label])) as Record<LoanPurpose, string>
+const purposeLabels = Object.fromEntries([...PURPOSES, ...LEGACY_PURPOSES].map((p) => [p.value, p.label])) as Record<LoanPurpose, string>
 
 export const stageLabel = (stage: PipelineStage) => stageLabels[stage]
 export const purposeLabel = (purpose: LoanPurpose) => purposeLabels[purpose]

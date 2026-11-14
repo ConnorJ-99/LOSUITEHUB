@@ -23,7 +23,8 @@ import { PipelinePage } from '@/pages/PipelinePage'
 import { ClosingCalendarPage } from '@/pages/ClosingCalendarPage'
 import { AssistantPage } from '@/pages/AssistantPage'
 import { InboxPage } from '@/pages/InboxPage'
-import { LeadsHomePage } from '@/pages/LeadsHomePage'
+import { PipelineOverviewPage } from '@/pages/PipelineOverviewPage'
+import { PipelineBoardPage } from '@/pages/PipelineBoardPage'
 import { PartnersPage } from '@/pages/PartnersPage'
 import { PageBuilderPage } from '@/pages/PageBuilderPage'
 import { PagesPage } from '@/pages/PagesPage'
@@ -53,7 +54,10 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <TodayPage /> },
       { path: 'inbox', element: <InboxPage /> },
-      { path: 'pipeline', element: <LeadsHomePage /> },
+      { path: 'pipeline', element: <PipelineOverviewPage /> },
+      { path: 'pipeline/purchase', element: <PipelineBoardPage /> },
+      { path: 'pipeline/refinance', element: <PipelineBoardPage /> },
+      { path: 'pipeline/heloc', element: <PipelineBoardPage /> },
       { path: 'pipeline/closings', element: <ClosingCalendarPage /> },
       { path: 'pipeline/:pipelineId', element: <PipelinePage /> },
       { path: 'contacts', element: <ContactsPage /> },

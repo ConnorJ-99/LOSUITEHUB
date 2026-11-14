@@ -1,18 +1,26 @@
-// Pipelines by loan type (Pipeline v2, docs/plans/pipeline-v2.md): which
-// pipeline and column each file shows in, and the column totals. A pipeline is
-// a view of loans.stage and loans.purpose; nothing about it is stored. Pure.
+// The pipelines (Pipeline redesign, Connor 2026-11-13; replaces Pipeline v2's
+// loan-type boards). Purchase, Refinance and HELOC each have ordered stages,
+// and each stage ordered steps. A stage is a column on the board and covers
+// one or more database stages (loans.stage); a file's step is
+// loans.current_step (1 = the first; the database resets it when the stage
+// changes) and its days in stage come from loans.stage_changed_at. Closed,
+// Nurture and Lost keep their own pages. Investment isn't a pipeline any more:
+// it's the occupancy. This is the one place stages and steps are set. Pure.
 
 import type { LoanPurpose, PipelineStage } from './stages'
 
-export type PipelineId = 'new_leads' | 'purchase' | 'refinance' | 'investment' | 'heloc' | 'in_process' | 'nurture' | 'lost'
+export type BoardId = 'purchase' | 'refinance' | 'heloc'
+export type PipelineId = BoardId | 'closed' | 'nurture' | 'lost'
 
 export interface PipelineColumn {
   id: string
   label: string
-  /** Stages shown in this column. */
+  /** Database stages shown in this column. */
   stages: PipelineStage[]
   /** The stage a card dropped here moves to; null = can't drop here. */
   dropStage: PipelineStage | null
+  /** The steps inside this stage, in order. */
+  steps: string[]
 }
 
 export interface PipelineInfo {
@@ -22,55 +30,73 @@ export interface PipelineInfo {
   columns: PipelineColumn[]
 }
 
-/** Closed files show in In Process this many days. */
-export const CLOSED_SHOWN_DAYS = 30
+const STEPS = {
+  newLead: ['Contacted', 'Discovery call', 'Credit pulled'],
+  prequal: ['Docs requested', 'Income reviewed', 'Prequal letter sent'],
+  preApproved: ['AUS approved', 'Letter issued', 'Shopping with agent'],
+  underContract: ['Contract received', 'Intent to proceed', 'Appraisal ordered', 'Submitted to lender'],
+  processing: ['Conditions requested', 'Conditions submitted', 'Appraisal received'],
+  underwriting: ['Initial UW review', 'Conditions cleared', 'Final review'],
+  clearToClose: ['CD sent', 'CD signed', 'Funded'],
+}
 
-const col = (id: string, label: string, stages: PipelineStage[], dropStage: PipelineStage | null = stages[0]): PipelineColumn => ({ id, label, stages, dropStage })
+const col = (id: string, label: string, stages: PipelineStage[], steps: string[], dropStage: PipelineStage | null = stages[0]): PipelineColumn => ({ id, label, stages, dropStage, steps })
+const NEW_LEAD = col('new_lead', 'New lead', ['lead', 'contacted'], STEPS.newLead)
 
 export const PIPELINES: readonly PipelineInfo[] = [
-  { id: 'new_leads', label: 'New Leads', description: 'Every new lead, waiting to be contacted', columns: [col('lead', 'New', ['lead'])] },
   {
     id: 'purchase',
     label: 'Purchase',
-    description: 'Homebuyers moving toward a purchase',
-    columns: [col('contacted', 'Contacted', ['contacted']), col('pre_qualified', 'Pre-Qualified', ['pre_qualified']), col('pre_approved', 'Pre-Approved', ['pre_approved']), col('home_search', 'Home Search', ['home_search']), col('under_contract', 'Under Contract', ['under_contract'])],
+    description: 'Homebuyers, from new lead to clear to close',
+    columns: [
+      NEW_LEAD,
+      col('prequal', 'Prequal', ['pre_qualified'], STEPS.prequal),
+      col('pre_approved', 'Pre-approved', ['pre_approved', 'home_search'], STEPS.preApproved),
+      col('under_contract', 'Under contract', ['under_contract'], STEPS.underContract),
+      col('processing', 'Processing', ['processing'], STEPS.processing),
+      col('underwriting', 'Underwriting', ['underwriting'], STEPS.underwriting),
+      col('clear_to_close', 'Clear to close', ['clear_to_close'], STEPS.clearToClose),
+    ],
   },
   {
     id: 'refinance',
     label: 'Refinance',
     description: 'Rate/term and cash-out refinances',
-    columns: [col('contacted', 'Contacted', ['contacted']), col('pre_qualified', 'Pre-Qualified', ['pre_qualified', 'pre_approved', 'home_search']), col('application', 'Application', ['under_contract'])],
-  },
-  {
-    id: 'investment',
-    label: 'Investment',
-    description: 'Investors buying or refinancing rentals',
-    columns: [col('contacted', 'Contacted', ['contacted']), col('pre_qualified', 'Pre-Qualified', ['pre_qualified', 'pre_approved']), col('home_search', 'Home Search', ['home_search']), col('under_contract', 'Under Contract / Application', ['under_contract'])],
+    columns: [
+      NEW_LEAD,
+      col('quoted', 'Quoted', ['pre_qualified', 'pre_approved', 'home_search'], STEPS.prequal),
+      col('application', 'Application', ['under_contract'], STEPS.underContract),
+      col('processing', 'Processing', ['processing'], STEPS.processing),
+      col('underwriting', 'Underwriting', ['underwriting'], STEPS.underwriting),
+      col('clear_to_close', 'Clear to close', ['clear_to_close'], STEPS.clearToClose),
+    ],
   },
   {
     id: 'heloc',
-    label: 'HELOC / HELOAN',
+    label: 'HELOC',
     description: 'Home equity lines and second liens',
-    columns: [col('contacted', 'Contacted', ['contacted']), col('pre_qualified', 'Pre-Qualified', ['pre_qualified', 'pre_approved', 'home_search']), col('application', 'Application', ['under_contract'])],
+    columns: [
+      NEW_LEAD,
+      col('quoted', 'Quoted', ['pre_qualified', 'pre_approved', 'home_search'], STEPS.prequal),
+      col('application', 'Application', ['under_contract'], STEPS.underContract),
+      col('underwriting', 'Underwriting', ['processing', 'underwriting'], STEPS.underwriting, 'underwriting'),
+      col('closing', 'Closing', ['clear_to_close'], STEPS.clearToClose),
+    ],
   },
-  {
-    id: 'in_process',
-    label: 'In Process',
-    description: 'Every loan type from submission to closing',
-    columns: [col('processing', 'Submitted / Processing', ['processing']), col('clear_to_close', 'Approved / CTC', ['clear_to_close']), col('closed', `Closed (last ${CLOSED_SHOWN_DAYS} days)`, ['closed'])],
-  },
-  { id: 'nurture', label: 'Nurture', description: 'Not ready yet; keep in touch', columns: [col('nurture', 'Nurture', ['nurture'])] },
-  { id: 'lost', label: 'Lost', description: 'Files marked lost, with the reason', columns: [col('lost', 'Lost', ['lost'])] },
+  { id: 'closed', label: 'Closed', description: 'Closed loans', columns: [col('closed', 'Closed', ['closed'], [], null)] },
+  { id: 'nurture', label: 'Nurture', description: 'Not ready yet; keep in touch', columns: [col('nurture', 'Nurture', ['nurture'], [])] },
+  { id: 'lost', label: 'Lost', description: 'Files marked lost, with the reason', columns: [col('lost', 'Lost', ['lost'], [])] },
 ]
 
+export const BOARDS: readonly BoardId[] = ['purchase', 'refinance', 'heloc']
+export const isBoard = (id: string): id is BoardId => (BOARDS as readonly string[]).includes(id)
 export const pipelineInfo = (id: PipelineId) => PIPELINES.find((p) => p.id === id)!
 
-/** The pipeline for each loan type while the file is active. */
-export function purposePipeline(purpose: LoanPurpose): PipelineId {
-  if (purpose === 'purchase') return 'purchase'
-  if (purpose === 'investment_dscr') return 'investment'
+/** The board for each loan purpose (an old Investment / DSCR purpose reads as Purchase). */
+export function purposePipeline(purpose: LoanPurpose): BoardId {
   if (purpose === 'heloc' || purpose === 'heloan') return 'heloc'
-  return 'refinance'
+  if (purpose === 'refinance_rate_term' || purpose === 'refinance_cash_out') return 'refinance'
+  return 'purchase'
 }
 
 export interface PipelineFile {
@@ -79,26 +105,20 @@ export interface PipelineFile {
   stageChangedAt: string
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000
-const daysIn = (f: PipelineFile, now: Date) => Math.max(0, Math.floor((now.getTime() - new Date(f.stageChangedAt).getTime()) / DAY_MS))
-
-/** Where a file shows: New Leads, its loan type's pipeline, In Process, Nurture or Lost (as soon as it moves there). Null = nowhere (closed more than 30 days ago). */
-export function pipelineFor(f: PipelineFile, now: Date = new Date()): PipelineId | null {
-  if (f.stage === 'lead') return 'new_leads'
-  if (f.stage === 'processing' || f.stage === 'clear_to_close') return 'in_process'
-  if (f.stage === 'closed') return daysIn(f, now) <= CLOSED_SHOWN_DAYS ? 'in_process' : null
-  if (f.stage === 'nurture' || f.stage === 'lost') return f.stage
+/** Where a file shows: its loan type's board while active, else Closed, Nurture or Lost. */
+export function pipelineFor(f: Pick<PipelineFile, 'purpose' | 'stage'>, _now: Date = new Date()): PipelineId {
+  if (f.stage === 'closed' || f.stage === 'nurture' || f.stage === 'lost') return f.stage
   return purposePipeline(f.purpose)
 }
 
-/** The column a file shows in on its pipeline. */
-export function columnFor(f: PipelineFile, pipeline: PipelineId): PipelineColumn | null {
+/** The column a file shows in on a pipeline. */
+export function columnFor(f: Pick<PipelineFile, 'stage'>, pipeline: PipelineId): PipelineColumn | null {
   return pipelineInfo(pipeline).columns.find((c) => c.stages.includes(f.stage)) ?? null
 }
 
-/** How Under Contract reads for a file: refinances and HELOCs have no contract, so it's their Application stage. */
+/** A file's stage name on its own pipeline ("Quoted" for a refinance at Pre-Qualified). */
 export function stageLabelFor(stage: PipelineStage, purpose: LoanPurpose, fallback: string): string {
-  return stage === 'under_contract' && purpose !== 'purchase' && purpose !== 'investment_dscr' ? 'Application' : fallback
+  return columnFor({ stage }, pipelineFor({ stage, purpose }))?.label ?? fallback
 }
 
 /** The amount on a card and in its column total: the loan amount, else the purchase price. */
@@ -107,9 +127,9 @@ export function cardAmount(f: { loanAmount: number | null; purchasePrice: number
 }
 
 /** Count and dollar total for each column of a pipeline. */
-export function columnTotals<F extends PipelineFile & { loanAmount: number | null; purchasePrice: number | null }>(files: F[], pipeline: PipelineId, now: Date = new Date()) {
+export function columnTotals<F extends PipelineFile & { loanAmount: number | null; purchasePrice: number | null }>(files: F[], pipeline: PipelineId) {
   return pipelineInfo(pipeline).columns.map((c) => {
-    const here = files.filter((f) => pipelineFor(f, now) === pipeline && c.stages.includes(f.stage))
+    const here = files.filter((f) => pipelineFor(f) === pipeline && c.stages.includes(f.stage))
     return { column: c.id, count: here.length, total: here.reduce((sum, f) => sum + (cardAmount(f) ?? 0), 0) }
   })
 }

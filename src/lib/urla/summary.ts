@@ -6,7 +6,7 @@ import { ownedProperties, propertyNetRental } from './realEstate'
 export type ScenarioDetails = Pick<
   LoanDetails,
   'purchasePrice' | 'loanAmount' | 'noteRate' | 'termMonths' | 'mortgageType' | 'miRatePct' | 'upfrontFeePct' | 'estimatedTaxRatePct' | 'estimatedAnnualInsurance' | 'estimatedMonthlyHoa' | 'crossCollateral'
->
+> & Partial<Pick<LoanDetails, 'occupancy' | 'incomeDocType'>>
 
 /**
  * Everything the payment math needs from a loan: deal facts, subject property, loan type, MI settings and estimates.
@@ -26,6 +26,7 @@ export function loanScenarioInput(purpose: LoanPurposeKind, d: ScenarioDetails, 
     upfrontFeePct: d.upfrontFeePct,
     estimates: { taxRatePct: d.estimatedTaxRatePct, annualInsurance: d.estimatedAnnualInsurance, monthlyHoa: d.estimatedMonthlyHoa },
     otherCollateral: otherCollateral(collateralHomes(d.crossCollateral, subject?.id ?? null, homes)),
+    investment: d.occupancy === 'investment' || d.incomeDocType === 'dscr',
   }
 }
 

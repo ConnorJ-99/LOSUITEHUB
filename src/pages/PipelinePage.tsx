@@ -16,7 +16,7 @@ import { pipelineFor, PIPELINES, purposePipeline, type PipelineId } from '@/lib/
 import { PURPOSES, STAGES, type LoanPurpose } from '@/lib/pipeline/stages'
 
 /** The loan type a lead added on each loan-type board starts as. */
-const BOARD_PURPOSE: Partial<Record<PipelineId, LoanPurpose>> = { purchase: 'purchase', refinance: 'refinance_rate_term', investment: 'investment_dscr', heloc: 'heloc' }
+const BOARD_PURPOSE: Partial<Record<PipelineId, LoanPurpose>> = { purchase: 'purchase', refinance: 'refinance_rate_term', heloc: 'heloc' }
 
 type View = 'board' | 'list'
 const VIEW_KEY = 'losuite.pipelineView'
@@ -57,7 +57,9 @@ function ViewToggle({ view, onChange }: { view: View; onChange: (view: View) => 
 /** One pipeline's board or list (/pipeline/purchase), or every loan (/pipeline/all). */
 export function PipelinePage() {
   const { pipelineId } = useParams()
-  const info = PIPELINES.find((p) => p.id === pipelineId) ?? null
+  // Closed has its own page (Contacts → Closed loans); Purchase, Refinance and HELOC have the new boards; New Leads, In Process and Investment are gone.
+  if (pipelineId === 'closed') return <Navigate to="/contacts?tab=closed" replace />
+  const info = PIPELINES.find((p) => p.id === pipelineId && (p.id === 'nurture' || p.id === 'lost')) ?? null
   if (!info && pipelineId !== 'all') return <Navigate to="/pipeline" replace />
   return <PipelineView key={pipelineId} pipeline={info?.id ?? null} />
 }
@@ -93,8 +95,8 @@ function PipelineView({ pipeline: only }: { pipeline: PipelineId | null }) {
   })
 
   const active = allLoans.filter((l) => l.stage !== 'closed' && l.stage !== 'lost' && l.stage !== 'nurture').length
-  // A loan-type board only offers its own purposes (none to pick on Purchase or Investment).
-  const typeBoard = only === 'purchase' || only === 'refinance' || only === 'investment' || only === 'heloc'
+  // A loan-type board only offers its own purposes (none to pick on Purchase).
+  const typeBoard = only === 'purchase' || only === 'refinance' || only === 'heloc'
   const purposes = typeBoard ? PURPOSES.filter((p) => purposePipeline(p.value) === only) : PURPOSES
   const filtersActive = JSON.stringify(filters) !== JSON.stringify(emptyFilters)
 
