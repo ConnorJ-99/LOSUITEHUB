@@ -130,9 +130,18 @@ export function nurtureDashboard(i: DashInput) {
     const updates = i.openUpdates.get(f.loanId) ?? 0
     const reasons: string[] = []
     let weight = 0
-    if (updates) (reasons.push(`${updates} update${updates === 1 ? '' : 's'} to verify`), (weight += 4))
-    if (late) (reasons.push(`${late} milestone${late === 1 ? '' : 's'} overdue`), (weight += 3))
-    if (f.nextFollowUp && f.nextFollowUp < i.today) (reasons.push(`Follow-up was due ${f.nextFollowUp}`), (weight += 2))
+    if (updates) {
+      reasons.push(`${updates} update${updates === 1 ? '' : 's'} to verify`)
+      weight += 4
+    }
+    if (late) {
+      reasons.push(`${late} milestone${late === 1 ? '' : 's'} overdue`)
+      weight += 3
+    }
+    if (f.nextFollowUp && f.nextFollowUp < i.today) {
+      reasons.push(`Follow-up was due ${f.nextFollowUp}`)
+      weight += 2
+    }
     if ((f.stage === 'initial_review' || f.stage === 'plan_needed' || !f.stage) && !approved.has(f.loanId) && f.enteredAt && days(f.enteredAt, i.today) >= 7) {
       reasons.push(`No plan yet, ${days(f.enteredAt, i.today)} days in Nurture`)
       weight += 1
