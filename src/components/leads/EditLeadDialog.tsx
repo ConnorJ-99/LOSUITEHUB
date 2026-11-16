@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FormGrid, Input, Select } from '@/components/shared'
 import { useOrgMembers, useUpdateLead } from '@/lib/api/loans'
+import { transferSummary } from '@/lib/api/ghl'
 import type { PipelineLoan } from '@/lib/api/types'
 import { PURPOSES, type LoanPurpose } from '@/lib/pipeline/stages'
 
@@ -54,8 +55,17 @@ export function EditLeadDialog({
         loan: { purpose: form.purpose, referralSource: form.referralSource, assignedLoId: form.assignedLoId, ...(ariveLoanNumber !== undefined ? { ariveLoanNumber: form.ariveLoanNumber } : {}) },
       },
       {
-        onSuccess: () => {
-          toast.success('Saved')
+        onSuccess: (r) => {
+          if (!r?.reassigned) toast.success('Saved')
+          else {
+            const to = members.data?.find((m) => m.id === form.assignedLoId)
+            toast.success(form.assignedLoId ? `Saved. The file now belongs to ${to?.name ?? 'the new loan officer'}.` : 'Saved. The file is unassigned.')
+            if (r.ghl) {
+              const line = transferSummary(r.ghl)
+              if ('moved' in r.ghl && r.ghl.notes.length === 0) toast.success(line, { duration: 8000 })
+              else toast.warning(line, { duration: 12000 })
+            }
+          }
           onOpenChange(false)
         },
         onError: (error) => toast.error(`Could not save: ${error.message}`),

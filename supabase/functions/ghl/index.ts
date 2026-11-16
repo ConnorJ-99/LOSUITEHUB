@@ -60,6 +60,7 @@ import { e164, hasTestName, planSend, textToHtml, type SendHoursValue } from './
 import { chooseOpportunity, newContactBody, pickOpportunities, pickOpportunity, pickPipelines, planMove, suggestClosed, type OpportunityMove } from './opportunities.ts'
 import { pickContact, secretMatches } from '../ghl-inbound/sync.ts'
 import { pickGhlMatch, sharedDetails, splitName } from './link.ts'
+import { planTransfer, transferRefusal } from './transfer.ts'
 
 const TIMEOUT_MS = 10_000
 const UPLOAD_TIMEOUT_MS = 30_000
@@ -868,6 +869,80 @@ async function linkContact(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   return { linked: true, created: contact.created }
 }
 
+/**
+ * Reassigning a file moves its GHL ownership (Connor, 2026-11-16): after
+ * reassign_loan, every borrower's GHL contact on the file and the primary
+ * borrower's opportunity get the new loan officer's GHL user as owner
+ * (PUT /contacts/{id} and PUT /opportunities/{id} with assignedTo). Read with
+ * the service role, because a loan officer who handed their file over can no
+ * longer see it; transferRefusal decides who may ask. A GHL problem never
+ * undoes the reassignment; it comes back as a note to retry.
+ */
+async function transferOwner(admin: SupabaseClient, g: Ghl, organizationId: string, userId: string, role: string, body: Record<string, unknown>) {
+  const loanId = typeof body.loanId === 'string' ? body.loanId : null
+  const toLoId = typeof body.toLoId === 'string' ? body.toLoId : null
+  if (!loanId) throw new UserError('Which file?')
+  const loan = await admin.from('loans').select('assigned_lo_id').eq('id', loanId).eq('organization_id', organizationId).maybeSingle()
+  if (loan.error) throw new Error(loan.error.message)
+  if (!loan.data) throw new UserError('That file was not found.')
+  const last = await admin
+    .from('loan_change_log')
+    .select('changed_by, new_value, changed_at')
+    .eq('loan_id', loanId)
+    .eq('field', 'assigned_lo_id')
+    .order('changed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (last.error) throw new Error(last.error.message)
+  const l = last.data as { changed_by: string | null; new_value: string | null; changed_at: string } | null
+  const refusal = transferRefusal({
+    role,
+    callerId: userId,
+    toLoId,
+    assignedNow: (loan.data as { assigned_lo_id: string | null }).assigned_lo_id,
+    lastChange: l ? { changedBy: l.changed_by, newValue: l.new_value, changedAt: l.changed_at } : null,
+    now: new Date(),
+  })
+  if (refusal) return { skipped: refusal }
+
+  const [link, profile, settings, people] = await Promise.all([
+    admin.from('ghl_user_links').select('ghl_user_id').eq('organization_id', organizationId).eq('profile_id', toLoId!).maybeSingle(),
+    admin.from('profiles').select('full_name, email').eq('id', toLoId!).maybeSingle(),
+    admin.from('messaging_settings').select('inbound_mode').eq('organization_id', organizationId).maybeSingle(),
+    admin.from('loan_borrowers').select('role, contact:contacts ( id, first_name, last_name, ghl_contact_id, ghl_opportunity_id )').eq('loan_id', loanId),
+  ])
+  for (const r of [link, profile, settings, people]) if (r.error) throw new Error(r.error.message)
+  const lo = profile.data as { full_name: string | null; email: string } | null
+  const loName = lo?.full_name || lo?.email || 'The new loan officer'
+  const assignTo = (link.data as { ghl_user_id: string } | null)?.ghl_user_id ?? null
+  if (!assignTo) return { skipped: `${loName} isn't linked to a GHL user in Settings → GoHighLevel, so GHL ownership wasn't changed. Link them, then press Move GHL ownership again.` }
+
+  const rows = (people.data ?? []) as unknown as { role: string; contact: { id: string; first_name: string | null; last_name: string | null; ghl_contact_id: string | null; ghl_opportunity_id: string | null } | null }[]
+  const planned = planTransfer(
+    rows.flatMap((r) => (r.contact ? [{ id: r.contact.id, firstName: r.contact.first_name, lastName: r.contact.last_name, ghlContactId: r.contact.ghl_contact_id, ghlOpportunityId: r.contact.ghl_opportunity_id, primary: r.role === 'primary' }] : [])),
+    ((settings.data as { inbound_mode: string } | null)?.inbound_mode ?? 'test_only') === 'test_only',
+    hasTestName,
+  )
+  const notes = [...planned.notes]
+  let contacts = 0
+  for (const c of planned.contacts) {
+    const r = await g.call({ ...plan('contacts_write'), dryRun: false }, `/contacts/${encodeURIComponent(c.ghlContactId)}`, { assignedTo: assignTo })
+    if (r.outcome.result === 'works') contacts++
+    else notes.push(`A GHL contact couldn't be changed: ${r.outcome.detail}`)
+    // The same person with an open file under someone else: their one GHL contact now has the new owner.
+    const others = await admin.from('loan_borrowers').select('loan:loans!inner ( id, stage, assigned_lo_id )').eq('contact_id', c.personId).neq('loan_id', loanId)
+    const open = ((others.data ?? []) as unknown as { loan: { stage: string; assigned_lo_id: string | null } }[]).filter((o) => !['closed', 'lost'].includes(o.loan.stage) && o.loan.assigned_lo_id && o.loan.assigned_lo_id !== toLoId)
+    if (open.length) notes.push('One of these borrowers also has an open file with another loan officer; their GHL contact now belongs to ' + loName + '.')
+  }
+  let opportunities = 0
+  for (const id of planned.opportunities) {
+    const r = await g.call({ ...plan('opportunities_write'), dryRun: false }, `/opportunities/${encodeURIComponent(id)}`, { assignedTo: assignTo })
+    if (r.outcome.result === 'works') opportunities++
+    else notes.push(`The GHL opportunity couldn't be changed: ${r.outcome.detail}`)
+  }
+  return { moved: contacts + opportunities > 0, contacts, opportunities, to: loName, notes: [...new Set(notes)] }
+}
+
 /** Others in the company (people, or partners) with the same email or 10-digit phone. */
 async function samePeople(admin: SupabaseClient, organizationId: string, table: 'contacts' | 'partners', selfId: string, email: string | null, phone: string | null): Promise<{ email: string | null; phone: string | null }[]> {
   const out: { email: string | null; phone: string | null }[] = []
@@ -1154,6 +1229,15 @@ Deno.serve(async (request) => {
         return reply(200, body.partnerId ? await linkPartner(db, admin, g, organizationId, userId, body) : await linkContact(db, admin, g, organizationId, body))
       } finally {
         if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'contact', ...c })))
+      }
+    }
+    if (task === 'transfer_owner') {
+      // After a reassignment: owners and admins, or the person who just made it (checked inside).
+      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+      try {
+        return reply(200, await transferOwner(admin, g, organizationId, userId, (role.data as { role: string }).role, body))
+      } finally {
+        if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'transfer_owner', ...c })))
       }
     }
     if (!['owner', 'admin'].includes((role.data as { role: string }).role)) return reply(403, { error: 'Only an owner or admin can manage the GHL connection.' })

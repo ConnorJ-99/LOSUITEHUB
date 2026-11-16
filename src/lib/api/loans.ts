@@ -3,6 +3,7 @@ import { useAuth } from '@/lib/auth/context'
 import { conditionCounts, type ConditionStatus } from '@/lib/loanfile/conditions'
 import type { LoanPurpose, PipelineStage } from '@/lib/pipeline/stages'
 import { db, keys, num, unwrap } from './client'
+import { transferGhlOwner } from './ghl'
 import type { Contact, LoanDetails, LoanProfile, OrgMember, PipelineLoan, StageHistoryEntry } from './types'
 
 // ---------------------------------------------------------------------------
@@ -461,7 +462,13 @@ export function useUpdateLead() {
         throw new Error('You do not have permission to edit this record.')
       }
       // Last, because handing the file to someone else takes it out of sight.
+      const before = unwrap<{ organization_id: string; assigned_lo_id: string | null } | null>(await db().from('loans').select('organization_id, assigned_lo_id').eq('id', loanId).maybeSingle())
+      if (before && before.assigned_lo_id === loan.assignedLoId) return { reassigned: false, ghl: null }
       await reassignLoan(loanId, loan.assignedLoId)
+      // GHL follows (Connor, 2026-11-16): the new loan officer owns the GHL contacts and opportunity. A GHL problem never undoes the hand-over.
+      if (!before || !loan.assignedLoId) return { reassigned: true, ghl: null }
+      const ghl = await transferGhlOwner(before.organization_id, loanId, loan.assignedLoId).catch((e: Error) => ({ error: e.message }))
+      return { reassigned: true, ghl }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.pipeline })

@@ -372,6 +372,25 @@ export function linkGhlContact(organizationId: string, loanId: string, contactId
   return invokeGhl<ContactLinkResult>({ task: 'contact', organizationId, loanId, contactId }, 'The GHL contact was not matched or added.')
 }
 
+/** What happened to GHL ownership after a reassignment. `skipped` = GHL wasn't changed, and why. */
+export type TransferResult = { skipped: string } | { moved: boolean; contacts: number; opportunities: number; to: string; notes: string[] }
+
+/**
+ * After a file is reassigned (Connor, 2026-11-16): the new loan officer's GHL
+ * user becomes the owner of the borrowers' GHL contacts and the opportunity.
+ */
+export function transferGhlOwner(organizationId: string, loanId: string, toLoId: string) {
+  return invokeGhl<TransferResult>({ task: 'transfer_owner', organizationId, loanId, toLoId }, 'GHL ownership was not moved.')
+}
+
+/** One line for a toast: what moved in GHL, or why not. */
+export function transferSummary(r: TransferResult | { error: string }): string {
+  if ('error' in r) return `GHL ownership wasn't moved: ${r.error}`
+  if ('skipped' in r) return r.skipped
+  const parts = [r.contacts ? `${r.contacts} contact${r.contacts === 1 ? '' : 's'}` : null, r.opportunities ? `the opportunity` : null].filter(Boolean)
+  return [parts.length ? `In GHL, ${parts.join(' and ')} now belong${r.contacts + r.opportunities === 1 ? 's' : ''} to ${r.to}.` : 'Nothing in GHL needed moving.', ...r.notes].join(' ')
+}
+
 /** Matches or creates a partner's GHL contact by email and phone (never by name), assigned to the person clicking. */
 export function linkGhlPartner(organizationId: string, partnerId: string) {
   return invokeGhl<ContactLinkResult>({ task: 'contact', organizationId, partnerId }, 'The GHL contact was not matched or added.')
