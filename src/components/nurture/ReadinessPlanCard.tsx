@@ -20,6 +20,8 @@ import { formatIsoDate, nowIso, todayIso } from '@/lib/dates'
 import { joinNames, worksheetFileName } from '@/lib/documents/feeWorksheet'
 import { ROADMAP_TEMPLATE, roadmapProblems, roadmapView } from '@/lib/documents/readinessRoadmap'
 import { obstacleLabel } from '@/lib/nurture/obstacles'
+import { useNurtureUpdates } from '@/lib/api/nurtureFollowups'
+import { reportedMilestones } from '@/lib/nurture/followups'
 import { followUpFor, milestoneCounts, newKey, planProblems, starterPlan, type ActionDraft, type MilestoneDraft, type PlanDraft } from '@/lib/nurture/plan'
 
 
@@ -91,6 +93,8 @@ export function ReadinessPlanCard({ loan, obstacles, facts, onEditObstacles }: {
   const discard = useDiscardDraft(loan.id)
   const setMilestone = useSetMilestoneStatus(loan.id)
   const setAction = useSetActionStatus(loan.id)
+  const updates = useNurtureUpdates(loan.id)
+  const reported = reportedMilestones(updates.data ?? [])
   const ai = useAiStatus()
   const today = todayIso()
   const [editing, setEditing] = useState<{ plan: PlanDraft; source: 'ai' | 'starter'; aiRunId: string | null } | null>(null)
@@ -311,7 +315,7 @@ export function ReadinessPlanCard({ loan, obstacles, facts, onEditObstacles }: {
                   {a.why && <p className="mt-1 text-xs text-muted-foreground">{a.why}</p>}
                   <ul className="mt-2 space-y-1">
                     {a.milestones.map((m) => (
-                      <MilestoneLine key={m.key} m={m} today={today} onToggle={(done) => setMilestone.mutate({ id: m.id!, status: done ? 'done' : 'outstanding' }, { onError: (e) => toast.error(e.message) })} />
+                      <MilestoneLine key={m.key} m={m} today={today} reported={reported.has(m.key)} onToggle={(done) => setMilestone.mutate({ id: m.id!, status: done ? 'done' : 'outstanding' }, { onError: (e) => toast.error(e.message) })} />
                     ))}
                   </ul>
                 </div>
@@ -319,7 +323,7 @@ export function ReadinessPlanCard({ loan, obstacles, facts, onEditObstacles }: {
               {approved.plan.milestones.length > 0 && (
                 <ul className="space-y-1">
                   {approved.plan.milestones.map((m) => (
-                    <MilestoneLine key={m.key} m={m} today={today} onToggle={(done) => setMilestone.mutate({ id: m.id!, status: done ? 'done' : 'outstanding' }, { onError: (e) => toast.error(e.message) })} />
+                    <MilestoneLine key={m.key} m={m} today={today} reported={reported.has(m.key)} onToggle={(done) => setMilestone.mutate({ id: m.id!, status: done ? 'done' : 'outstanding' }, { onError: (e) => toast.error(e.message) })} />
                   ))}
                 </ul>
               )}
@@ -391,7 +395,7 @@ export function ReadinessPlanCard({ loan, obstacles, facts, onEditObstacles }: {
   )
 }
 
-function MilestoneLine({ m, today, onToggle }: { m: MilestoneDraft; today: string; onToggle: (done: boolean) => void }) {
+function MilestoneLine({ m, today, reported, onToggle }: { m: MilestoneDraft; today: string; reported?: boolean; onToggle: (done: boolean) => void }) {
   const done = m.status === 'done'
   const overdue = !done && !!m.targetDate && m.targetDate < today
   return (
@@ -402,6 +406,7 @@ function MilestoneLine({ m, today, onToggle }: { m: MilestoneDraft; today: strin
       <span className={cn('min-w-0 flex-1', done && 'text-muted-foreground line-through')}>
         {m.title}
         {m.measure && <span className="text-muted-foreground"> · {m.measure}</span>}
+        {reported && !done && <span className="ml-1.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-900" title="They reported progress. Verify it under Updates.">Reported</span>}
       </span>
       <span className={cn('shrink-0 text-xs', overdue ? 'font-semibold text-[#b4372c]' : 'text-muted-foreground')}>{m.targetDate ? formatIsoDate(m.targetDate) : 'No date'}</span>
     </li>

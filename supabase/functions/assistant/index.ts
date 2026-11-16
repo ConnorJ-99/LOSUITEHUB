@@ -34,6 +34,7 @@ import { SCENARIO_SCHEMA, SCENARIO_SYSTEM_PROMPT, normalizeScenarioRead } from '
 import { ANSWER_SCHEMA, ANSWER_SYSTEM_PROMPT, MAX_PASSAGES, answerPrompt, normalizeAnswer, type AnswerPassage } from './guidelineAnswer.ts'
 import { MAX_EMAIL_CHARS, UPDATE_SCHEMA, UPDATE_SYSTEM_PROMPT, normalizeProposal, updatePrompt, type UpdateProgram } from './productUpdate.ts'
 import { LEAD_MODEL, LEAD_SCHEMA, LEAD_SYSTEM, buildLeadPrompt, leadDraftIssues, readLeadDraft, reworded, type LeadKind, type LeadThreadMessage } from './leadFollowup.ts'
+import { NURTURE_MODEL, NURTURE_READ_SCHEMA, NURTURE_READ_SYSTEM, NURTURE_WORD_SCHEMA, NURTURE_WORD_SYSTEM, buildNurtureReadPrompt, buildNurtureWordPrompt, isNurtureKind, nurtureDraftIssues, nurtureReworded, readNurtureDraft, readNurtureReading, type NurtureThreadMessage, type ReadMilestone } from './nurture.ts'
 import { READINESS_MODEL, READINESS_SCHEMA, READINESS_SYSTEM, buildReadinessPrompt, normalizeReadinessPlan, type ReadinessFacts } from './readinessPlan.ts'
 import { DOC_READ_SCHEMA, DOC_READ_SYSTEM_PROMPT, DOC_READ_USER_PROMPT, documentFlags, normalizeDocReading, statusFor, type FlagJob } from './documentRead.ts'
 
@@ -983,6 +984,7 @@ async function handleTimer(request: Request) {
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
   if (task === 'document_read_due') return await handleDocumentReadDue(db)
   if (task === 'lead_followup_word_due') return await handleLeadFollowupWording(db)
+  if (task === 'nurture_due') return await handleNurtureDue(db)
   return reply(400, { error: 'Unknown task.' })
 }
 
@@ -1245,5 +1247,165 @@ async function handleReadinessPlan(db: SupabaseClient, body: unknown, userId: st
     return reply(200, { plan, runId })
   } catch (e) {
     return failRun(db, runId, usage, e)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Nurture follow-ups (Connor, 2026-11-16; Steps 6–7): the nurture timer
+// (run_nurture_followups) asks this when a reply is waiting to be read or a
+// milestone text hasn't been worded. Replies are recorded as UNVERIFIED
+// updates (never a completed milestone); texts are reworded once, else the
+// template stays. Sonnet 5.5, logged in ai_runs. Without the key nothing
+// changes: replies show unread and texts keep their template.
+// ---------------------------------------------------------------------------
+
+interface NurtureItemRow {
+  id: string
+  organization_id: string
+  loan_id: string
+  payload: Record<string, unknown> & { channel?: string; body?: string; contactId?: string; nurture?: { kind?: string; goal?: string | null; milestoneTitle?: string | null; measure?: string | null; targetDate?: string | null } }
+}
+
+interface NurtureUpdateRow {
+  id: string
+  organization_id: string
+  loan_id: string
+  contact_id: string | null
+}
+
+type SonnetReply = { stop_reason: string; model: string; usage: { input_tokens: number; output_tokens: number }; content: { type: string; text?: string }[] }
+
+async function askSonnet(anthropic: Anthropic, system: string, prompt: string, schema: unknown): Promise<{ res: SonnetReply; parsed: unknown }> {
+  const res = (await anthropic.beta.messages.create({
+    model: NURTURE_MODEL,
+    max_tokens: 1500,
+    system,
+    messages: [{ role: 'user', content: prompt }],
+    output_config: { effort: 'low', format: { type: 'json_schema', schema } },
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+  } as never)) as unknown as SonnetReply
+  const text = res.content.flatMap((b) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
+  let parsed: unknown = null
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    // Unreadable: treated as no answer.
+  }
+  return { res, parsed }
+}
+
+async function nurtureThread(db: SupabaseClient, contactIds: string[]): Promise<NurtureThreadMessage[]> {
+  if (!contactIds.length) return []
+  const r = await db.from('messages').select('direction, channel, body, sent_at').in('contact_id', contactIds).order('sent_at', { ascending: false }).limit(12)
+  return ((r.data ?? []) as { direction: string; channel: string; body: string | null; sent_at: string }[]).flatMap((m) =>
+    (m.direction === 'inbound' || m.direction === 'outbound') && (m.channel === 'text' || m.channel === 'email') && m.body ? [{ direction: m.direction, channel: m.channel, body: m.body, sentAt: m.sent_at }] : [],
+  )
+}
+
+async function handleNurtureDue(db: SupabaseClient) {
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
+  if (!apiKey) return reply(200, { read: 0, worded: 0, note: 'No Anthropic key: replies show unread and texts keep their template.' })
+  const anthropic = new Anthropic({ apiKey })
+  let read = 0
+  let worded = 0
+  const claimed = await db.rpc('claim_nurture_updates', { p_limit: 5 })
+  if (claimed.error) return reply(500, { error: claimed.error.message })
+  for (const u of (claimed.data ?? []) as NurtureUpdateRow[]) if (await readNurtureReply(db, anthropic, u)) read++
+  const since = new Date(Date.now() - 2 * 86_400_000).toISOString()
+  const items = await db
+    .from('action_items')
+    .select('id, organization_id, loan_id, payload')
+    .eq('source', 'nurture_milestone')
+    .eq('status', 'pending')
+    .eq('kind', 'draft_message')
+    .is('payload->>worded', null)
+    .gte('created_at', since)
+    .order('created_at')
+    .limit(12)
+  for (const item of (items.data ?? []) as NurtureItemRow[]) if (await wordNurtureFollowup(db, anthropic, item)) worded++
+  return reply(200, { read, worded })
+}
+
+async function readNurtureReply(db: SupabaseClient, anthropic: Anthropic, u: NurtureUpdateRow): Promise<boolean> {
+  const [loan, people, plan] = await Promise.all([
+    db.from('loans').select('lo:profiles!loans_assigned_lo_id_fkey ( full_name )').eq('id', u.loan_id).maybeSingle(),
+    db.from('loan_borrowers').select('contact_id, role, contact:contacts ( first_name )').eq('loan_id', u.loan_id),
+    db.from('readiness_plans').select('id, goal').eq('loan_id', u.loan_id).eq('status', 'approved').maybeSingle(),
+  ])
+  const borrowers = (people.data ?? []) as unknown as { contact_id: string; role: string; contact: { first_name: string | null } | null }[]
+  const who = borrowers.find((b) => b.contact_id === u.contact_id) ?? borrowers.find((b) => b.role === 'primary')
+  const firstName = (who?.contact?.first_name ?? '').trim() || 'The borrower'
+  const loFirst = ((loan.data as { lo: { full_name: string | null } | null } | null)?.lo?.full_name ?? '').trim().split(' ')[0] || 'Connor'
+  const p = plan.data as { id: string; goal: string | null } | null
+  const ms = p
+    ? (((await db.from('readiness_milestones').select('id, title, measure, target_date, status, sort_order, action:readiness_actions ( title )').eq('plan_id', p.id).order('sort_order')).data ?? []) as unknown as { id: string; title: string; measure: string | null; target_date: string | null; status: string; action: { title: string } | null }[])
+    : []
+  const milestones: ReadMilestone[] = ms.map((m) => ({ id: m.id, title: m.title, measure: m.measure, targetDate: m.target_date, done: m.status === 'done', action: m.action?.title ?? null }))
+  const thread = await nurtureThread(db, borrowers.map((b) => b.contact_id))
+  const lastOut = thread.find((m) => m.direction === 'outbound')?.sentAt ?? null
+  const run = await db.from('ai_runs').insert({ organization_id: u.organization_id, loan_id: u.loan_id, task_type: 'nurture_reply', input_ref: { updateId: u.id, messages: thread.length }, model: NURTURE_MODEL, created_by: null }).select('id').single()
+  const runId = (run.data as { id: string } | null)?.id ?? null
+  try {
+    const { res, parsed } = await askSonnet(anthropic, NURTURE_READ_SYSTEM, buildNurtureReadPrompt(firstName, loFirst, p?.goal ?? null, milestones, thread, lastOut), NURTURE_READ_SCHEMA)
+    const reading = res.stop_reason === 'end_turn' ? readNurtureReading(parsed, milestones) : { error: `unusable answer (${res.stop_reason})` }
+    const usage = { model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens }
+    if ('error' in reading) {
+      if (runId) await db.from('ai_runs').update({ status: 'failed', error: reading.error, ...usage }).eq('id', runId)
+      return false
+    }
+    const saved = await db
+      .from('nurture_updates')
+      .update({ status: 'unverified', milestone_id: reading.milestoneId, kind: reading.kind, summary: reading.summary, suggested_next: reading.suggestedNext || null, confidence: reading.confidence, ai_run_id: runId })
+      .eq('id', u.id)
+      .eq('status', 'queued')
+    if (saved.error) throw new Error(saved.error.message)
+    if (runId) await db.from('ai_runs').update({ status: 'succeeded', output: reading, ...usage }).eq('id', runId)
+    return true
+  } catch (e) {
+    if (runId) await db.from('ai_runs').update({ status: 'failed', error: (e as Error).message.slice(0, 500) }).eq('id', runId)
+    return false
+  }
+}
+
+async function wordNurtureFollowup(db: SupabaseClient, anthropic: Anthropic, item: NurtureItemRow): Promise<boolean> {
+  const p = item.payload
+  const n = p.nurture ?? {}
+  const kind = n.kind ?? ''
+  const template = typeof p.body === 'string' ? p.body : ''
+  const mark = (patch: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    db.from('action_items').update({ payload: { ...p, ...patch }, ...extra }).eq('id', item.id).eq('status', 'pending')
+  if (!nurtureReworded(kind, p.channel ?? '') || !isNurtureKind(kind) || !template || typeof p.contactId !== 'string') {
+    await mark({ worded: 'template' })
+    return false
+  }
+  const [contact, loan, thread] = await Promise.all([
+    db.from('contacts').select('first_name').eq('id', p.contactId).maybeSingle(),
+    db.from('loans').select('lo:profiles!loans_assigned_lo_id_fkey ( full_name )').eq('id', item.loan_id).maybeSingle(),
+    nurtureThread(db, [p.contactId]),
+  ])
+  const firstName = ((contact.data as { first_name: string | null } | null)?.first_name ?? '').trim()
+  const loFull = ((loan.data as { lo: { full_name: string | null } | null } | null)?.lo?.full_name ?? '').trim()
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date())
+  const prompt = buildNurtureWordPrompt({ kind, firstName: firstName || 'there', loFirstName: loFull.split(' ')[0] || 'your loan officer', goal: n.goal ?? null, milestone: n.milestoneTitle ?? null, measure: n.measure ?? null, targetDate: n.targetDate ?? null, today }, template, thread)
+  const run = await db.from('ai_runs').insert({ organization_id: item.organization_id, loan_id: item.loan_id, task_type: 'nurture_followup', input_ref: { actionItemId: item.id, kind, messages: thread.length }, model: NURTURE_MODEL, created_by: null }).select('id').single()
+  const runId = (run.data as { id: string } | null)?.id ?? null
+  try {
+    const { res, parsed } = await askSonnet(anthropic, NURTURE_WORD_SYSTEM, prompt, NURTURE_WORD_SCHEMA)
+    const body = res.stop_reason === 'end_turn' ? readNurtureDraft(parsed) : null
+    const issues = body ? nurtureDraftIssues(body, firstName, complianceIssues('text', { subject: null, body })) : [`unusable answer (${res.stop_reason})`]
+    const usage = { model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens }
+    if (body && issues.length === 0) {
+      await mark({ body, worded: 'ai', template_body: template }, { ai_run_id: runId })
+      if (runId) await db.from('ai_runs').update({ status: 'succeeded', output: { body }, ...usage }).eq('id', runId)
+      return true
+    }
+    await mark({ worded: 'template' })
+    if (runId) await db.from('ai_runs').update({ status: 'failed', error: `Template kept: ${issues.join(' ')}`.slice(0, 500), ...usage }).eq('id', runId)
+    return false
+  } catch (e) {
+    await mark({ worded: 'template' })
+    if (runId) await db.from('ai_runs').update({ status: 'failed', error: (e as Error).message.slice(0, 500) }).eq('id', runId)
+    return false
   }
 }

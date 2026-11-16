@@ -14,6 +14,9 @@ import { draftContactId } from '@/lib/queue/drafts'
 import { formatIsoDate } from '@/lib/dates'
 import { LeadContextBlock, LeadFollowupButtons } from '@/components/leads/LeadFollowupParts'
 import { stillALead } from '@/lib/api/leadFollowups'
+import { stillInNurture } from '@/lib/api/nurtureFollowups'
+import { NurtureContextBlock } from '@/components/nurture/NurtureFollowupParts'
+import { readNurtureContext } from '@/lib/nurture/followups'
 import { fillLink, missingLink, readLeadContext, readLinkToken } from '@/lib/leads/followups'
 import { approvalNote, decisionFor, readDraft, readReviewLink, readTask, type ActionItem, type DraftMessage, type TaskSuggestion } from '@/lib/queue/today'
 
@@ -36,6 +39,8 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
   const decide = useDecideAction()
   // Lead follow-ups (Connor, 2026-11-16) carry the file's context and "{link}" for the borrower's portal link.
   const lead = readLeadContext(item.payload)
+  // Nurture check-ins (Connor, 2026-11-16) carry the plan's milestone.
+  const nurture = readNurtureContext(item.payload)
   const read = item.kind === 'draft_message' ? readDraft(item.payload) : null
   const draft = read && lead ? { ...read, body: fillLink(read.body, readLinkToken(item.payload), window.location.origin) } : read
   const task = item.kind === 'task_suggestion' ? readTask(item.payload) : null
@@ -77,6 +82,10 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
         decide.mutate({ item, file, status: 'dismissed' })
         return toast.error('This file is no longer a lead, so the follow-up was dismissed.')
       }
+    }
+    if (nurture && !(await stillInNurture(file.loanId))) {
+      decide.mutate({ item, file, status: 'dismissed' })
+      return toast.error('This file is no longer in Nurture, so the check-in was dismissed.')
     }
     const what = final.channel === 'text' ? 'this text' : 'this email'
     if (!(await confirmAction(`Send ${what} to ${final.to || file.borrowerName}? It goes out through GHL.`, { confirmLabel: final.channel === 'text' ? 'Send text' : 'Send email' }))) return
@@ -144,9 +153,10 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
           onApprove={() => (canSend ? sendDraft(draft) : approveDraft(draft))}
           onEdit={() => setEditing(true)}
           extra={
-            (canSend || lead) && (
+            (canSend || lead || nurture) && (
               <>
                 {lead && <LeadFollowupButtons itemId={item.id} loanId={file.loanId} disabled={common.busy || send.isPending} />}
+                {nurture && <LeadFollowupButtons itemId={item.id} loanId={file.loanId} disabled={common.busy || send.isPending} viewLabel="View file" />}
                 {canSend && (
                 <>
                 <Button size="sm" variant="outline" onClick={() => setScheduling(true)} disabled={common.busy || send.isPending || schedule.isPending} title="Approve it now and send it at a time you pick">
@@ -164,6 +174,7 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
           }
         >
           {lead && <LeadContextBlock itemId={item.id} lead={lead} />}
+          {nurture && <NurtureContextBlock itemId={item.id} nurture={nurture} />}
           <div className="space-y-1 rounded-md bg-muted/50 p-2.5 text-sm">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Icon className="size-3.5" />

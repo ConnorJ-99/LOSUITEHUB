@@ -21,6 +21,7 @@ import type { OrgMember } from '@/lib/api/types'
 import { ariveTemplateProblem } from '@/lib/arive'
 import { CompensationCard } from '@/components/settings/CompensationCard'
 import { LeadFollowupsCard } from '@/components/settings/LeadFollowupsCard'
+import { NurtureFollowupsCard } from '@/components/settings/NurtureFollowupsCard'
 import { ReviewsCard } from '@/components/settings/ReviewsCard'
 import { PortalSettingsCard } from '@/components/settings/PortalSettingsCard'
 import { roleLabels, useAuth, type CurrentUser, type OrgRole } from '@/lib/auth/context'
@@ -309,6 +310,7 @@ export function SettingsPage() {
         <FeeListCard canEdit={canEditCompany} />
         {canEditCompany && <CompensationCard />}
         <LeadFollowupsCard canEdit={canEditCompany} />
+        <NurtureFollowupsCard canEdit={canEditCompany} />
         <ReviewsCard canEdit={canEditCompany} />
         <PortalSettingsCard canEdit={canEditCompany} organizationId={me?.organizationId ?? null} />
         <RefiScenariosCard canEdit={canEditCompany} />

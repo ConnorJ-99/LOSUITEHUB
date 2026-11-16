@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   CalculatorIcon,
   SproutIcon,
+  RotateCcwIcon,
   ChevronDownIcon,
   FileSignatureIcon,
   FileTextIcon,
@@ -38,6 +39,7 @@ import { ChevronProgress, CompactHeader, FileNav, OverflowMenu, TeamChip, type F
 import { useSelectedCashToClose } from '@/lib/api/headerFigures'
 import { LoanNumberChips } from '@/components/loanfile/LoanNumberChips'
 import { NurtureOverview } from '@/components/nurture/NurtureOverview'
+import { ReassessDialog } from '@/components/nurture/ReassessDialog'
 import { NextActionHeader } from '@/components/leads/NextActionHeader'
 import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
@@ -144,6 +146,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const canDelete = state.status === 'signedIn' && state.user.role !== null && state.user.role !== 'processor'
   const [editing, setEditing] = useState(false)
   const [holding, setHolding] = useState(false)
+  const [reassessing, setReassessing] = useState(false)
   // "Hide details" is remembered per person on this computer.
   const detailsKey = `mps-file-header-details:${state.status === 'signedIn' ? state.user.id : 'anon'}`
   const [detailsOpen, setDetailsOpen] = useState(() => {
@@ -340,6 +343,12 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
                 Move to Nurture
               </Button>
             )}
+            {nurtureFile && (
+              <Button size="sm" variant="outline" onClick={() => setReassessing(true)} title="Ready to look again? Review their progress and move the file back to New lead">
+                <RotateCcwIcon />
+                Reassess for Prequalification
+              </Button>
+            )}
             {!closedFile && !nurtureFile && (
               <Button size="sm" variant="outline" onClick={() => navigate(`/quick-quote?loan=${loan.id}`)} title="Put loan options in front of this borrower">
                 <CalculatorIcon />
@@ -452,6 +461,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
         />
       )}
       {holding && <HoldDialog loan={loan} onClose={() => setHolding(false)} />}
+      {reassessing && <ReassessDialog loanId={loan.id} borrowerName={name} onClose={() => setReassessing(false)} />}
       {editing && <EditLeadDialog loan={loan} ariveLoanNumber={loan.details.ariveLoanNumber} open={editing} onOpenChange={setEditing} />}
       {teamEdit && (
         <TeamMemberDialog

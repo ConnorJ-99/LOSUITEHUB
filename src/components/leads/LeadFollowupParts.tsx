@@ -43,7 +43,7 @@ export function LeadContextBlock({ itemId, lead }: { itemId: string; lead: LeadC
 }
 
 /** Snooze… (hides it from Today until the day picked) and View lead. */
-export function LeadFollowupButtons({ itemId, loanId, disabled }: { itemId: string; loanId: string; disabled?: boolean }) {
+export function LeadFollowupButtons({ itemId, loanId, disabled, viewLabel = 'View lead' }: { itemId: string; loanId: string; disabled?: boolean; viewLabel?: string }) {
   const navigate = useNavigate()
   const snooze = useSnoozeFollowup()
   const [open, setOpen] = useState(false)
@@ -69,7 +69,7 @@ export function LeadFollowupButtons({ itemId, loanId, disabled }: { itemId: stri
       </Button>
       <Button size="sm" variant="outline" onClick={() => navigate(`/loans/${loanId}`)} title="Open the file">
         <ExternalLinkIcon />
-        View lead
+        {viewLabel}
       </Button>
       {open && (
         <EditDialog title="Snooze this follow-up" open onOpenChange={setOpen} onSubmit={save} saving={snooze.isPending} submitLabel="Snooze">

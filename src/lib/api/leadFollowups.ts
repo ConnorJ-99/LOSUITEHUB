@@ -15,13 +15,13 @@ export interface LeadFollowupMeta {
   snoozedUntil: string | null
 }
 
-/** Every waiting lead follow-up's priority and snooze; null before the script has run. */
+/** Every waiting lead follow-up and nurture check-in's priority and snooze; null before the script has run. */
 export function useLeadFollowupMeta() {
   return useQuery({
     queryKey: metaKey,
     retry: false,
     queryFn: async () => {
-      const r = await db().from('action_items').select('id, priority, snoozed_until').eq('source', 'lead_followup').eq('status', 'pending')
+      const r = await db().from('action_items').select('id, priority, snoozed_until').in('source', ['lead_followup', 'nurture_milestone']).eq('status', 'pending')
       if (r.error) return null
       return new Map((r.data as { id: string; priority: 'high' | 'normal'; snoozed_until: string | null }[]).map((x) => [x.id, { priority: x.priority, snoozedUntil: x.snoozed_until } satisfies LeadFollowupMeta]))
     },

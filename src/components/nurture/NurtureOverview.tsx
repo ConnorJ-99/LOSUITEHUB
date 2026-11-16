@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card, DateInput, FormGrid, Select } from '@/components/shared'
 import { ReadinessCard, useLiveReadiness } from '@/components/prequal/Readiness'
 import { ReadinessPlanCard } from './ReadinessPlanCard'
+import { NurtureUpdatesCard } from './NurtureUpdatesCard'
 import { EVENT_LABEL } from '@/lib/prequal/readiness'
 import { MoveToNurtureDialog } from './MoveToNurtureDialog'
 import { useCreditEvents } from '@/lib/api/creditEvents'
@@ -137,6 +138,8 @@ export function NurtureOverview({ loan, app, properties, realtor, onGoToTab }: {
           },
         }}
       />
+
+      <NurtureUpdatesCard loanId={loan.id} organizationId={loan.organizationId} firstName={loan.borrower?.firstName ?? ''} messages={thread.data ?? []} />
 
       <Card
         title="Communication"
