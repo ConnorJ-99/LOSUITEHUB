@@ -17,6 +17,7 @@ import { LoanPage } from '@/pages/LoanPage'
 import { MatrixImportPage } from '@/pages/MatrixImportPage'
 import { ProductUpdatePage } from '@/pages/ProductUpdatePage'
 import { BusinessMetricsPage } from '@/pages/BusinessMetricsPage'
+import { NurtureDashboardPage } from '@/pages/NurtureDashboardPage'
 import { ClosedRegisterPage } from '@/pages/ClosedRegisterPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { PipelinePage } from '@/pages/PipelinePage'
@@ -59,6 +60,7 @@ const router = createBrowserRouter([
       { path: 'pipeline/refinance', element: <PipelineBoardPage /> },
       { path: 'pipeline/heloc', element: <PipelineBoardPage /> },
       { path: 'pipeline/closings', element: <ClosingCalendarPage /> },
+      { path: 'nurture', element: <NurtureDashboardPage /> },
       { path: 'pipeline/:pipelineId', element: <PipelinePage /> },
       { path: 'contacts', element: <ContactsPage /> },
       { path: 'partners', element: <PartnersPage /> },

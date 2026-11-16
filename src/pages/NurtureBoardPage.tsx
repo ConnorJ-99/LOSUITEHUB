@@ -4,7 +4,7 @@
 // officer sees their own files; the Admin login sees all (the file rule).
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { ArrowLeftIcon } from 'lucide-react'
+import { ArrowLeftIcon, BarChart3Icon } from 'lucide-react'
 import { cn } from 'cn'
 import { Card, EmptyState, PageHeader, SearchInput, Select, ToggleChip } from '@/components/shared'
 import { usePipeline } from '@/lib/api/loans'
@@ -88,7 +88,16 @@ export function NurtureBoardPage() {
         <ArrowLeftIcon className="size-4" />
         Leads
       </Link>
-      <PageHeader title="Nurture" description={`Buyers preparing for homeownership${items.length ? ` · ${items.length} file${items.length === 1 ? '' : 's'}` : ''}`} />
+      <PageHeader
+        title="Nurture"
+        description={`Buyers preparing for homeownership${items.length ? ` · ${items.length} file${items.length === 1 ? '' : 's'}` : ''}`}
+        action={
+          <Link to="/nurture" className="inline-flex items-center gap-1.5 rounded-md border bg-white px-3 py-1.5 text-sm font-medium hover:bg-muted">
+            <BarChart3Icon className="size-4" />
+            Dashboard
+          </Link>
+        }
+      />
 
       {(pipeline.isLoading || board.isLoading) && <p className="py-12 text-center text-sm text-muted-foreground">Loading…</p>}
       {board.data === null && (

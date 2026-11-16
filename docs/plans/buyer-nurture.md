@@ -1,6 +1,6 @@
 # Buyer Recovery & Nurture System
 
-Connor's spec, 2026-11-16. Built: Steps 2–3 (f5a370f), 4–5 (d06afa0), 6–8 (scripts 20270205–20270207). Step 9 is next. Built notes: Steps 6–8 keep milestone status outstanding/done ("reported" is shown from an open update rather than stored), notify on arrival (not after the AI read), and put the settings on the lead follow-ups row.
+Connor's spec, 2026-11-16. Built: Steps 2–3 (f5a370f), 4–5 (d06afa0), 6–8 (b9d2e43; scripts 20270205–20270207), 9 (the /nurture dashboard, no script). All steps built. Built notes: Steps 6–8 keep milestone status outstanding/done ("reported" is shown from an open update rather than stored), notify on arrival (not after the AI read), and put the settings on the lead follow-ups row.
 
 ## What exists today (audit)
 
