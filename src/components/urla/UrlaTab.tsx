@@ -79,13 +79,13 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
   const { subjectPropertyId, ...loanDetailsForKey } = loan.details
   void subjectPropertyId
 
-  // The prequal lives here now (Connor, 2026-11-16): the Phone prequal card on top, its results in a side column. Not on closed files.
+  // The prequal lives here now (Connor, 2026-11-16), figured from the 1003: what-ifs and credit on top, results in a side column. Not on closed files.
   const withPrequal = loan.stage !== 'closed'
   const page = (parts: PrequalParts | null) => (
     <>
       <div className={cn('grid gap-x-6 gap-y-4 lg:grid-cols-[12.5rem_minmax(0,1fr)]', parts && '2xl:grid-cols-[12.5rem_minmax(0,1fr)_21rem]')}>
         <UrlaSectionNav validation={validation} onFirstMissing={goToIssue} onCompleteFields={onCompleteFields} className={parts ? 'lg:row-span-3 lg:row-start-1' : undefined} />
-        {parts && <div className="min-w-0 lg:col-start-2 lg:row-start-1">{parts.quickEntry}</div>}
+        {parts && <div className="min-w-0 lg:col-start-2 lg:row-start-1">{parts.top}</div>}
         {parts && (
           <div className="grid min-w-0 content-start gap-4 md:grid-cols-2 lg:col-start-2 lg:row-start-2 2xl:sticky 2xl:top-14 2xl:col-start-3 2xl:row-span-3 2xl:row-start-1 2xl:grid-cols-1 2xl:self-start">{parts.panel}</div>
         )}

@@ -1,15 +1,14 @@
-// The prequal, merged into the 1003 tab (Connor, 2026-11-16; plan
-// docs/plans/prequal-in-1003.md). PrequalWorkspace holds the phone prequal's
-// one draft (saved into the same 1003 records with one Save) and hands the
-// 1003 tab its pieces: the "Phone prequal" card (call notes, Max Approval
-// what-ifs, quick income / debts / homes / savings / credit history), the side
-// column (Max Approval, readiness with suggested documents, prequal results,
-// the Prequal Results PDF to send or download) and the summary bar figures.
+// The prequal, merged into the 1003 tab (Connor, 2026-11-16: "the 1003 is in
+// place of the phone prequal ... the calculated amounts are from the 1003").
+// PrequalWorkspace works everything out from the saved 1003 and hands the 1003
+// tab its pieces: above the 1003, the Max Approval what-ifs and the credit the
+// 1003 has no place for (estimated scores, credit history); the side column
+// (Max Approval, readiness with suggested documents, prequal results, the
+// Prequal Results PDF to send or download); and the summary bar figures.
 import { useMemo, useState, type ReactNode } from 'react'
-import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/shared'
+import { Card, FormGrid, NumberInput } from '@/components/shared'
 import { useUpdateStage } from '@/lib/api/loans'
 import { useSavePrequal } from '@/lib/api/prequal'
 import { useFeeTemplates } from '@/lib/api/pricing'
@@ -21,9 +20,7 @@ import { APPROVAL_LIMIT_LABELS, approvalTypeFor, maxApproval, prequalChecks } fr
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { approvalFacts, approvalFormFrom, approvalInput, type ApprovalForm } from '@/lib/prequal/maxApproval'
 import { draftFrom, hasChanges, prequalChanges, prequalSummary, type PrequalDraft, type QuickBorrower } from '@/lib/prequal/draft'
-import { BorrowerSection, DebtsSection, HomesSection, SavingsSection } from './PrequalSections'
 import { MaxApprovalInputs, MaxApprovalResults } from './MaxApproval'
-import { CallNotes } from './CallNotes'
 import { CreditHistorySection } from './CreditHistorySection'
 import { PrequalResults } from './PrequalResults'
 import { ReadinessCard, useLiveReadiness } from './Readiness'
@@ -36,8 +33,8 @@ export interface SummaryFigure {
 }
 
 export interface PrequalParts {
-  /** The "Phone prequal" card, for the top of the 1003. */
-  quickEntry: ReactNode
+  /** Above the 1003: Max Approval what-ifs and credit. */
+  top: ReactNode
   /** The side column: Max Approval, readiness, results, the PDF. */
   panel: ReactNode
   /** The summary bar's figures. */
@@ -56,8 +53,6 @@ export function PrequalWorkspace({ loan, app, properties, children }: { loan: Lo
 
 function PrequalForm({ loan, app, subject, properties, saved, render }: { loan: LoanProfile; app: Application; subject: Property | null; properties: Property[]; saved: PrequalDraft; render: (parts: PrequalParts) => ReactNode }) {
   const [draft, setDraft] = useState<PrequalDraft>(() => draftFrom(loan, app, properties))
-  // Open on a new file (no income on the 1003 yet); folded away once the 1003 has income.
-  const [open, setOpen] = useState(() => app.borrowers.every((b) => b.employments.length === 0 && b.otherIncomes.length === 0))
   const save = useSavePrequal(loan.id, loan.organizationId)
   const updateStage = useUpdateStage()
 
@@ -107,50 +102,41 @@ function PrequalForm({ loan, app, subject, properties, saved, render }: { loan: 
   const results = isPurchase && approval ? <MaxApprovalResults loan={loan} loanType={approvalTypeFor(draft.loan.mortgageType)} result={approval} /> : null
   const saveButton = (
     <Button onClick={onSave} disabled={!dirty || save.isPending}>
-      {save.isPending ? 'Saving…' : dirty ? 'Save prequal' : 'Saved'}
+      {save.isPending ? 'Saving…' : dirty ? 'Save to 1003' : 'Saved'}
     </Button>
   )
 
-  const quickEntry = (
-    <Card
-      title="Phone prequal"
-      description={open ? 'Quick entry for a call: read call notes, or type income, debts, homes and savings. Save writes it into the 1003 below.' : undefined}
-      action={
-        <Button size="sm" variant="ghost" onClick={() => setOpen(!open)} aria-expanded={open}>
-          {open ? <ChevronDownIcon /> : <ChevronRightIcon />}
-          {open ? 'Hide' : dirty ? 'Show (not saved)' : 'Show'}
-        </Button>
-      }
-    >
-      {!open && <p className="text-sm text-muted-foreground">Quick entry for calls: call notes, income, debts, homes, savings and the Max Approval what-ifs.{dirty ? ' You have changes that aren’t saved.' : ''}</p>}
-      {open && (
-        <div className="space-y-4">
-          <CallNotes loan={loan} app={app} draft={draft} onApply={setDraft} />
-          {isPurchase && approval && (
-            <>
-              <MaxApprovalInputs loan={draft.loan} onLoanChange={(l) => setDraft((d) => ({ ...d, loan: l }))} form={approvalForm} onChange={setApprovalForm} facts={facts} />
-              <div className="lg:hidden">{results}</div>
-            </>
-          )}
+  // Above the 1003: the Max Approval what-ifs (purchase) and the credit the 1003 itself has no place for.
+  const top = (
+    <div className="space-y-4">
+      {isPurchase && approval && <MaxApprovalInputs loan={draft.loan} onLoanChange={(l) => setDraft((d) => ({ ...d, loan: l }))} form={approvalForm} onChange={setApprovalForm} facts={facts} />}
+      <Card title="Credit" description="Estimated scores until credit is pulled, and credit history. Everything else is figured from the 1003 below.">
+        <FormGrid>
           {draft.borrowers.map((b) => (
-            <BorrowerSection key={b.contactId} borrower={b} onChange={setBorrower} />
+            <NumberInput
+              key={b.contactId}
+              label={`${b.firstName || 'Borrower'}${b.role === 'co_borrower' ? ' (co)' : ''}: credit score (estimate)`}
+              value={b.creditScore}
+              onChange={(creditScore) => setBorrower({ ...b, creditScore })}
+              maxDecimals={0}
+              span={2}
+            />
           ))}
-          <DebtsSection debts={draft.debts} borrowers={draft.borrowers} onChange={(debts) => setDraft((d) => ({ ...d, debts }))} />
-          <HomesSection homes={draft.properties} onChange={(properties) => setDraft((d) => ({ ...d, properties }))} />
-          <SavingsSection assets={draft.assets} borrowers={draft.borrowers} onChange={(assets) => setDraft((d) => ({ ...d, assets }))} />
-          <CreditHistorySection loan={loan} app={app} />
-          <div className="flex items-center justify-end gap-2">
-            {dirty && <span className="text-xs text-muted-foreground">Not saved yet</span>}
+        </FormGrid>
+        {dirty && (
+          <div className="mt-3 flex items-center justify-end gap-2">
+            <span className="text-xs text-muted-foreground">Not saved yet</span>
             {saveButton}
           </div>
-        </div>
-      )}
-    </Card>
+        )}
+      </Card>
+      <CreditHistorySection loan={loan} app={app} />
+    </div>
   )
 
   const panel = (
     <>
-      {results && <div className={open ? 'hidden lg:block' : undefined}>{results}</div>}
+      {results}
       <ReadinessCard loan={loan} view={live} />
       <PrequalResults
         isPurchase={isPurchase}
@@ -177,5 +163,5 @@ function PrequalForm({ loan, app, subject, properties, saved, render }: { loan: 
         { label: 'LTV', value: formatPercent(summary.scenario.ltv, 2) },
       ]
 
-  return render({ quickEntry, panel, figures, saveButton: dirty ? saveButton : null })
+  return render({ top, panel, figures, saveButton: dirty ? saveButton : null })
 }
