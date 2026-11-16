@@ -5,12 +5,13 @@
 // nothing re-entered), the readiness plan and the conversation. Lender,
 // pricing, estimates and closing items aren't shown here.
 import { useState } from 'react'
-import { PencilIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, DateInput, FormGrid, Select } from '@/components/shared'
 import { ReadinessCard, useLiveReadiness } from '@/components/prequal/Readiness'
+import { ReadinessPlanCard } from './ReadinessPlanCard'
+import { EVENT_LABEL } from '@/lib/prequal/readiness'
 import { MoveToNurtureDialog } from './MoveToNurtureDialog'
 import { useCreditEvents } from '@/lib/api/creditEvents'
 import { useNotes } from '@/lib/api/notes'
@@ -22,7 +23,7 @@ import type { Application } from '@/lib/api/urla'
 import { formatIsoDate, relativeTime, todayIso } from '@/lib/dates'
 import { prequalFeeEstimate } from '@/lib/estimates/prequal'
 import { formatCurrency, formatPercent } from '@/lib/format'
-import { daysInNurture, followUpOverdue, NURTURE_STAGES, OBSTACLE_GROUPS, obstacleGroup, obstacleLabel, type NurtureStage } from '@/lib/nurture/obstacles'
+import { daysInNurture, followUpOverdue, NURTURE_STAGES, obstacleLabel, type NurtureStage } from '@/lib/nurture/obstacles'
 import { draftFrom, prequalSummary } from '@/lib/prequal/draft'
 
 const Row = ({ label, value, tone }: { label: string; value: React.ReactNode; tone?: 'warn' }) => (
@@ -110,42 +111,32 @@ export function NurtureOverview({ loan, app, properties, realtor, onGoToTab }: {
 
       <ReadinessCard loan={loan} view={readiness} />
 
-      <Card
-        title="Buyer Readiness Plan"
-        action={
-          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-            <PencilIcon />
-            Edit obstacles
-          </Button>
-        }
-      >
-        {f.obstacles.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No readiness obstacles picked yet. Edit obstacles to add them.</p>
-        ) : (
-          <div className="space-y-2">
-            {OBSTACLE_GROUPS.map((g) => {
-              const here = f.obstacles.filter((o) => obstacleGroup(o) === g.id)
-              return here.length ? (
-                <div key={g.id} className="flex flex-wrap items-baseline gap-1.5 text-sm">
-                  <span className="w-36 shrink-0 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{g.label}</span>
-                  {here.map((o) => (
-                    <span key={o} className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">
-                      {obstacleLabel(o)}
-                    </span>
-                  ))}
-                </div>
-              ) : null
-            })}
-          </div>
-        )}
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
-          <Button size="sm" disabled title="Comes in the next build step">
-            <SparklesIcon />
-            Generate Buyer Readiness Plan
-          </Button>
-          <span className="text-xs text-muted-foreground">The plan, its milestones and the roadmap PDF come in the next build step.</span>
-        </div>
-      </Card>
+      <ReadinessPlanCard
+        loan={loan}
+        obstacles={f.obstacles}
+        onEditObstacles={() => setEditing(true)}
+        facts={{
+          firstName: loan.borrower?.firstName ?? '',
+          borrowerName: app.borrowers.map((b) => `${b.person.firstName} ${b.person.lastName}`.trim()).join(' & ') || 'Borrower',
+          target: f.target,
+          ai: {
+            firstName: loan.borrower?.firstName ?? '',
+            today,
+            timeframe: f.target,
+            obstacles: f.obstacles.map((key) => ({ key, label: obstacleLabel(key) })),
+            creditScoreEstimate: summary.creditScore,
+            creditHistory: (events.data ?? []).map((e) => `${EVENT_LABEL[e.eventType]}${e.eventDate ? ` (${e.eventDate})` : ''}`),
+            monthlyIncome: summary.totalIncome > 0 ? summary.totalIncome : null,
+            monthlyDebts: summary.otherDebts,
+            dtiBackPct: summary.dti.back,
+            maxDtiPct: draft.loan.maxDtiPct,
+            savings: funds,
+            cashNeeded: needed,
+            readinessNotes: readiness?.result.reasons.map((r) => r.text) ?? [],
+            note: f.note,
+          },
+        }}
+      />
 
       <Card
         title="Communication"

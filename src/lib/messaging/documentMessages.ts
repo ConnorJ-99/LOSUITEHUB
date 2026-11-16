@@ -2,7 +2,7 @@
 // pre-approval letter sent from LOSuite (plan step B, Connor 2026-10-30).
 // Built in code, no AI; the loan officer can edit both before sending.
 
-export const SENDABLE_KINDS = ['fee_worksheet', 'loan_comparison', 'preapproval_letter', 'prequal_results'] as const
+export const SENDABLE_KINDS = ['fee_worksheet', 'loan_comparison', 'preapproval_letter', 'prequal_results', 'readiness_roadmap'] as const
 export type SendableKind = (typeof SENDABLE_KINDS)[number]
 
 export const isSendableKind = (kind: string): kind is SendableKind => (SENDABLE_KINDS as readonly string[]).includes(kind)
@@ -12,6 +12,7 @@ const WHAT: Record<SendableKind, { noun: string; subject: string }> = {
   loan_comparison: { noun: 'loan options comparison', subject: 'Your loan options' },
   preapproval_letter: { noun: 'pre-approval letter', subject: 'Your pre-approval letter' },
   prequal_results: { noun: 'prequalification results', subject: 'Your prequalification results' },
+  readiness_roadmap: { noun: 'roadmap to homeownership', subject: 'Your Roadmap to Homeownership' },
 }
 
 export interface DocumentMessage {
@@ -30,6 +31,8 @@ export function documentMessage(kind: SendableKind, firstName: string | null, lo
     loan_comparison: 'Attached are the loan options we talked about, side by side.',
     preapproval_letter: 'Attached is your pre-approval letter. When you find a home and make an offer, send me the address and I can update the letter to match.',
     prequal_results: 'Thanks for taking the time to talk today. Attached are your prequalification results: your estimated buying power, payment and cash needed, and the next steps to get you pre-approved.',
+    // No figures in the email (Connor, 2026-11-16): everything is in the attached roadmap.
+    readiness_roadmap: 'Attached is your Roadmap to Homeownership: the steps we talked about, how we’ll check progress, and when we’ll review it together.',
   }
   return {
     subject: `${w.subject} — ${companyName}`,

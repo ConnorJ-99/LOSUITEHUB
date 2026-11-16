@@ -34,6 +34,7 @@ import { SCENARIO_SCHEMA, SCENARIO_SYSTEM_PROMPT, normalizeScenarioRead } from '
 import { ANSWER_SCHEMA, ANSWER_SYSTEM_PROMPT, MAX_PASSAGES, answerPrompt, normalizeAnswer, type AnswerPassage } from './guidelineAnswer.ts'
 import { MAX_EMAIL_CHARS, UPDATE_SCHEMA, UPDATE_SYSTEM_PROMPT, normalizeProposal, updatePrompt, type UpdateProgram } from './productUpdate.ts'
 import { LEAD_MODEL, LEAD_SCHEMA, LEAD_SYSTEM, buildLeadPrompt, leadDraftIssues, readLeadDraft, reworded, type LeadKind, type LeadThreadMessage } from './leadFollowup.ts'
+import { READINESS_MODEL, READINESS_SCHEMA, READINESS_SYSTEM, buildReadinessPrompt, normalizeReadinessPlan, type ReadinessFacts } from './readinessPlan.ts'
 import { DOC_READ_SCHEMA, DOC_READ_SYSTEM_PROMPT, DOC_READ_USER_PROMPT, documentFlags, normalizeDocReading, statusFor, type FlagJob } from './documentRead.ts'
 
 /** Drafts use Sonnet (approved by Connor): fast and inexpensive for short messages. */
@@ -225,6 +226,7 @@ Deno.serve(async (request) => {
     if (task === 'guideline_answer') return await handleGuidelineAnswer(db, body, userId, apiKey)
     if (task === 'product_update_read') return await handleProductUpdateRead(db, body, userId, apiKey)
     if (task === 'document_read_now') return await handleDocumentReadNow(db, body, apiKey)
+    if (task === 'readiness_plan') return await handleReadinessPlan(db, body, userId, apiKey)
     return await handleFollowUp(db, body, userId, apiKey)
   } catch (e) {
     return reply(500, { error: (e as Error).message })
@@ -1204,5 +1206,44 @@ async function wordLeadFollowup(db: SupabaseClient, anthropic: Anthropic, item: 
     await mark({ worded: 'template' })
     if (runId) await db.from('ai_runs').update({ status: 'failed', error: (e as Error).message.slice(0, 500) }).eq('id', runId)
     return false
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Buyer Readiness Plan (Connor, 2026-11-16): Opus 5.5 drafts, the loan
+// officer edits and approves in the app. Facts come from the file the person
+// can see; the plan is returned, never saved or sent from here.
+// ---------------------------------------------------------------------------
+
+async function handleReadinessPlan(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const { loanId, facts } = (body ?? {}) as { loanId?: unknown; facts?: unknown }
+  if (typeof loanId !== 'string' || !UUID.test(loanId)) return reply(400, { error: 'Invalid loan.' })
+  const f = facts as ReadinessFacts | undefined
+  if (!f || !Array.isArray(f.obstacles) || f.obstacles.length === 0) return reply(400, { error: 'Pick at least one readiness obstacle first.' })
+  const organizationId = await organizationFor(db, loanId)
+  const runId = await startRun(db, organizationId, loanId, 'readiness_plan', { loanId, obstacles: f.obstacles.map((o) => o.key) }, READINESS_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: READINESS_MODEL }
+  try {
+    const params = {
+      model: READINESS_MODEL,
+      max_tokens: 8000,
+      system: READINESS_SYSTEM,
+      messages: [{ role: 'user', content: buildReadinessPrompt(f) }],
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: READINESS_SCHEMA } },
+    }
+    const res = await createForJson(new Anthropic({ apiKey }), params, db, runId)
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to draft this plan.')
+    if (res.stop_reason === 'max_tokens') throw new UserError('The plan came back cut off. Try again with fewer obstacles.')
+    const raw = parseJsonReply(replyText(res))
+    if (raw == null) throw new UserError('The assistant returned something unreadable. Try again.')
+    const plan = normalizeReadinessPlan(raw, f.obstacles.map((o) => o.key))
+    if ('error' in plan) throw new UserError(plan.error)
+    await db.from('ai_runs').update({ status: 'succeeded', output: plan, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+    return reply(200, { plan, runId })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
   }
 }

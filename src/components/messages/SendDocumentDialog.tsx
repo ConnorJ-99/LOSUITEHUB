@@ -1,9 +1,11 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { PaperclipIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { confirmAction, Input, TextArea, ToggleChip } from '@/components/shared'
 import { EditDialog } from '@/components/urla/parts'
+import { db } from '@/lib/api/client'
 import { useLoanDocuments, type LoanDocument } from '@/lib/api/documents'
 import { useFilePeople, useSendMessage, type FilePerson } from '@/lib/api/messages'
 import { useQueueDraft } from '@/lib/api/queue'
@@ -18,6 +20,7 @@ import { useSendPlan } from './useSendPlan'
 function Form({ loan, doc, people, onClose }: { loan: LoanProfile; doc: LoanDocument & { kind: SendableKind }; people: FilePerson[]; onClose: () => void }) {
   const rules = useSendPlan(loan)
   const send = useSendMessage()
+  const queryClient = useQueryClient()
   const [personId, setPersonId] = useState(people.find((p) => p.id === doc.contactId)?.id ?? people[0].id)
   const person = people.find((p) => p.id === personId) ?? people[0]
   const draft = (p: FilePerson) => documentMessage(doc.kind, p.firstName, rules?.loName ?? loan.assignedLo?.name ?? null)
@@ -62,6 +65,8 @@ function Form({ loan, doc, people, onClose }: { loan: LoanProfile; doc: LoanDocu
           if (r.alreadySent) toast.info(r.error ? `That email already failed: ${r.error}` : 'That email was already sent.')
           else {
             toast.success(`${doc.fileName} emailed to ${person.firstName}`)
+            // Sending the roadmap moves a Nurture file to Plan Delivered.
+            if (doc.kind === 'readiness_roadmap') void db().rpc('mark_roadmap_delivered', { p_loan_id: loan.id }).then(() => queryClient.invalidateQueries({ queryKey: ['pipeline'] }))
             if (isPrequal) {
               const cell = lo.data?.personalCell ?? null
               // A promise, not mutate's callbacks: the dialog closes before it finishes.

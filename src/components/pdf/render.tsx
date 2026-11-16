@@ -4,7 +4,7 @@ import type { ReactElement } from 'react'
 import { pdf, type DocumentProps } from '@react-pdf/renderer'
 import type { DocBrand } from '@/lib/documents/brand'
 import type { FeeWorksheet } from '@/lib/documents/feeWorksheet'
-import { fitToOnePage } from '@/lib/documents/fit'
+import { fitToOnePage, type FitResult } from '@/lib/documents/fit'
 import type { LoanComparison } from '@/lib/documents/loanComparison'
 import type { FlyerView } from '@/lib/documents/openHouseFlyer'
 import { pdfPageCount } from '@/lib/documents/pdfText'
@@ -15,6 +15,8 @@ import { LoanComparisonPdf } from './LoanComparisonPdf'
 import { OpenHouseFlyerPdf } from './OpenHouseFlyerPdf'
 import { PreapprovalLetterPdf } from './PreapprovalLetterPdf'
 import { PrequalResultsPdf } from './PrequalResultsPdf'
+import { ReadinessRoadmapPdf } from './ReadinessRoadmapPdf'
+import type { RoadmapView } from '@/lib/documents/readinessRoadmap'
 import type { LetterView } from '@/lib/documents/preapproval'
 import type { PrequalResultsView } from '@/lib/documents/prequalResults'
 
@@ -37,3 +39,10 @@ export const prequalResultsPdf = (results: PrequalResultsView, brand: DocBrand) 
 export const openHouseFlyerPdf = (flyer: FlyerView) => renderOnePage((scale) => <OpenHouseFlyerPdf flyer={flyer} scale={scale} />)
 
 export const incomeAnalysisPdf = (analysis: IncomeAnalysisView, brand: DocBrand) => renderOnePage((scale) => <IncomeAnalysisPdf analysis={analysis} brand={brand} scale={scale} />)
+
+/** The roadmap (Connor, 2026-11-16) flows over 3–5 pages instead of fitting one; more than 8 is refused. */
+export async function readinessRoadmapPdf(roadmap: RoadmapView, brand: DocBrand): Promise<FitResult<Blob>> {
+  const file = await pdf(<ReadinessRoadmapPdf roadmap={roadmap} brand={brand} />).toBlob()
+  const pages = await pdfPageCount(await file.arrayBuffer())
+  return pages <= 8 ? { ok: true, file, scale: 1 } : { ok: false, pages }
+}
