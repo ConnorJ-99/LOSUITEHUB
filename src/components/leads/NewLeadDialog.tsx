@@ -165,7 +165,7 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
           }
           await ghlAdd()
           if (startPrequal) {
-            navigate(`/loans/${loanId}?tab=prequal`)
+            navigate(`/loans/${loanId}?tab=1003`)
             toast.success(`${name} added to ${where}`)
             return
           }

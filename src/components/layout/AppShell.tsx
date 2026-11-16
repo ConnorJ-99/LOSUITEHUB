@@ -40,7 +40,7 @@ export function AppShell({ user, preview }: { user: CurrentUser; preview: boolea
   // A file's Scenarios & Estimate tab too, so the fees and pricing fill the screen (Connor, 2026-11-14).
   const { pathname, search } = useLocation()
   const tab = new URLSearchParams(search).get('tab')
-  const fullWidth = /^\/pipeline(\/(purchase|refinance|heloc))?\/?$/.test(pathname) || (/^\/loans\/[^/]+\/?$/.test(pathname) && (tab === 'estimates' || tab === 'fees' || tab === 'loan'))
+  const fullWidth = /^\/pipeline(\/(purchase|refinance|heloc))?\/?$/.test(pathname) || (/^\/loans\/[^/]+\/?$/.test(pathname) && (tab === 'estimates' || tab === 'fees' || tab === 'loan' || tab === '1003' || tab === 'prequal'))
   const [mobileOpen, setMobileOpen] = useState(false)
   const [newLeadOpen, setNewLeadOpen] = useState(false)
   const [newLeadPreset, setNewLeadPreset] = useState<NewLeadPreset | null>(null)

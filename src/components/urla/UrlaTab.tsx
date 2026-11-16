@@ -24,6 +24,8 @@ import { RealEstateSection } from './RealEstateSection'
 import { applicationSummary } from '@/lib/urla/summary'
 import type { UrlaIssue, UrlaValidation } from '@/lib/loanfile/urla'
 import { UrlaSectionNav, focusIssue } from './UrlaSectionNav'
+import { PrequalWorkspace, type PrequalParts } from '@/components/prequal/PrequalWorkspace'
+import { cn } from 'cn'
 
 /**
  * The 1003 (Uniform Residential Loan Application), sectioned like the real
@@ -77,12 +79,18 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
   const { subjectPropertyId, ...loanDetailsForKey } = loan.details
   void subjectPropertyId
 
-  return (
+  // The prequal lives here now (Connor, 2026-11-16): the Phone prequal card on top, its results in a side column. Not on closed files.
+  const withPrequal = loan.stage !== 'closed'
+  const page = (parts: PrequalParts | null) => (
     <>
-      <div className="grid gap-x-6 gap-y-3 lg:grid-cols-[12.5rem_1fr]">
-        <UrlaSectionNav validation={validation} onFirstMissing={goToIssue} onCompleteFields={onCompleteFields} />
+      <div className={cn('grid gap-x-6 gap-y-4 lg:grid-cols-[12.5rem_minmax(0,1fr)]', parts && '2xl:grid-cols-[12.5rem_minmax(0,1fr)_21rem]')}>
+        <UrlaSectionNav validation={validation} onFirstMissing={goToIssue} onCompleteFields={onCompleteFields} className={parts ? 'lg:row-span-3 lg:row-start-1' : undefined} />
+        {parts && <div className="min-w-0 lg:col-start-2 lg:row-start-1">{parts.quickEntry}</div>}
+        {parts && (
+          <div className="grid min-w-0 content-start gap-4 md:grid-cols-2 lg:col-start-2 lg:row-start-2 2xl:sticky 2xl:top-14 2xl:col-start-3 2xl:row-span-3 2xl:row-start-1 2xl:grid-cols-1 2xl:self-start">{parts.panel}</div>
+        )}
 
-        <div className="min-w-0 space-y-4">
+        <div className={cn('min-w-0 space-y-4', parts && 'lg:col-start-2 lg:row-start-3 2xl:row-start-2')}>
           <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3">
             <span className="mr-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Borrower</span>
             {borrowers.map((b) => (
@@ -159,7 +167,7 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
       </div>
 
       <SummaryBar
-        items={[
+        items={parts ? parts.figures : [
           { label: 'Loan amount', value: formatCurrency(loan.details.loanAmount) },
           { label: isPurchase ? 'LTV' : 'CLTV', value: formatPercent(isPurchase ? scenario.ltv : scenario.cltv) },
           { label: 'Income / mo', value: formatCurrency(q.totalIncome) },
@@ -169,6 +177,7 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
         ]}
         action={
           <div className="flex gap-2">
+            {parts?.saveButton}
             <Button variant="outline" onClick={() => fileInput.current?.click()}>
               <FileUpIcon />
               <span className="hidden sm:inline">Import MISMO</span>
@@ -214,5 +223,11 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
         />
       )}
     </>
+  )
+  if (!withPrequal || !properties.data) return page(null)
+  return (
+    <PrequalWorkspace loan={loan} app={app.data!} properties={properties.data}>
+      {page}
+    </PrequalWorkspace>
   )
 }

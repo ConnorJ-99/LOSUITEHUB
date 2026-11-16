@@ -20,7 +20,6 @@ import {
   StarIcon,
   Trash2Icon,
   TriangleAlertIcon,
-  UserCheckIcon,
   WorkflowIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -51,7 +50,6 @@ import { TasksCard } from '@/components/profile/TasksCard'
 import { PropertiesTab } from '@/components/profile/PropertiesTab'
 import { FEATURES } from '@/lib/features'
 import { IncomeTab } from '@/components/income/IncomeTab'
-import { PrequalTab } from '@/components/prequal/PrequalTab'
 import { TeamMemberDialog } from '@/components/partners/TeamMemberDialog'
 import { UrlaTab } from '@/components/urla/UrlaTab'
 import { useLoanFile, useSaveTeamMember, useSetLoanOfficer, useStepTemplates, type TeamRole } from '@/lib/api/loanfile'
@@ -78,7 +76,7 @@ import { useAuth } from '@/lib/auth/context'
 
 const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions'] as const
 type Section = (typeof SECTIONS)[number]
-const READY: Section[] = ['overview', 'prequal', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions']
+const READY: Section[] = ['overview', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions']
 /** A closed file's profile: the closed loan (Overview), its 1003, the home, documents, notes and messages. */
 const CLOSED_SECTIONS: Section[] = ['overview', 'loans', '1003', 'properties', 'estimates', 'documents', 'notes', 'messages']
 
@@ -172,7 +170,8 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   // The old Fees and Loan · Pricing tabs are now Scenarios & Estimate.
   const tab = searchParams.get('tab')
   // Conditions and Documents are one tab (Connor, 2026-11-13); old ?tab=conditions links open it at the conditions.
-  const param = (tab === 'fees' || tab === 'loan' ? 'estimates' : tab === 'conditions' ? 'documents' : tab) as Section | null
+  // The Prequal tab is part of the 1003 now (Connor, 2026-11-16), so old ?tab=prequal links open the 1003.
+  const param = (tab === 'fees' || tab === 'loan' ? 'estimates' : tab === 'conditions' ? 'documents' : tab === 'prequal' ? '1003' : tab) as Section | null
   const toConditions = tab === 'conditions'
   const closedFile = loan.stage === 'closed'
   const section: Section = param && READY.includes(param) && ((param !== 'contract' && param !== 'letters') || isPurchase) && (!closedFile || CLOSED_SECTIONS.includes(param)) ? param : 'overview'
@@ -228,7 +227,6 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
 
   const allNav: FileNavItem[] = [
     { id: 'overview', label: 'Overview', icon: WorkflowIcon },
-    { id: 'prequal', label: 'Prequal', icon: UserCheckIcon },
     { id: '1003', label: '1003', icon: FileTextIcon, marker: validation ? (validation.totalMissing ? { type: 'count', value: validation.totalMissing } : { type: 'complete' }) : undefined },
     // The Income tab is put away for now (FEATURES.incomeReview); ?tab=income still opens it.
     ...(FEATURES.incomeReview ? [{ id: 'income', label: 'Income', icon: CalculatorIcon }] : []),
@@ -403,7 +401,6 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
               {!closedFile && <OverviewTab key={JSON.stringify(savedDetails)} loan={loan} onGoToTab={goTo} />}
             </>
           )}
-          {section === 'prequal' && <PrequalTab loan={loan} />}
           {section === '1003' && <UrlaTab loan={loan} validation={validation} onCompleteFields={() => setCompleting(true)} />}
           {section === 'income' && <IncomeTab loan={loan} />}
           {section === 'contract' && <ContractTab loan={loan} />}

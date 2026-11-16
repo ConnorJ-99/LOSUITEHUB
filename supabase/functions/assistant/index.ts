@@ -33,6 +33,7 @@ import { MATRIX_FORMAT_PROMPT, MATRIX_SYSTEM_PROMPT, MATRIX_USER_PROMPT, MAX_MAT
 import { SCENARIO_SCHEMA, SCENARIO_SYSTEM_PROMPT, normalizeScenarioRead } from './scenarioRead.ts'
 import { ANSWER_SCHEMA, ANSWER_SYSTEM_PROMPT, MAX_PASSAGES, answerPrompt, normalizeAnswer, type AnswerPassage } from './guidelineAnswer.ts'
 import { MAX_EMAIL_CHARS, UPDATE_SCHEMA, UPDATE_SYSTEM_PROMPT, normalizeProposal, updatePrompt, type UpdateProgram } from './productUpdate.ts'
+import { LEAD_MODEL, LEAD_SCHEMA, LEAD_SYSTEM, buildLeadPrompt, leadDraftIssues, readLeadDraft, reworded, type LeadKind, type LeadThreadMessage } from './leadFollowup.ts'
 import { DOC_READ_SCHEMA, DOC_READ_SYSTEM_PROMPT, DOC_READ_USER_PROMPT, documentFlags, normalizeDocReading, statusFor, type FlagJob } from './documentRead.ts'
 
 /** Drafts use Sonnet (approved by Connor): fast and inexpensive for short messages. */
@@ -194,8 +195,8 @@ Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (request.method !== 'POST') return reply(405, { error: 'Use POST.' })
 
-  // The upload-analysis timer (scheduled_document_analysis): no user, the shared webhook key instead.
-  if (new URL(request.url).searchParams.has('key')) return await handleDocumentReadDue(request)
+  // The timers (upload analysis, lead follow-up wording): no user, the shared webhook key instead.
+  if (new URL(request.url).searchParams.has('key')) return await handleTimer(request)
 
   const auth = request.headers.get('Authorization')
   if (!auth) return reply(401, { error: 'Sign in first.' })
@@ -971,13 +972,19 @@ interface FinishValues {
   waitKey?: boolean
 }
 
-async function handleDocumentReadDue(request: Request) {
+async function handleTimer(request: Request) {
   const expected = Deno.env.get('GHL_WEBHOOK_SECRET')
   const key = new URL(request.url).searchParams.get('key')
   if (!expected || key !== expected) return reply(401, { error: 'Not allowed.' })
   const body = await request.json().catch(() => null)
-  if ((body as { task?: unknown } | null)?.task !== 'document_read_due') return reply(400, { error: 'Unknown task.' })
+  const task = (body as { task?: unknown } | null)?.task
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+  if (task === 'document_read_due') return await handleDocumentReadDue(db)
+  if (task === 'lead_followup_word_due') return await handleLeadFollowupWording(db)
+  return reply(400, { error: 'Unknown task.' })
+}
+
+async function handleDocumentReadDue(db: SupabaseClient) {
   const claimed = await db.rpc('claim_document_analyses', { p_limit: 3 })
   if (claimed.error) return reply(500, { error: claimed.error.message })
   const rows = (claimed.data ?? []) as AnalysisRow[]
@@ -1095,4 +1102,107 @@ async function handleDocumentReadNow(userDb: SupabaseClient, body: unknown, apiK
   const after = await db.from('document_analyses').select('status, last_error').eq('document_id', doc.id).single()
   const r = after.data as { status: string; last_error: string | null } | null
   return reply(200, { status: r?.status ?? 'queued', error: r?.status === 'ready' || r?.status === 'needs_review' ? null : (r?.last_error ?? null) })
+}
+
+// ---------------------------------------------------------------------------
+// Lead follow-up wording (Connor, 2026-11-16): the lead follow-up timer
+// (run_lead_followups) asks this once it has drafted. Each waiting text that
+// hasn't been worded gets ONE Sonnet 5.5 call with the recent conversation;
+// a draft that breaks a rule keeps the template. Logged in ai_runs. Without
+// the key, the templates stay as they are.
+// ---------------------------------------------------------------------------
+
+interface LeadItemRow {
+  id: string
+  organization_id: string
+  loan_id: string
+  payload: Record<string, unknown> & { channel?: string; body?: string; contactId?: string; lead?: { nextAction?: string; timeline?: string | null } }
+}
+
+async function handleLeadFollowupWording(db: SupabaseClient) {
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
+  if (!apiKey) return reply(200, { worded: 0, note: 'No Anthropic key: the templates stay.' })
+  const since = new Date(Date.now() - 2 * 86_400_000).toISOString()
+  const r = await db
+    .from('action_items')
+    .select('id, organization_id, loan_id, payload')
+    .eq('source', 'lead_followup')
+    .eq('status', 'pending')
+    .eq('kind', 'draft_message')
+    .is('payload->>worded', null)
+    .gte('created_at', since)
+    .order('created_at')
+    .limit(12)
+  if (r.error) return reply(500, { error: r.error.message })
+  const anthropic = new Anthropic({ apiKey })
+  let worded = 0
+  for (const item of (r.data ?? []) as LeadItemRow[]) {
+    if (await wordLeadFollowup(db, anthropic, item)) worded++
+  }
+  return reply(200, { looked_at: (r.data ?? []).length, worded })
+}
+
+async function wordLeadFollowup(db: SupabaseClient, anthropic: Anthropic, item: LeadItemRow): Promise<boolean> {
+  const p = item.payload
+  const kind = p.lead?.nextAction ?? ''
+  const template = typeof p.body === 'string' ? p.body : ''
+  const mark = (patch: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    db.from('action_items').update({ payload: { ...p, ...patch }, ...extra }).eq('id', item.id).eq('status', 'pending')
+  if (!reworded(kind, p.channel ?? '') || !template || typeof p.contactId !== 'string') {
+    await mark({ worded: 'template' })
+    return false
+  }
+  const [contact, loan, thread] = await Promise.all([
+    db.from('contacts').select('first_name').eq('id', p.contactId).maybeSingle(),
+    db.from('loans').select('lo:profiles!loans_assigned_lo_id_fkey ( full_name )').eq('id', item.loan_id).maybeSingle(),
+    db.from('messages').select('direction, channel, body, sent_at').eq('contact_id', p.contactId).order('sent_at', { ascending: false }).limit(10),
+  ])
+  const firstName = ((contact.data as { first_name: string | null } | null)?.first_name ?? '').trim()
+  const loFull = ((loan.data as { lo: { full_name: string | null } | null } | null)?.lo?.full_name ?? '').trim()
+  const messages: LeadThreadMessage[] = ((thread.data ?? []) as { direction: string; channel: string; body: string | null; sent_at: string }[]).flatMap((m) =>
+    (m.direction === 'inbound' || m.direction === 'outbound') && (m.channel === 'text' || m.channel === 'email') && m.body
+      ? [{ direction: m.direction, channel: m.channel, body: m.body, sentAt: m.sent_at }]
+      : [],
+  )
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date())
+  const prompt = buildLeadPrompt({ kind: kind as LeadKind, firstName: firstName || 'there', loFirstName: loFull.split(' ')[0] || 'your loan officer', timeline: p.lead?.timeline ?? null, today }, template, messages)
+  const run = await db
+    .from('ai_runs')
+    .insert({ organization_id: item.organization_id, loan_id: item.loan_id, task_type: 'lead_followup', input_ref: { actionItemId: item.id, kind, messages: messages.length }, model: LEAD_MODEL, created_by: null })
+    .select('id')
+    .single()
+  const runId = (run.data as { id: string } | null)?.id ?? null
+  try {
+    const res = (await anthropic.beta.messages.create({
+      model: LEAD_MODEL,
+      max_tokens: 1000,
+      system: LEAD_SYSTEM,
+      messages: [{ role: 'user', content: prompt }],
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: LEAD_SCHEMA } },
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    } as never)) as unknown as { stop_reason: string; model: string; usage: { input_tokens: number; output_tokens: number }; content: { type: string; text?: string }[] }
+    const text = res.content.flatMap((b) => (b.type === 'text' && b.text ? [b.text] : [])).join('')
+    let parsed: unknown = null
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      // Unreadable: the template stays.
+    }
+    const body = res.stop_reason === 'end_turn' ? readLeadDraft(parsed) : null
+    const issues = body ? leadDraftIssues(body, template, firstName, complianceIssues('text', { subject: null, body })) : [`unusable answer (${res.stop_reason})`]
+    const usage = { model: res.model, input_tokens: res.usage.input_tokens, output_tokens: res.usage.output_tokens }
+    if (body && issues.length === 0) {
+      await mark({ body, worded: 'ai', template_body: template }, { ai_run_id: runId })
+      if (runId) await db.from('ai_runs').update({ status: 'succeeded', output: { body }, ...usage }).eq('id', runId)
+      return true
+    }
+    await mark({ worded: 'template' })
+    if (runId) await db.from('ai_runs').update({ status: 'failed', error: `Template kept: ${issues.join(' ')}`.slice(0, 500), ...usage }).eq('id', runId)
+    return false
+  } catch (e) {
+    await mark({ worded: 'template' })
+    if (runId) await db.from('ai_runs').update({ status: 'failed', error: (e as Error).message.slice(0, 500) }).eq('id', runId)
+    return false
+  }
 }

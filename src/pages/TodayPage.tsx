@@ -8,6 +8,7 @@ import { useNewLead } from '@/components/leads/new-lead-context'
 import { ActionEntry } from '@/components/queue/ActionEntry'
 import { useLeadFollowupMeta } from '@/lib/api/leadFollowups'
 import { isSnoozed } from '@/lib/leads/followups'
+import { LeadFollowupsBox } from '@/components/leads/LeadFollowupsBox'
 import { usePipeline } from '@/lib/api/loans'
 import { useTodayData, type FileInfo } from '@/lib/api/queue'
 import { useReminderDrafts } from '@/lib/api/drafts'
@@ -74,7 +75,9 @@ function Entries({ entries, files }: { entries: TodayEntry[]; files: Map<string,
     <div className="space-y-2">
       {entries.map((e) =>
         e.type === 'action' ? (
-          <ActionEntry key={`a-${e.item.id}`} item={e.item} file={files.get(e.item.id)!} showFile />
+          <div key={`a-${e.item.id}`} id={`action-${e.item.id}`} className="rounded-lg transition-shadow">
+            <ActionEntry item={e.item} file={files.get(e.item.id)!} showFile />
+          </div>
         ) : e.type === 'task' ? (
           <TaskRow key={`t-${e.task.id}`} entry={e} />
         ) : (
@@ -253,6 +256,7 @@ export function TodayPage() {
           <ScheduledCard />
           <PortalRequestsCard />
           <WebLeadsCard />
+          <LeadFollowupsBox items={data.data?.actions ?? []} meta={followupMeta.data} today={today} />
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : error ? (

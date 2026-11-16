@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MailIcon } from 'lucide-react'
+import { DownloadIcon, MailIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/shared'
@@ -57,6 +57,26 @@ export function SendPrequalResults({ loan, app, subject, draft, summary, dirty, 
     preparedOn: todayIso(),
   }
   const problems = prequalResultsProblems(input)
+  const fileName = worksheetFileName('Prequal Results', joinNames(names), nowIso())
+  const render: Parameters<typeof pdf.preview>[0] = (lib, brand) => lib.prequalResultsPdf(prequalResultsView(input), brand)
+
+  // Download (Connor, 2026-11-16): the same PDF to hand over or attach yourself; nothing is saved or sent.
+  const download = async () => {
+    if (problems.length) return toast.error(problems[0])
+    setBusy(true)
+    try {
+      const made = await pdf.preview(render)
+      if ('error' in made) return toast.error(made.error)
+      const a = document.createElement('a')
+      a.href = made.url
+      a.download = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`
+      a.click()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const start = async () => {
     if (problems.length) return toast.error(problems[0])
@@ -75,11 +95,11 @@ export function SendPrequalResults({ loan, app, subject, draft, summary, dirty, 
       }
       const id = await pdf.save({
         kind: 'prequal_results',
-        fileName: worksheetFileName('Prequal Results', joinNames(names), nowIso()),
+        fileName,
         propertyId: subject?.id ?? null,
         templateVersion: PREQUAL_RESULTS_TEMPLATE,
         tooLong: 'Shorten the borrower names.',
-        render: (lib, brand) => lib.prequalResultsPdf(prequalResultsView(input), brand),
+        render,
       })
       if (!id) return
       if (canEmail) setSendingId(id)
@@ -94,6 +114,10 @@ export function SendPrequalResults({ loan, app, subject, draft, summary, dirty, 
       <Button className="w-full" onClick={start} disabled={dirty || busy || pdf.saving || !pdf.ready}>
         <MailIcon />
         {busy || pdf.saving ? 'Preparing…' : 'Send prequal results'}
+      </Button>
+      <Button className="mt-2 w-full" variant="outline" onClick={download} disabled={dirty || busy || pdf.saving || !pdf.ready}>
+        <DownloadIcon />
+        Download PDF
       </Button>
       {dirty ? (
         <p className="mt-2 text-xs text-muted-foreground">Save first, so the results match the file.</p>

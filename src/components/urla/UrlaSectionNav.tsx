@@ -109,7 +109,7 @@ function StatusMark({ status, onCount }: { status: NavStatus; onCount: () => voi
  * The sticky section list: a column on a computer, a scrolling row on
  * smaller screens. "Validate Application" sits in its header.
  */
-export function UrlaSectionNav({ validation, onFirstMissing, onCompleteFields }: { validation: UrlaValidation | null; onFirstMissing: (issue: UrlaIssue) => void; onCompleteFields?: () => void }) {
+export function UrlaSectionNav({ validation, onFirstMissing, onCompleteFields, className }: { validation: UrlaValidation | null; onFirstMissing: (issue: UrlaIssue) => void; onCompleteFields?: () => void; /** Grid placement for the computer column. */ className?: string }) {
   const [validating, setValidating] = useState(false)
   const items = URLA_NAV.map((n, i) => ({ ...n, n: i + 1, status: validation ? navStatus(validation, n.sections) : null }))
   const firstIssue = (sections: UrlaSectionId[]) => validation?.issues.find((x) => sections.includes(x.section))
@@ -129,7 +129,7 @@ export function UrlaSectionNav({ validation, onFirstMissing, onCompleteFields }:
   return (
     <>
       {/* Computer: a sticky column. */}
-      <nav aria-label="1003 sections" className="hidden lg:block">
+      <nav aria-label="1003 sections" className={cn('hidden lg:block', className)}>
         <div className="sticky top-14 space-y-2">
           {validate}
           <ul className="space-y-0.5 text-sm">
