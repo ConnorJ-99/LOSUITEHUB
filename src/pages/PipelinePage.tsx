@@ -9,6 +9,7 @@ import { useNewLead } from '@/components/leads/new-lead-context'
 import { PipelineBoard } from '@/components/pipeline/PipelineBoard'
 import { PipelineList } from '@/components/pipeline/PipelineList'
 import { useStageChanger } from '@/components/pipeline/useStageChanger'
+import { NurtureBoardPage } from './NurtureBoardPage'
 import { useOrgMembers, usePipeline } from '@/lib/api/loans'
 import { useOpenTasks } from '@/lib/api/tasks'
 import { emptyFilters, isOnBoard, matchesFilters, type PipelineFilters } from '@/lib/pipeline/helpers'
@@ -59,6 +60,8 @@ export function PipelinePage() {
   const { pipelineId } = useParams()
   // Closed has its own page (Contacts → Closed loans); Purchase, Refinance and HELOC have the new boards; New Leads, In Process and Investment are gone.
   if (pipelineId === 'closed') return <Navigate to="/contacts?tab=closed" replace />
+  // Nurture has its own board by nurture stage (Connor, 2026-11-16).
+  if (pipelineId === 'nurture') return <NurtureBoardPage />
   const info = PIPELINES.find((p) => p.id === pipelineId && (p.id === 'nurture' || p.id === 'lost')) ?? null
   if (!info && pipelineId !== 'all') return <Navigate to="/pipeline" replace />
   return <PipelineView key={pipelineId} pipeline={info?.id ?? null} />

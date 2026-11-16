@@ -15,6 +15,7 @@ import { useLenders } from '@/lib/api/lenders'
 import { fetchLoanNumbers, loanNumbersKey, saveLoanNumbers } from '@/lib/api/loanNumbers'
 import { missingForStage, needsLenderNumber, resolveLender, type LoanNumbers } from '@/lib/loans/numbers'
 import { useQueryClient } from '@tanstack/react-query'
+import { MoveToNurtureDialog, type NurtureTarget } from '@/components/nurture/MoveToNurtureDialog'
 
 interface Pending {
   loanId: string
@@ -37,6 +38,8 @@ export function useStageChanger() {
   const closeLoan = useCloseLoan()
   const ghl = useGhlOpportunity()
   const [pendingLost, setPendingLost] = useState<Pending | null>(null)
+  // Nurture asks for the readiness obstacles first (Connor, 2026-11-16): the same window as the header's Move to Nurture.
+  const [pendingNurture, setPendingNurture] = useState<NurtureTarget | null>(null)
   const [reason, setReason] = useState('')
   const [pendingClosed, setPendingClosed] = useState<Pending | null>(null)
   const [closedOn, setClosedOn] = useState<string | null>(null)
@@ -74,6 +77,10 @@ export function useStageChanger() {
         setPendingNumbers({ loan, stage, numbers })
         return
       }
+    }
+    if (stage === 'nurture') {
+      setPendingNurture({ loanId: loan.id, borrowerName: loan.borrowerName })
+      return
     }
     if (stage === 'lost') {
       setReason('')
@@ -120,6 +127,7 @@ export function useStageChanger() {
 
   const dialog = (
     <>
+      {pendingNurture && <MoveToNurtureDialog target={pendingNurture} onClose={() => setPendingNurture(null)} />}
       {pendingNumbers && (
         <LenderNumberDialog
           open

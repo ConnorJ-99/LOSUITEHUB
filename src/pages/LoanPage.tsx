@@ -3,6 +3,7 @@ import { cn } from 'cn'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   CalculatorIcon,
+  SproutIcon,
   ChevronDownIcon,
   FileSignatureIcon,
   FileTextIcon,
@@ -36,6 +37,7 @@ import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
 import { ChevronProgress, CompactHeader, FileNav, OverflowMenu, TeamChip, type FileNavItem, type KeyFigure, type TeamMember } from '@/components/loanfile'
 import { useSelectedCashToClose } from '@/lib/api/headerFigures'
 import { LoanNumberChips } from '@/components/loanfile/LoanNumberChips'
+import { NurtureOverview } from '@/components/nurture/NurtureOverview'
 import { NextActionHeader } from '@/components/leads/NextActionHeader'
 import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
@@ -78,6 +80,8 @@ const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'estimate
 type Section = (typeof SECTIONS)[number]
 const READY: Section[] = ['overview', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions']
 /** A closed file's profile: the closed loan (Overview), its 1003, the home, documents, notes and messages. */
+// A file in Nurture shows the nurture view and no lender, pricing, estimate or closing tabs (Connor, 2026-11-16).
+const NURTURE_SECTIONS: Section[] = ['overview', '1003', 'documents', 'notes', 'messages', 'properties']
 const CLOSED_SECTIONS: Section[] = ['overview', 'loans', '1003', 'properties', 'estimates', 'documents', 'notes', 'messages']
 
 /** Team roles shown in the header, in order. The loan officer is the file's Assigned LO. */
@@ -174,7 +178,8 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const param = (tab === 'fees' || tab === 'loan' ? 'estimates' : tab === 'conditions' ? 'documents' : tab === 'prequal' ? '1003' : tab) as Section | null
   const toConditions = tab === 'conditions'
   const closedFile = loan.stage === 'closed'
-  const section: Section = param && READY.includes(param) && ((param !== 'contract' && param !== 'letters') || isPurchase) && (!closedFile || CLOSED_SECTIONS.includes(param)) ? param : 'overview'
+  const nurtureFile = loan.stage === 'nurture'
+  const section: Section = param && READY.includes(param) && ((param !== 'contract' && param !== 'letters') || isPurchase) && (!closedFile || CLOSED_SECTIONS.includes(param)) && (!nurtureFile || NURTURE_SECTIONS.includes(param)) ? param : 'overview'
   const goTo = (next: string) => setSearchParams(next === 'overview' ? {} : { tab: next }, { replace: true })
 
   const name = fullName(loan.borrower)
@@ -242,11 +247,16 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   ]
   const nav = closedFile
     ? CLOSED_SECTIONS.map((id) => allNav.find((n) => n.id === id)!).map((n) => (n.id === 'properties' ? { ...n, label: 'Property' } : n.id === 'messages' ? n : { ...n, marker: undefined }))
-    : allNav
+    : nurtureFile
+      ? NURTURE_SECTIONS.map((id) => allNav.find((n) => n.id === id)!).map((n) => (n.id === 'overview' ? { ...n, label: 'Nurture' } : n.id === 'documents' ? { ...n, label: 'Documents', marker: undefined } : n))
+      : allNav
 
   // The compact header: status chip, key figures (each opens its tab), Change status and Delete.
   const statusText = loan.stage === 'closed' ? 'Loan closed' : loan.stage === 'lost' ? 'Loan lost' : `Loan open · ${stageLabel(loan.stage)}`
-  const figures: KeyFigure[] = keyFigures(loan, summary, creditScore, selectedCash.data ?? null).map((f) => ({
+  const figures: KeyFigure[] = keyFigures(loan, summary, creditScore, selectedCash.data ?? null)
+    // In Nurture only credit and DTI show: no loan amount, rate or cash to close.
+    .filter((f) => !nurtureFile || f.label === 'Credit' || f.label === 'DTI front / back')
+    .map((f) => ({
     label: f.label,
     value: f.value,
     note: f.note,
@@ -300,7 +310,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
               {statusText}
             </span>
             <NextActionHeader loanId={loan.id} stage={loan.stage} timeline={loan.timeline} />
-            <LoanNumberChips loanId={loan.id} />
+            {!nurtureFile && <LoanNumberChips loanId={loan.id} />}
           </>
         }
         detailsOpen={detailsOpen}
@@ -324,7 +334,13 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
                 {loan.onHoldAt ? 'On hold' : 'Hold'}
               </Button>
             )}
-            {!closedFile && (
+            {!closedFile && !nurtureFile && loan.stage !== 'lost' && (
+              <Button size="sm" variant="outline" onClick={() => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, 'nurture')} title="Not mortgage-ready yet: move to Nurture with a readiness plan">
+                <SproutIcon />
+                Move to Nurture
+              </Button>
+            )}
+            {!closedFile && !nurtureFile && (
               <Button size="sm" variant="outline" onClick={() => navigate(`/quick-quote?loan=${loan.id}`)} title="Put loan options in front of this borrower">
                 <CalculatorIcon />
                 Quick quote
@@ -353,7 +369,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
         }
         figures={figures}
         progress={
-          file.data && !closedFile && loan.stage !== 'lost' ? (
+          file.data && !closedFile && !nurtureFile && loan.stage !== 'lost' ? (
             <div className="flex min-w-0 items-center gap-3">
               <StageMenu stage={loan.stage} onSelect={(stage) => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, stage)}>
                 <ChevronProgress
@@ -391,14 +407,17 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
                   <TasksCard loanId={loan.id} organizationId={loan.organizationId} />
                 </>
               )}
-              {!closedFile && (workflow ? (
+              {nurtureFile && app.data && properties.data && (
+                <NurtureOverview loan={loan} app={app.data} properties={properties.data} realtor={file.data?.team.find((r) => r.role === 'buyer_agent')?.name ?? null} onGoToTab={goTo} />
+              )}
+              {!closedFile && !nurtureFile && (workflow ? (
                 <WorkflowPanel workflow={workflow} loanId={loan.id} organizationId={loan.organizationId} days={days} onOpenSection={goTo} onCompleteFields={() => setCompleting(true)} />
               ) : templates.isError || file.isError ? (
                 <p className="text-sm text-destructive">{(templates.error ?? file.error)?.message}</p>
               ) : (
                 <p className="text-sm text-muted-foreground">Loading workflow…</p>
               ))}
-              {!closedFile && <OverviewTab key={JSON.stringify(savedDetails)} loan={loan} onGoToTab={goTo} />}
+              {!closedFile && !nurtureFile && <OverviewTab key={JSON.stringify(savedDetails)} loan={loan} onGoToTab={goTo} />}
             </>
           )}
           {section === '1003' && <UrlaTab loan={loan} validation={validation} onCompleteFields={() => setCompleting(true)} />}
@@ -408,7 +427,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           {section === 'letters' && isPurchase && <LettersTab loan={loan} />}
           {section === 'documents' && (
             <div className="space-y-6">
-              {!closedFile && <ConditionsSection loan={loan} step={workflow?.steps.find((s) => s.key === 'conditions') ?? null} scrollTo={toConditions} />}
+              {!closedFile && !nurtureFile && <ConditionsSection loan={loan} step={workflow?.steps.find((s) => s.key === 'conditions') ?? null} scrollTo={toConditions} />}
               <DocumentsTab loan={loan} />
             </div>
           )}
