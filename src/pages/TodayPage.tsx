@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Card, EmptyState, HeroBand, PageHeader, QuickAction, SectionTitle } from '@/components/shared'
 import { useNewLead } from '@/components/leads/new-lead-context'
 import { ActionEntry } from '@/components/queue/ActionEntry'
+import { useLeadFollowupMeta } from '@/lib/api/leadFollowups'
+import { isSnoozed } from '@/lib/leads/followups'
 import { usePipeline } from '@/lib/api/loans'
 import { useTodayData, type FileInfo } from '@/lib/api/queue'
 import { useReminderDrafts } from '@/lib/api/drafts'
@@ -179,6 +181,7 @@ export function TodayPage() {
   const { openNewLead } = useNewLead()
   const data = useTodayData()
   const tasks = useMyOpenTasks()
+  const followupMeta = useLeadFollowupMeta()
   useReminderDrafts(state.status === 'signedIn')
   const name = state.status === 'signedIn' || state.status === 'preview' ? state.user.fullName.split(' ')[0] : ''
 
@@ -194,9 +197,11 @@ export function TodayPage() {
   const today = todayIso()
   const loading = data.isLoading || tasks.isLoading
   const error = data.error ?? tasks.error
-  const files = new Map((data.data?.actions ?? []).map((a) => [a.id, a]))
+  // Snoozed lead follow-ups stay hidden until their day (Connor, 2026-11-16).
+  const actions = (data.data?.actions ?? []).filter((a) => !isSnoozed(followupMeta.data?.get(a.id)?.snoozedUntil, today))
+  const files = new Map(actions.map((a) => [a.id, a]))
   const entries = buildToday(
-    data.data?.actions ?? [],
+    actions,
     // Priority items have their own card, so they aren't listed twice.
     (tasks.data ?? []).flatMap((t) => (!t.action && t.loanId ? [{ id: t.id, loanId: t.loanId, borrowerName: t.borrowerName ?? 'No borrower', title: t.title, dueOn: t.dueOn }] : [])),
     data.data?.loans ?? [],

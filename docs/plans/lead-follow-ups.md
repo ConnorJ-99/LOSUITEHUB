@@ -73,4 +73,4 @@ Today gets a "Lead follow-ups" box: pending, high priority, overdue; tap opens t
 5. Document nudges are built in code from the checklist; the rest by AI (one call each) with a template fallback.
 6. "Already scheduled" = an open task due later or a scheduled send (GHL calendar appointments aren't seen).
 
-Step 2 is built (`20270201000000_lead_next_action.sql`, 2026-11-16).
+Step 2 is built (`20270201000000_lead_next_action.sql`, 2026-11-16). Step 3 is built (`20270203000000_lead_followups.sql`): drafts worded in code; AI wording and the Today box are step 4.

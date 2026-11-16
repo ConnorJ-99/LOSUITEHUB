@@ -12,6 +12,9 @@ import { scheduleLabel } from '@/lib/messaging/schedule'
 import { useDecideAction, type FileInfo } from '@/lib/api/queue'
 import { draftContactId } from '@/lib/queue/drafts'
 import { formatIsoDate } from '@/lib/dates'
+import { LeadContextBlock, LeadFollowupButtons } from '@/components/leads/LeadFollowupParts'
+import { stillALead } from '@/lib/api/leadFollowups'
+import { fillLink, missingLink, readLeadContext, readLinkToken } from '@/lib/leads/followups'
 import { approvalNote, decisionFor, readDraft, readReviewLink, readTask, type ActionItem, type DraftMessage, type TaskSuggestion } from '@/lib/queue/today'
 
 /** Copies text to the clipboard; false if the browser blocks it. */
@@ -31,7 +34,10 @@ async function copy(text: string): Promise<boolean> {
  */
 export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: FileInfo; showFile?: boolean }) {
   const decide = useDecideAction()
-  const draft = item.kind === 'draft_message' ? readDraft(item.payload) : null
+  // Lead follow-ups (Connor, 2026-11-16) carry the file's context and "{link}" for the borrower's portal link.
+  const lead = readLeadContext(item.payload)
+  const read = item.kind === 'draft_message' ? readDraft(item.payload) : null
+  const draft = read && lead ? { ...read, body: fillLink(read.body, readLinkToken(item.payload), window.location.origin) } : read
   const task = item.kind === 'task_suggestion' ? readTask(item.payload) : null
   const review = readReviewLink(item.kind, item.payload)
   const navigate = useNavigate()
@@ -64,6 +70,14 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
   const sendDraft = async (final: DraftMessage) => {
     if (!sendTo) return
     if (final.channel === 'email' && !final.subject?.trim()) return toast.error('An email needs a subject. Edit it first.')
+    if (lead) {
+      if (missingLink(final.body)) return toast.error('The portal link is missing. Edit the message first.')
+      // Re-checked before it goes: a file that is no longer a lead gets no lead follow-up.
+      if (!(await stillALead(file.loanId))) {
+        decide.mutate({ item, file, status: 'dismissed' })
+        return toast.error('This file is no longer a lead, so the follow-up was dismissed.')
+      }
+    }
     const what = final.channel === 'text' ? 'this text' : 'this email'
     if (!(await confirmAction(`Send ${what} to ${final.to || file.borrowerName}? It goes out through GHL.`, { confirmLabel: final.channel === 'text' ? 'Send text' : 'Send email' }))) return
     send.mutate(
@@ -130,8 +144,11 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
           onApprove={() => (canSend ? sendDraft(draft) : approveDraft(draft))}
           onEdit={() => setEditing(true)}
           extra={
-            canSend && (
+            (canSend || lead) && (
               <>
+                {lead && <LeadFollowupButtons itemId={item.id} loanId={file.loanId} disabled={common.busy || send.isPending} />}
+                {canSend && (
+                <>
                 <Button size="sm" variant="outline" onClick={() => setScheduling(true)} disabled={common.busy || send.isPending || schedule.isPending} title="Approve it now and send it at a time you pick">
                   <CalendarClockIcon />
                   Schedule…
@@ -140,10 +157,13 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
                   <CopyIcon />
                   Copy instead
                 </Button>
+                </>
+                )}
               </>
             )
           }
         >
+          {lead && <LeadContextBlock itemId={item.id} lead={lead} />}
           <div className="space-y-1 rounded-md bg-muted/50 p-2.5 text-sm">
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Icon className="size-3.5" />
@@ -188,7 +208,8 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
   if (task) {
     return (
       <>
-        <QueueItem {...common} approveLabel="Add task" onApprove={() => approveTask(task)} onEdit={() => setEditing(true)}>
+        <QueueItem {...common} approveLabel="Add task" onApprove={() => approveTask(task)} onEdit={() => setEditing(true)} extra={lead && <LeadFollowupButtons itemId={item.id} loanId={file.loanId} disabled={common.busy} />}>
+          {lead && <LeadContextBlock itemId={item.id} lead={lead} />}
           <p className="text-sm">
             {task.title}
             {task.dueOn && <span className="text-muted-foreground"> · due {formatIsoDate(task.dueOn)}</span>}

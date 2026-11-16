@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { addDays } from '@/lib/closed/keyDates'
 import { todayIso } from '@/lib/dates'
 import { draftContactId, planConditionDrafts, planKeyDateDrafts, type AutomatedLoan, type ConditionLoan, type DraftPerson, type ExistingDraft } from '@/lib/queue/drafts'
+import { isLeadStage } from '@/lib/leads/nextAction'
 import { db, keys, unwrap } from './client'
 import { makeUploadReminderDrafts } from './uploadRequests'
 
@@ -107,7 +108,8 @@ export async function makeReminderDrafts(today: string): Promise<number> {
 
   const byLoan = new Map<string, ConditionLoan>()
   for (const r of unwrap<ConditionRow[]>(conditionRows)) {
-    if (!r.loan || DONE_STAGES.has(r.loan.stage)) continue
+    // Leads get lead follow-ups instead (Connor, 2026-11-16).
+    if (!r.loan || DONE_STAGES.has(r.loan.stage) || isLeadStage(r.loan.stage)) continue
     let loan = byLoan.get(r.loan_id)
     if (!loan) {
       const p = primaryOf(r.loan.borrowers)
