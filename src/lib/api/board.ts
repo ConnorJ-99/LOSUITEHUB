@@ -6,10 +6,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CardFile } from '@/lib/pipeline/card'
 import { centralToday } from '@/lib/pipeline/card'
+import type { NextActionId } from '@/lib/leads/nextAction'
 import type { LeadTypeId } from '@/lib/pipeline/leadType'
 import { readyOnFor } from '@/lib/pipeline/timeline'
 import { db, keys, num, unwrap } from './client'
 import { useLoanNumberIndex } from './loanNumbers'
+import { useLastContacts, useNextActions } from './nextAction'
 import { usePipeline } from './loans'
 import { useOpenTasks } from './tasks'
 import type { PipelineLoan, Task } from './types'
@@ -83,6 +85,11 @@ export interface BoardFile extends CardFile {
   /** Arive #, lender loan # and title GF #, for search. */
   loanNumbers: string[]
   nextTask: Task | null
+  /** The lead's Next Action (undefined before the next action script has run). */
+  nextAction?: NextActionId | null
+  nextActionManual: boolean
+  /** When we last reached them (undefined before the script). */
+  lastContactAt?: string | null
 }
 
 export function useBoardFiles() {
@@ -92,6 +99,8 @@ export function useBoardFiles() {
   const ready = useCardReady()
   const tasks = useOpenTasks()
   const numbers = useLoanNumberIndex()
+  const next = useNextActions()
+  const contacts = useLastContacts()
   const loading = pipeline.isLoading || facts.isLoading || steps.isLoading
   const files: BoardFile[] | undefined =
     pipeline.data && facts.data
@@ -128,6 +137,9 @@ export function useBoardFiles() {
             ariveLoanNumber: f?.arive_loan_number ?? null,
             loanNumbers: numbers.data?.byLoan.get(l.id) ?? (f?.arive_loan_number ? [f.arive_loan_number] : []),
             nextTask: tasks.data?.get(l.id)?.[0] ?? null,
+            nextAction: next.data ? (next.data.get(l.id)?.nextAction ?? null) : undefined,
+            nextActionManual: next.data?.get(l.id)?.manual ?? false,
+            lastContactAt: contacts.data ? (contacts.data.get(l.id) ?? null) : undefined,
           }
         })
       : undefined

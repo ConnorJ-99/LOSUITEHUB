@@ -37,6 +37,7 @@ import { EditLeadDialog } from '@/components/leads/EditLeadDialog'
 import { ChevronProgress, CompactHeader, FileNav, OverflowMenu, TeamChip, type FileNavItem, type KeyFigure, type TeamMember } from '@/components/loanfile'
 import { useSelectedCashToClose } from '@/lib/api/headerFigures'
 import { LoanNumberChips } from '@/components/loanfile/LoanNumberChips'
+import { NextActionHeader } from '@/components/leads/NextActionHeader'
 import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
 import { WorkflowPanel } from '@/components/loanfile/WorkflowPanel'
@@ -300,6 +301,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
             >
               {statusText}
             </span>
+            <NextActionHeader loanId={loan.id} stage={loan.stage} timeline={loan.timeline} />
             <LoanNumberChips loanId={loan.id} />
           </>
         }

@@ -14,6 +14,8 @@ import { useSetLeadType, useSetStep, useSetTimeline, type BoardFile } from '@/li
 import { amountLine, cardType, centralToday, daysInStage, OCCUPANCY_LABEL, readyChip, showsReady, stepInfo, timelineLine } from '@/lib/pipeline/card'
 import { customKind, parseCustomReady, TIMELINE_OPTIONS, timelineChoice } from '@/lib/pipeline/timeline'
 import { LEAD_TYPES, leadTypeInfo } from '@/lib/pipeline/leadType'
+import { NextActionTag } from '@/components/leads/NextActionTag'
+import { contactIsStale, isLeadStage, lastContactLabel, nextActionInfo } from '@/lib/leads/nextAction'
 
 /** Keeps a click on a control from opening the file or starting a drag. */
 const stop = { onClick: (e: React.SyntheticEvent) => e.stopPropagation(), onPointerDown: (e: React.SyntheticEvent) => e.stopPropagation(), onKeyDown: (e: React.SyntheticEvent) => e.stopPropagation() }
@@ -140,7 +142,9 @@ export function LeadCard({ file, compact, mini, now, className, dragging }: Lead
   const navigate = useNavigate()
   const setStep = useSetStep()
   const t = leadTypeInfo(cardType(file))
-  const step = stepInfo(file)
+  // Lead stages show the Next Action instead of the step (Connor, 2026-11-16), once the script has run.
+  const leadTag = isLeadStage(file.stage) && file.nextAction !== undefined
+  const step = leadTag ? null : stepInfo(file)
   const days = daysInStage(file.stageChangedAt, now)
   const onHold = !!file.onHoldAt
   const open = () => navigate(`/loans/${file.id}`)
@@ -170,6 +174,7 @@ export function LeadCard({ file, compact, mini, now, className, dragging }: Lead
         {file.priority && <Star />}
         <span className="min-w-0 flex-1 truncate font-semibold">{file.name}</span>
         {step && <span className="shrink-0 text-muted-foreground">{step.n}/{step.total}</span>}
+        {leadTag && file.nextAction && <span className="max-w-[45%] shrink truncate text-muted-foreground">{nextActionInfo(file.nextAction)?.label}</span>}
         <span className="shrink-0 text-muted-foreground tabular-nums">{days}d</span>
       </div>
     )
@@ -224,8 +229,18 @@ export function LeadCard({ file, compact, mini, now, className, dragging }: Lead
           </div>
         </div>
       )}
-      {!step && <p className="text-xs text-[#4b5563]">{days}d in stage</p>}
+      {leadTag && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          <NextActionTag loanId={file.id} value={file.nextAction ?? null} manual={file.nextActionManual} editable={!mini} />
+          <span className="flex-1" />
+          <span className="shrink-0 text-[#4b5563] tabular-nums">{days}d in stage</span>
+        </div>
+      )}
+      {!step && !leadTag && <p className="text-xs text-[#4b5563]">{days}d in stage</p>}
       {showsReady(file) && <ReadyTag file={file} now={now} editable={!mini} />}
+      {leadTag && file.lastContactAt !== undefined && (
+        <p className={cn('text-xs', contactIsStale(file.lastContactAt, now) ? 'text-[#b4372c]' : 'text-[#4b5563]')}>{lastContactLabel(file.lastContactAt, now)}</p>
+      )}
       {!mini && when && <p className="text-xs text-[#4b5563]">{when}</p>}
       {!mini && file.nextTask && (
         <p className="truncate text-xs text-[#374151]">
