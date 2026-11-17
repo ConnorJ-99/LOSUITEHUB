@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FormGrid, Input, Select, TextArea, confirmAction } from '@/components/shared'
-import { useDeleteLender, useSaveLender, type LenderClauseFields, type LenderDraft } from '@/lib/api/lenders'
+import { useDeleteLender, useSaveLender, type LenderClauseFields, type LenderDetails, type LenderDraft } from '@/lib/api/lenders'
 import { LENDER_CHANNELS, LENDER_STATUSES } from '@/lib/products/taxonomy'
 
 const options = <T extends string>(l: { values: T[]; label: Record<T, string> }) => l.values.map((v) => ({ value: v, label: l.label[v] }))
@@ -15,6 +15,7 @@ export function LenderDialog({ initial, onClose, onSaved }: { initial: LenderDra
   const remove = useDeleteLender()
   const set = <K extends keyof LenderDraft>(key: K) => (value: LenderDraft[K]) => setL((s) => ({ ...s, [key]: value }))
   const clause = (key: keyof LenderClauseFields) => (v: string) => setL((s) => ({ ...s, clause: { ...s.clause!, [key]: v || null } }))
+  const detail = (key: keyof LenderDetails) => (v: string) => setL((s) => ({ ...s, details: { ...s.details!, [key]: v || null } }))
   const text = (key: 'shortName' | 'aeName' | 'aePhone' | 'aeEmail' | 'portalUrl' | 'compNotes' | 'mortgageeClause' | 'notes') => (v: string) => set(key)(v || null)
 
   return (
@@ -32,7 +33,16 @@ export function LenderDialog({ initial, onClose, onSaved }: { initial: LenderDra
           <Input label="Account executive" value={l.aeName ?? ''} onChange={text('aeName')} span={2} />
           <Input label="AE phone" type="tel" value={l.aePhone ?? ''} onChange={text('aePhone')} />
           <Input label="AE email" type="email" value={l.aeEmail ?? ''} onChange={text('aeEmail')} />
+          {l.details && <Input label="AE covers" value={l.details.aeCovers ?? ''} onChange={detail('aeCovers')} span={4} hint="States or products this AE handles" />}
           <Input label="Lender portal" value={l.portalUrl ?? ''} onChange={text('portalUrl')} span={2} placeholder="https://" />
+          {l.details && (
+            <>
+              <Input label="Portal username" value={l.details.portalUsername ?? ''} onChange={detail('portalUsername')} hint="Never a password" />
+              <Input label="Broker ID" value={l.details.brokerId ?? ''} onChange={detail('brokerId')} />
+              <Input label="Website" value={l.details.website ?? ''} onChange={detail('website')} span={2} placeholder="https://" />
+              <Input label="Lender NMLS #" value={l.details.nmls ?? ''} onChange={detail('nmls')} span={2} />
+            </>
+          )}
           <Input label="States" value={(l.states ?? []).join(', ')} onChange={(v) => set('states')(v.split(/[\s,]+/).filter(Boolean).map((s) => s.toUpperCase().slice(0, 2)))} hint="e.g. TX, OK. Blank = not checked" span={2} />
           <TextArea label="Comp notes" value={l.compNotes ?? ''} onChange={text('compNotes')} rows={2} span={2} />
           {l.clause ? (

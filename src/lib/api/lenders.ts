@@ -4,6 +4,7 @@ import { pdfPages, sha256Hex } from '@/lib/documents/pdfText'
 import { guessDocument, matchPrograms, type DocGuess } from '@/lib/products/docGuess'
 import type { LenderLoan } from '@/lib/products/lenderSummary'
 import type { LenderClause } from '@/lib/loans/mortgagee'
+import type { ExistingLender, LenderCsvContact, LenderCsvFields, LenderCsvRow, LenderUpdate } from '@/lib/products/lenderCsv'
 import { splitIntoPassages, type ExtractedPassage } from '@/lib/products/passages'
 import { termMonths, type DocType, type Feature, type LenderChannel, type LenderStatus, type Lien, type MatrixPurpose, type ProductFamily, type ProgramTerm } from '@/lib/products/taxonomy'
 import type { GuidelineDocument } from './products'
@@ -28,6 +29,8 @@ export interface Lender {
   mortgageeClause: string | null
   /** The structured mortgagee clause; undefined until the partner requests script has run. */
   clause?: LenderClauseFields
+  /** NMLS #, website, broker ID, portal username, AE covers; undefined until the lender details script has run. */
+  details?: LenderDetails
   states: string[] | null
   notes: string | null
   programs: { id: string; name: string; family: ProductFamily; lien: Lien; docTypes: DocType[]; features: Feature[]; active: boolean; lastVerifiedOn: string | null }[]
@@ -55,11 +58,35 @@ interface LenderRow {
   insurance_email?: string | null
   insurance_fax?: string | null
   clause_notes?: string | null
+  nmls?: string | null
+  website?: string | null
+  broker_id?: string | null
+  portal_username?: string | null
+  ae_covers?: string | null
   states: string[] | null
   notes: string | null
   programs: { id: string; name: string; product_family: ProductFamily; lien: Lien; doc_types: DocType[]; features: Feature[]; active: boolean; last_verified_on: string | null }[]
   guideline_documents: { count: number }[]
 }
+
+export interface LenderDetails {
+  nmls: string | null
+  website: string | null
+  brokerId: string | null
+  portalUsername: string | null
+  aeCovers: string | null
+}
+
+const toDetails = (r: LenderRow): LenderDetails | undefined =>
+  r.nmls === undefined ? undefined : { nmls: r.nmls ?? null, website: r.website ?? null, brokerId: r.broker_id ?? null, portalUsername: r.portal_username ?? null, aeCovers: r.ae_covers ?? null }
+
+const detailsRow = (d: LenderDetails) => ({
+  nmls: d.nmls?.replace(/\D/g, '') || null,
+  website: d.website?.trim() || null,
+  broker_id: d.brokerId?.trim() || null,
+  portal_username: d.portalUsername?.trim() || null,
+  ae_covers: d.aeCovers?.trim() || null,
+})
 
 /** The clause fields a lender carries (for a loan's mortgagee clause). */
 export type LenderClauseFields = Omit<LenderClause, 'lenderId' | 'lenderName' | 'legacy'>
@@ -99,6 +126,75 @@ export const lenderClause = (l: Pick<Lender, 'id' | 'name' | 'mortgageeClause' |
   legacy: l.mortgageeClause,
 })
 
+/**
+ * Lenders → Import lenders CSV: every lender with the columns the CSV fills
+ * and its contacts. `ready` is false until the lender details script has run.
+ */
+export async function fetchLendersForImport(): Promise<{ ready: boolean; lenders: ExistingLender[] }> {
+  const [rows, contacts] = await Promise.all([
+    db().from('lenders').select('*').order('name'),
+    db().from('lender_contacts').select('id, lender_id, name, role, phone, email, notes'),
+  ])
+  const ls = unwrap<(Record<string, string | null> & { id: string; name: string; short_name: string | null; notes: string | null })[]>(rows)
+  const cs = unwrap<(ExistingLender['contacts'][number] & { lender_id: string })[]>(contacts)
+  const columns: (keyof LenderCsvFields)[] = ['status', 'nmls', 'website', 'portal_url', 'broker_id', 'portal_username', 'ae_name', 'ae_phone', 'ae_email', 'ae_covers', 'clause_name', 'clause_address_line1', 'clause_address_line2', 'clause_city', 'clause_state', 'clause_zip', 'insurance_email', 'insurance_fax', 'clause_notes']
+  return {
+    // With no lenders yet there's nothing to tell; the save says so if the script is missing.
+    ready: ls.length === 0 || ls.some((l) => 'nmls' in l),
+    lenders: ls.map((l) => ({
+      id: l.id,
+      name: l.name,
+      shortName: l.short_name,
+      notes: l.notes,
+      values: Object.fromEntries(columns.map((c) => [c, l[c] ?? null])),
+      contacts: cs.filter((c) => c.lender_id === l.id).map(({ lender_id: _l, ...c }) => c),
+    })),
+  }
+}
+
+/** Saves the import: changed lenders, new lenders and their contacts. Returns how many of each. */
+export function useImportLenders() {
+  const queryClient = useQueryClient()
+  const { state } = useAuth()
+  const orgId = state.status === 'signedIn' ? state.user.organizationId : null
+  return useMutation({
+    mutationFn: async ({ updates, adds }: { updates: LenderUpdate[]; adds: LenderCsvRow[] }) => {
+      const saveContacts = async (lenderId: string, list: (LenderCsvContact & { id?: string | null })[]) => {
+        for (const { id, ...c } of list) {
+          const result = id ? await db().from('lender_contacts').update(c).eq('id', id).select('id') : await db().from('lender_contacts').insert({ ...c, organization_id: orgId, lender_id: lenderId }).select('id')
+          if (unwrap<{ id: string }[]>(result).length === 0) throw new Error('Only owners and admins can change lender contacts.')
+        }
+      }
+      let contacts = 0
+      for (const u of updates) {
+        const row = { ...u.changes, ...(u.notes && { notes: u.notes }) }
+        if (Object.keys(row).length) {
+          const rows = unwrap<{ id: string }[]>(await db().from('lenders').update(row).eq('id', u.lenderId).select('id'))
+          if (rows.length === 0) throw new Error('Only owners and admins can change lenders.')
+        }
+        await saveContacts(u.lenderId, u.contacts)
+        contacts += u.contacts.length
+      }
+      for (const a of adds) {
+        const result = await db()
+          .from('lenders')
+          .insert({ organization_id: orgId, name: a.name, channel: 'wholesale', states: ['TX'], ...a.fields, status: a.fields.status ?? 'not_signed_up', notes: a.notes })
+          .select('id')
+        if (result.error?.code === '23505') throw new Error(`A lender named ${a.name} already exists.`)
+        const rows = unwrap<{ id: string }[]>(result)
+        if (rows.length === 0) throw new Error('Only owners and admins can add lenders.')
+        await saveContacts(rows[0].id, a.contacts)
+        contacts += a.contacts.length
+      }
+      return { updated: updates.length, added: adds.length, contacts }
+    },
+    onSuccess: () => {
+      invalidateCatalog(queryClient)
+      queryClient.invalidateQueries({ queryKey: ['lenderContacts'] })
+    },
+  })
+}
+
 /** Saves the clause fields of several lenders (the CSV import). */
 export function useSaveClauses() {
   const queryClient = useQueryClient()
@@ -133,6 +229,7 @@ export function useLenders() {
           compNotes: r.comp_notes,
           mortgageeClause: r.mortgagee_clause ?? null,
           clause: toClause(r),
+          details: toDetails(r),
           states: r.states,
           notes: r.notes,
           programs: r.programs.map((p) => ({ id: p.id, name: p.name, family: p.product_family, lien: p.lien, docTypes: p.doc_types, features: p.features, active: p.active, lastVerifiedOn: p.last_verified_on })).sort((a, b) => a.name.localeCompare(b.name)),
@@ -206,6 +303,7 @@ export function useSaveLender() {
         // Sent only once there is one, so lenders still save before the Smart Fees script runs.
         ...(l.mortgageeClause?.trim() && { mortgagee_clause: l.mortgageeClause.trim() }),
         ...(l.clause && clauseRow(l.clause)),
+        ...(l.details && detailsRow(l.details)),
         states: states.length ? states : null,
         notes: l.notes?.trim() || null,
       }
