@@ -22,10 +22,12 @@ const fromCatalog = (c: CatalogItem, conditionId: string | null): PickedItem => 
  * Request documents (UI pass Part 3): pick from the catalog or type your own,
  * edit each item's instructions, link items to a condition, set a due date,
  * pick the borrower, and use or save presets. Saving makes the upload link,
- * adds the items to the Documents checklist and puts a draft text and email
- * with the link in the Action Queue. Nothing is sent from here.
+ * puts the items under their conditions (one is made for an item with none)
+ * and puts a draft text and email with the link in the Action Queue. Nothing
+ * is sent from here. "Send upload link" on Docs & Conditions opens it with
+ * the ticked conditions as its items.
  */
-export function RequestDocumentsDialog({ loan, conditionId = null, onClose }: { loan: LoanProfile; conditionId?: string | null; onClose: () => void }) {
+export function RequestDocumentsDialog({ loan, conditionId = null, initialItems, initialContactId = null, onClose }: { loan: LoanProfile; conditionId?: string | null; initialItems?: PickedItem[]; initialContactId?: string | null; onClose: () => void }) {
   const catalog = useDocumentCatalog()
   const presets = usePresets()
   const people = useShareRecipients(loan.id)
@@ -36,9 +38,9 @@ export function RequestDocumentsDialog({ loan, conditionId = null, onClose }: { 
   const deletePreset = useDeletePreset()
   const { state } = useAuth()
   const me = state.status === 'signedIn' ? state.user.id : null
-  const [contactId, setContactId] = useState<string | null>(null)
+  const [contactId, setContactId] = useState<string | null>(initialContactId)
   const [search, setSearch] = useState('')
-  const [picked, setPicked] = useState<PickedItem[]>([])
+  const [picked, setPicked] = useState<PickedItem[]>(initialItems ?? [])
   const [typed, setTyped] = useState('')
   const [dueOn, setDueOn] = useState<string | null>(null)
   const [text, setText] = useState(true)
@@ -47,9 +49,10 @@ export function RequestDocumentsDialog({ loan, conditionId = null, onClose }: { 
 
   const borrowers = (people.data ?? []).filter((p) => p.email || p.phone)
   const person = borrowers.find((p) => p.contactId === contactId) ?? null
+  // Start on the borrower given (when they have a phone or email), else the first one.
   useEffect(() => {
-    if (!contactId && borrowers[0]) setContactId(borrowers[0].contactId)
-  }, [borrowers, contactId])
+    if (people.data && borrowers[0] && !borrowers.some((b) => b.contactId === contactId)) setContactId(borrowers[0].contactId)
+  }, [people.data, borrowers, contactId])
 
   const items = (catalog.data ?? []).filter((c) => c.active)
   const q = search.trim().toLowerCase()
@@ -118,8 +121,8 @@ export function RequestDocumentsDialog({ loan, conditionId = null, onClose }: { 
     <Dialog open onOpenChange={(o) => !o && !send.isPending && onClose()}>
       <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Request documents</DialogTitle>
-          <DialogDescription>Pick what you need. The borrower gets a secure upload page with only these items; the text and email wait in the Action Queue for you to send.</DialogDescription>
+          <DialogTitle>{initialItems?.length ? 'Send upload link' : 'Request documents'}</DialogTitle>
+          <DialogDescription>Pick what you need. The borrower gets a secure upload page with only these items; the text and email wait in the Action Queue for you to send. Each item shows under its condition on Docs &amp; Conditions.</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3 sm:grid-cols-3">

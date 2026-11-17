@@ -468,7 +468,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           {section === 'letters' && isPurchase && <LettersTab loan={loan} />}
           {section === 'documents' && (
             <div className="space-y-6">
-              {!closedFile && !nurtureFile && <ConditionsSection loan={loan} step={workflow?.steps.find((s) => s.key === 'conditions') ?? null} scrollTo={toConditions} />}
+              {!closedFile && <ConditionsSection loan={loan} step={workflow?.steps.find((s) => s.key === 'conditions') ?? null} scrollTo={toConditions} />}
               <DocumentsTab loan={loan} />
             </div>
           )}

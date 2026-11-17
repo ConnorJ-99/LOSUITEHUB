@@ -254,7 +254,11 @@ export function useAddDocumentRequests(loanId: string, organizationId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (items: NewRequest[]) => addDocumentRequests(loanId, organizationId, items),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.documentRequests(loanId) }),
+    // Each new item gets a condition from the database (conditions only).
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: keys.documentRequests(loanId) })
+      queryClient.invalidateQueries({ queryKey: keys.conditions(loanId) })
+    },
   })
 }
 
@@ -275,7 +279,11 @@ export function useUpdateDocumentRequest(loanId: string) {
       const rows = unwrap<{ id: string }[]>(await db().from('document_requests').update(changes).eq('id', id).select('id'))
       if (rows.length === 0) throw new Error('You do not have permission to change this request.')
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.documentRequests(loanId) }),
+    onSettled: () => {
+      // The database moves a condition along with its documents.
+      queryClient.invalidateQueries({ queryKey: keys.documentRequests(loanId) })
+      queryClient.invalidateQueries({ queryKey: keys.conditions(loanId) })
+    },
   })
 }
 
@@ -285,6 +293,7 @@ export function useDeleteDocumentRequest(loanId: string) {
     mutationFn: async (id: string) => {
       unwrap(await db().from('document_requests').delete().eq('id', id).select('id'))
     },
+    // Only the request list changes; the condition stays.
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.documentRequests(loanId) }),
   })
 }

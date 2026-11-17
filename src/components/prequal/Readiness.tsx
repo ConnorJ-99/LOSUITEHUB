@@ -168,7 +168,8 @@ function RequestDialog({ loan, checklist, onClose }: { loan: LoanProfile; checkl
         const items = picked.flatMap((g) => g.items.map((i) => ({ contactId: g.contactId, ruleKey: i.key, label: i.full, kind: i.kind })))
         const tracked = await addDocumentRequests(loan.id, loan.organizationId, items).catch(() => null)
         queryClient.invalidateQueries({ queryKey: keys.documentRequests(loan.id) })
-        toast.success(`Document request added to the Action Queue${tracked ? `; ${tracked} item${tracked === 1 ? '' : 's'} now tracked on the Documents tab` : ''}`)
+        queryClient.invalidateQueries({ queryKey: keys.conditions(loan.id) })
+        toast.success(`Document request added to the Action Queue${tracked ? `; ${tracked} item${tracked === 1 ? '' : 's'} now on Docs & Conditions` : ''}`)
         onClose()
       },
       onError: (e) => toast.error(e.message),

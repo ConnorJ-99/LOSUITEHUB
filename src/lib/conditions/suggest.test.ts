@@ -122,6 +122,19 @@ describe('never the same item twice', () => {
     const asked = suggestConditions(base, RULES, { ...none, requests: [{ id: 'r1', contactId: 'pat', ruleKey: 'bank_statements', status: 'requested' }] })
     expect(asked.suggestions.find((s) => s.ruleKey === 'bank_statements')!.request).toEqual({ id: 'r1', status: 'requested' })
   })
+  it('a requested document already under a condition hides it (conditions only)', () => {
+    const r = suggestConditions(base, RULES, { ...none, requests: [{ id: 'r1', contactId: 'pat', ruleKey: 'bank_statements', status: 'requested', conditionId: 'c1' }] })
+    expect(r.suggestions.map((s) => s.ruleKey)).not.toContain('bank_statements')
+  })
+  it('the same item added from the document catalog for that person hides it', () => {
+    const r = suggestConditions(base, RULES, { ...none, conditions: [{ id: 'c1', sourceKey: 'cat_bank_statements:pat', status: 'outstanding' }] })
+    expect(r.suggestions.filter((s) => s.ruleKey === 'bank_statements' && s.contactId === 'pat')).toEqual([])
+    const other = suggestConditions(base, RULES, { ...none, conditions: [{ id: 'c1', sourceKey: 'cat_bank_statements:sam', status: 'outstanding' }] })
+    expect(other.suggestions.some((s) => s.ruleKey === 'bank_statements' && s.contactId === 'pat')).toBe(true)
+  })
+  it('a condition added from the document catalog is never flagged', () => {
+    expect(suggestConditions(base, RULES, { ...none, conditions: [{ id: 'c1', sourceKey: 'cat_paystubs:pat', status: 'outstanding' }] }).flagged).toEqual([])
+  })
   it('removing a fact flags the condition instead of deleting it', () => {
     const existing = { ...none, conditions: [{ id: 'c1', sourceKey: 'cond_condo_master', status: 'requested' }, { id: 'c2', sourceKey: null, status: 'outstanding' }] }
     expect(suggestConditions({ ...base, propertyType: 'condo' }, RULES, existing).flagged).toEqual([])

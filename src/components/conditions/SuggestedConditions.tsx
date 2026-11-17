@@ -50,7 +50,7 @@ export function useConditionSuggestions(loan: LoanProfile, conditions: Condition
     })
     return suggestConditions(facts, rules.data!, {
       conditions: conditions!.map((c) => ({ id: c.id, sourceKey: c.sourceKey ?? null, status: c.status })),
-      requests: requests.data!.map((r) => ({ id: r.id, contactId: r.contactId, ruleKey: r.ruleKey, status: r.status })),
+      requests: requests.data!.map((r) => ({ id: r.id, contactId: r.contactId, ruleKey: r.ruleKey, status: r.status, conditionId: r.conditionId ?? null })),
       dismissed: dismissed.data!,
     }, FEATURES.uploadReview ? documentSuggestions(analyzed) : [])
   }, [ready, loan, app.data, properties.data, events.data, program.data, rules.data, requests.data, dismissed.data, conditions, analyses.data, docs.data])
@@ -117,7 +117,7 @@ export function SuggestedConditions({ loan, suggestions, lastPosition }: { loan:
                 <p className="mt-0.5 flex flex-wrap gap-1.5 text-[11px]">
                   <span className="rounded bg-muted px-1.5 py-0.5">On {partyLabel(s.party)}</span>
                   <span className="rounded bg-muted px-1.5 py-0.5">{STAGE_LABEL[s.stage]}</span>
-                  {s.request && <span className="rounded bg-sky-50 px-1.5 py-0.5 text-sky-900">Requested on Documents, not in yet</span>}
+                  {s.request && <span className="rounded bg-sky-50 px-1.5 py-0.5 text-sky-900">Asked for, not in yet</span>}
                 </p>
               </div>
               <div className="flex gap-1">

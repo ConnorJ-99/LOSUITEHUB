@@ -11,6 +11,7 @@ import type { CreditEventType } from '@/lib/prequal/readiness'
 import { ASSET_OPTIONS, GIFT_SOURCE_OPTIONS, type OtherIncomeType } from '@/lib/urla/options'
 import type { DocumentKind } from '@/lib/api/documents'
 import { ruleKeyOf } from '@/lib/documents/uploadRequests'
+import { isCatalogKey, parseCatalogKey } from './catalog'
 import { employmentDocs, historyChecks, type HistoryJob } from './employment'
 
 export interface SuggestPerson {
@@ -50,7 +51,8 @@ export interface FileFacts extends RuleFacts {
 
 export interface Existing {
   conditions: { id: string; sourceKey: string | null; status: string }[]
-  requests: { id: string; contactId: string | null; ruleKey: string; status: 'requested' | 'received' | 'reviewed' | 'rejected' | 'waived' }[]
+  /** conditionId: the condition the request sits under (every request has one once the conditions-only script has run). */
+  requests: { id: string; contactId: string | null; ruleKey: string; status: 'requested' | 'received' | 'reviewed' | 'rejected' | 'waived'; conditionId?: string | null }[]
   dismissed: string[]
 }
 
@@ -300,19 +302,22 @@ export function suggestConditions(facts: FileFacts, rules: DocRule[], existing: 
   const all = [...allSuggestions(facts, rules), ...fromDocuments]
   const used = new Set(existing.conditions.map((c) => c.sourceKey).filter(Boolean))
   const dismissed = new Set(existing.dismissed)
+  // The same item added from the document catalog for the same person (catalog keys are the checklist keys).
+  const fromCatalog = new Set(existing.conditions.flatMap((c) => { const p = parseCatalogKey(c.sourceKey); return p ? [`${p.key}:${p.contactId ?? 'file'}`] : [] }))
   const requestFor = (s: Suggestion) =>
     existing.requests.find((r) => r.ruleKey === requestKeyOf(s) && (r.contactId === s.contactId || (s.contactId === null && r.contactId === null)))
   const suggestions = all
-    .filter((s) => !used.has(s.key) && !dismissed.has(s.key))
+    .filter((s) => !used.has(s.key) && !dismissed.has(s.key) && !fromCatalog.has(`${requestKeyOf(s)}:${s.contactId ?? 'file'}`))
     .flatMap((s) => {
       const r = requestFor(s)
       // Rejected is still needed (back on the borrower's page), like requested.
-      if (r && r.status !== 'requested' && r.status !== 'rejected') return []
+      // A request already under a condition is that condition, so it isn't suggested again.
+      if (r && (r.conditionId || (r.status !== 'requested' && r.status !== 'rejected'))) return []
       return [{ ...s, request: r ? { id: r.id, status: 'requested' as const } : null }]
     })
   const live = new Set(all.map((s) => s.key))
   const flagged = existing.conditions
-    .filter((c) => c.sourceKey && !live.has(c.sourceKey) && c.status !== 'cleared' && c.status !== 'waived')
+    .filter((c) => c.sourceKey && !isCatalogKey(c.sourceKey) && !live.has(c.sourceKey) && c.status !== 'cleared' && c.status !== 'waived')
     .map((c) => {
       const rule = rules.find((r) => r.key === c.sourceKey!.split(':')[0])
       const why = c.sourceKey!.startsWith('emp_') ? 'the employment history changed' : c.sourceKey!.startsWith('doc_') ? 'the upload changed or was removed' : !rule ? 'its rule was removed' : !rule.active ? 'its rule is turned off' : rule.shortText

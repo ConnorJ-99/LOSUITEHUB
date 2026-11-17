@@ -151,7 +151,8 @@ export async function sendDocumentRequest(v: SendRequestInput): Promise<{ url: s
       .select('id'),
   )[0]
   if (!link) throw new Error('The link could not be made.')
-  const common = (i: PickedItem & { ruleKey: string }) => ({ instructions: i.instructions.trim() || null, catalog_key: i.key, condition_id: i.conditionId, link_id: link.id, due_on: v.dueOn })
+  // An item asked again keeps its condition unless one is picked; a new item with none gets one from the database (conditions only).
+  const common = (i: PickedItem & { ruleKey: string }) => ({ instructions: i.instructions.trim() || null, catalog_key: i.key, ...(i.conditionId ? { condition_id: i.conditionId } : {}), link_id: link.id, due_on: v.dueOn })
   if (plan.add.length) {
     unwrap(
       await db()
@@ -169,6 +170,10 @@ export async function sendDocumentRequest(v: SendRequestInput): Promise<{ url: s
         .select('id'),
     )
   }
+
+  // The conditions asked for move from Outstanding to Requested (never backwards).
+  const asked = [...new Set([...plan.add, ...plan.reuse.map((r) => r.item)].map((i) => i.conditionId).filter((id): id is string => !!id))]
+  if (asked.length) unwrap(await db().from('loan_conditions').update({ status: 'requested' }).in('id', asked).eq('status', 'outstanding').select('id'))
 
   const url = uploadUrl(window.location.origin, token)
   const items = [...plan.add, ...plan.reuse.map((r) => r.item)].map((i) => ({ label: i.label.trim(), instructions: i.instructions.trim() }))
@@ -205,7 +210,7 @@ export function useSendDocumentRequest(loanId: string) {
   return useMutation({
     mutationFn: sendDocumentRequest,
     onSettled: () => {
-      for (const k of [keys.documentRequests(loanId), linksKey(loanId), keys.queue(loanId), keys.today]) queryClient.invalidateQueries({ queryKey: k })
+      for (const k of [keys.documentRequests(loanId), keys.conditions(loanId), linksKey(loanId), keys.queue(loanId), keys.today]) queryClient.invalidateQueries({ queryKey: k })
     },
   })
 }
