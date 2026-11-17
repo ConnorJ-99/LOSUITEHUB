@@ -79,6 +79,7 @@ import { applicationSummary } from '@/lib/urla/summary'
 import { useAuth } from '@/lib/auth/context'
 import { useFileRole } from '@/lib/api/fileRole'
 import type { PipelineStage } from '@/lib/pipeline/stages'
+import { canProcess } from '@/lib/team/secondaryRoles'
 
 const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions'] as const
 type Section = (typeof SECTIONS)[number]
@@ -222,7 +223,9 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     if (t.role === 'loan_officer') return { group: t.group, role: t.label, name: loan.assignedLo?.name ?? null, options: fileRole.manageFile ? members.data?.map((m) => m.name) : undefined }
     const record = file.data?.team.find((r) => r.role === t.role)
     const shown = record ? (memberName(record.profileId) ?? [record.name, record.company && `(${record.company})`].filter(Boolean).join(' ')) : null
-    return { group: t.group, role: t.label, name: shown || null, options: t.role === 'processor' ? members.data?.map((m) => m.name) : undefined, allowCustom: true }
+    // The Processor slot lists people with the Processor role, primary or secondary (Connor, 2026-11-17), plus whoever is in it now.
+    const processors = members.data?.filter((m) => canProcess(m) || m.id === record?.profileId).map((m) => m.name)
+    return { group: t.group, role: t.label, name: shown || null, options: t.role === 'processor' ? processors : undefined, allowCustom: true }
   })
   const roleFor = (label: string) => TEAM.find((t) => t.label === label)!
   const assign = (label: string, picked: string | null) => {

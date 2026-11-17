@@ -60,6 +60,8 @@ export interface OrgMember {
   name: string
   email: string
   role: OrgRole
+  /** LO Assistant / Processor (undefined before the LO assistant roles script). */
+  secondaryRoles?: ('loa' | 'processor')[]
 }
 
 /** A person plus a short summary of their loans, for the Contacts list and duplicate check. */

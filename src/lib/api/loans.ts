@@ -297,10 +297,11 @@ export function useOrgMembers() {
     queryKey: keys.orgMembers,
     enabled: !!orgId,
     queryFn: async () => {
-      const rows = unwrap<{ role: OrgMember['role']; profile: { id: string; full_name: string | null; email: string } | null }[]>(
+      // * so this works before the LO assistant roles script (secondary_roles).
+      const rows = unwrap<{ role: OrgMember['role']; secondary_roles?: OrgMember['secondaryRoles']; profile: { id: string; full_name: string | null; email: string } | null }[]>(
         await db()
           .from('organization_members')
-          .select('role, profile:profiles ( id, full_name, email )')
+          .select('*, profile:profiles ( id, full_name, email )')
           .eq('organization_id', orgId!),
       )
       return rows
@@ -310,6 +311,7 @@ export function useOrgMembers() {
           name: r.profile!.full_name || r.profile!.email,
           email: r.profile!.email,
           role: r.role,
+          secondaryRoles: r.secondary_roles,
         }))
         .sort((a, b) => a.name.localeCompare(b.name))
     },
