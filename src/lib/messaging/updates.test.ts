@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applicationIntro, applicationLink, borrowerIntro, milestoneForStage, milestoneForStep, milestoneUpdate, partnerIntro } from './updates'
+import { applicationIntro, applicationLink, borrowerIntro, milestoneForStage, milestoneForStep, milestoneUpdate, partnerIntro, processorIntro } from './updates'
 
 describe('application link', () => {
   it("puts the loan officer's NMLS # between the address and /register", () => {
@@ -60,5 +60,16 @@ describe('update texts', () => {
     for (const m of ['appraisal_ordered', 'appraisal_received', 'submitted', 'approved', 'clear_to_close', 'closing_date_changed', 'closed'] as const) {
       expect(milestoneUpdate(m, { kind: 'partner', name: 'Amy' }, f)).not.toMatch(/\$|%|rate|credit|income/i)
     }
+  })
+})
+
+describe('processorIntro (Connor, 2026-11-16)', () => {
+  it('introduces the processor with their GHL number', () => {
+    expect(processorIntro({ borrowerFirst: 'Ann Lee', loName: 'Connor Jacquart', processorName: 'Jane Smith', processorPhone: '+12145550100' })).toBe(
+      "Hi Ann, this is Connor with MPS Mortgage. I'd like to introduce you to Jane Smith, who will be processing your loan and helping gather what we need. You can reach Jane at (214) 555-0100. I'm still here for anything you need.",
+    )
+  })
+  it('leaves the number out when the processor has none', () => {
+    expect(processorIntro({ borrowerFirst: 'Ann', loName: 'Connor', processorName: 'Jane Smith', processorPhone: null })).not.toMatch(/reach/)
   })
 })

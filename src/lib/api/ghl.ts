@@ -383,6 +383,18 @@ export function transferGhlOwner(organizationId: string, loanId: string, toLoId:
   return invokeGhl<TransferResult>({ task: 'transfer_owner', organizationId, loanId, toLoId }, 'GHL ownership was not moved.')
 }
 
+/** What happened to the borrowers' GHL followers after the Processor slot changed. */
+export type FollowerResult = { followed: number; unfollowed: number; notes: string[] }
+
+/**
+ * After the Processor slot changes (Connor, 2026-11-16): the processor's GHL
+ * user follows every borrower's GHL contact on the file; the one they
+ * replaced stops following.
+ */
+export function syncProcessorFollowers(organizationId: string, loanId: string, add: string | null, remove: string | null) {
+  return invokeGhl<FollowerResult>({ task: 'processor_followers', organizationId, loanId, add, remove }, 'GHL followers were not changed.')
+}
+
 /** One line for a toast: what moved in GHL, or why not. */
 export function transferSummary(r: TransferResult | { error: string }): string {
   if ('error' in r) return `GHL ownership wasn't moved: ${r.error}`

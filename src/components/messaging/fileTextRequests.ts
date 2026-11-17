@@ -1,7 +1,7 @@
 import { db, unwrap } from '@/lib/api/client'
-import { linkGhlPartner } from '@/lib/api/ghl'
+import { linkGhlPartner, syncProcessorFollowers } from '@/lib/api/ghl'
 import { toast } from 'sonner'
-import { applicationIntro, applicationLink, borrowerIntro, milestoneUpdate, MILESTONE_LABEL, partnerIntro, type Milestone, type UpdateFacts } from '@/lib/messaging/updates'
+import { applicationIntro, applicationLink, borrowerIntro, milestoneUpdate, MILESTONE_LABEL, partnerIntro, processorIntro, type Milestone, type UpdateFacts } from '@/lib/messaging/updates'
 import { openFileTexts } from './FileTextsHost'
 
 /** What the texts say about the file: its LO (name, personal cell, NMLS #), borrower, address and closing date. */
@@ -97,4 +97,41 @@ export async function afterPartnerJoined(organizationId: string, loanId: string,
     // GHL not set up or not reachable: the intro box still opens.
   }
   await offerPartnerIntro(loanId, partnerId)
+}
+
+/**
+ * The Processor slot changed (Connor, 2026-11-16): the new processor follows
+ * the borrowers' GHL contacts (the one they replaced stops following), then
+ * the intro text opens for the borrowers, with the processor's GHL number.
+ * A GHL problem never stops the intro; nothing is sent without a click.
+ */
+export async function afterProcessorChanged(organizationId: string, loanId: string, processorId: string | null, previousId: string | null) {
+  if (processorId !== previousId) {
+    try {
+      const r = await syncProcessorFollowers(organizationId, loanId, processorId, previousId)
+      if (r.notes.length) toast.info(r.notes.join(' '))
+      else if (r.followed) toast.success(`The processor now follows ${r.followed === 1 ? 'the borrower' : `${r.followed} borrowers`} in GHL`)
+    } catch (e) {
+      toast.error(`GHL followers weren't changed: ${(e as Error).message}`)
+    }
+  }
+  if (!processorId || processorId === previousId) return
+  const [f, who] = await Promise.all([
+    fileFacts(loanId).catch(() => null),
+    Promise.all([
+      db().from('profiles').select('full_name, email').eq('id', processorId).maybeSingle(),
+      db().from('ghl_user_links').select('ghl_number').eq('profile_id', processorId).maybeSingle(),
+    ]).catch(() => null),
+  ])
+  if (!f || !who) return
+  const p = who[0].data as { full_name: string | null; email: string } | null
+  const processorName = p?.full_name || p?.email || ''
+  const processorPhone = (who[1].data as { ghl_number: string | null } | null)?.ghl_number ?? null
+  openFileTexts({
+    loanId,
+    title: 'Introduce the processor',
+    description: `${processorName || 'The processor'} is on the file now. Let the borrowers know who they are${processorPhone ? ' and their number' : ''}. Edit it first if you like.`,
+    build: (r) => (r.kind === 'borrower' ? processorIntro({ borrowerFirst: r.name, loName: f.loName, processorName, processorPhone }) : null),
+    preselect: (r) => r.kind === 'borrower',
+  })
 }

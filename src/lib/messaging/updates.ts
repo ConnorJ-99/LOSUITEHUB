@@ -52,6 +52,19 @@ export function borrowerIntro(o: { borrowerFirst: string; loName: string | null;
 }
 
 /**
+ * Introduces the file's processor (Connor, 2026-11-16): "Hi Pat, this is
+ * Connor with MPS Mortgage. I'd like to introduce you to Jane Smith, who will
+ * be processing your loan..." with the processor's GHL number when they have one.
+ */
+export function processorIntro(o: { borrowerFirst: string; loName: string | null; processorName: string; processorPhone: string | null }): string {
+  const lo = firstOf(o.loName) || 'your loan officer'
+  const who = o.processorName.trim() || 'our processor'
+  const first = firstOf(who) || who
+  const phone = cellLine(o.processorPhone)
+  return `Hi ${firstOf(o.borrowerFirst) || 'there'}, this is ${lo} with MPS Mortgage. I'd like to introduce you to ${who}, who will be processing your loan and helping gather what we need.${phone ? ` You can reach ${first} at ${phone}.` : ''} I'm still here for anything you need.`
+}
+
+/**
  * The loan application link (Connor, 2026-11-16): the 1003 app's register page,
  * with the loan officer's NMLS # between the address and /register so the
  * application lands with them. Null without an NMLS #.

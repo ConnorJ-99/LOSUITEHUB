@@ -41,7 +41,7 @@ import { LoanNumberChips } from '@/components/loanfile/LoanNumberChips'
 import { NurtureOverview } from '@/components/nurture/NurtureOverview'
 import { ReassessDialog } from '@/components/nurture/ReassessDialog'
 import { NextActionHeader } from '@/components/leads/NextActionHeader'
-import { afterPartnerJoined, offerApplicationLink } from '@/components/messaging/fileTextRequests'
+import { afterPartnerJoined, afterProcessorChanged, offerApplicationLink } from '@/components/messaging/fileTextRequests'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
 import { WorkflowPanel } from '@/components/loanfile/WorkflowPanel'
 import { HoldDialog } from '@/components/pipeline/HoldDialog'
@@ -230,10 +230,22 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     const memberId = picked ? (members.data?.find((m) => m.name === picked)?.id ?? null) : null
     const done = { onSuccess: () => toast.success(picked ? `${label}: ${picked}` : `${label} unassigned`), onError: (e: Error) => toast.error(e.message) }
     if (t.role === 'loan_officer') {
-      if (!fileRole.manageFile) return toast.error('Only this file\x27s loan officer or an admin can change its loan officer.')
+      if (!fileRole.manageFile) return toast.error("Only this file's loan officer or an admin can change its loan officer.")
       setLo.mutate(memberId, done)
+      return
     }
-    else saveTeam.mutate({ role: t.role, member: picked ? { profileId: memberId, name: memberId ? null : picked } : null }, done)
+    // The Processor slot (Connor, 2026-11-16): the processor follows the borrowers in GHL and the intro text opens.
+    const previous = t.role === 'processor' ? (file.data?.team.find((r) => r.role === 'processor')?.profileId ?? null) : null
+    saveTeam.mutate(
+      { role: t.role, member: picked ? { profileId: memberId, name: memberId ? null : picked } : null },
+      {
+        ...done,
+        onSuccess: () => {
+          done.onSuccess()
+          if (t.role === 'processor') void afterProcessorChanged(loan.organizationId, loan.id, memberId, previous)
+        },
+      },
+    )
   }
   const custom = (label: string) => {
     const t = roleFor(label)

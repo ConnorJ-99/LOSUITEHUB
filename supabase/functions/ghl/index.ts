@@ -943,6 +943,64 @@ async function transferOwner(admin: SupabaseClient, g: Ghl, organizationId: stri
   return { moved: contacts + opportunities > 0, contacts, opportunities, to: loName, notes: [...new Set(notes)] }
 }
 
+/**
+ * The file's processor follows its borrowers in GHL (Connor, 2026-11-16): the
+ * new processor's linked GHL user is added as a follower on every borrower's
+ * GHL contact on the file, and the one they replaced is removed. Test mode
+ * only touches TEST people; a borrower not in GHL yet, or a processor with no
+ * GHL user link, is reported, never an error. Nothing else on the contact
+ * changes (owner, tags, workflows).
+ */
+async function processorFollowers(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, body: Record<string, unknown>) {
+  const loanId = typeof body.loanId === 'string' ? body.loanId : null
+  const add = typeof body.add === 'string' ? body.add : null
+  const remove = typeof body.remove === 'string' && body.remove !== add ? body.remove : null
+  if (!loanId) throw new UserError('Which file?')
+  // The caller must be able to see the file (Row Level Security).
+  const seen = await db.from('loans').select('id').eq('id', loanId).eq('organization_id', organizationId).maybeSingle()
+  if (seen.error) throw new Error(seen.error.message)
+  if (!seen.data) throw new UserError('That file was not found, or it is not yours.')
+
+  const ids = [add, remove].filter((x): x is string => !!x)
+  const [links, settings, people] = await Promise.all([
+    ids.length ? admin.from('ghl_user_links').select('profile_id, ghl_user_id').eq('organization_id', organizationId).in('profile_id', ids) : Promise.resolve({ data: [], error: null }),
+    admin.from('messaging_settings').select('inbound_mode').eq('organization_id', organizationId).maybeSingle(),
+    admin.from('loan_borrowers').select('role, contact:contacts ( id, first_name, last_name, ghl_contact_id, ghl_opportunity_id )').eq('loan_id', loanId),
+  ])
+  for (const r of [links, settings, people]) if (r.error) throw new Error(r.error.message)
+  const userFor = new Map(((links.data ?? []) as { profile_id: string; ghl_user_id: string }[]).map((l) => [l.profile_id, l.ghl_user_id]))
+  const notes: string[] = []
+  const addUser = add ? (userFor.get(add) ?? null) : null
+  const removeUser = remove ? (userFor.get(remove) ?? null) : null
+  if (add && !addUser) notes.push("The processor isn't linked to a GHL user in Settings → GoHighLevel, so they weren't added as a follower in GHL.")
+  if (!addUser && !removeUser) return { followed: 0, unfollowed: 0, notes }
+
+  const rows = (people.data ?? []) as unknown as { role: string; contact: { id: string; first_name: string | null; last_name: string | null; ghl_contact_id: string | null; ghl_opportunity_id: string | null } | null }[]
+  const planned = planTransfer(
+    rows.flatMap((r) => (r.contact ? [{ id: r.contact.id, firstName: r.contact.first_name, lastName: r.contact.last_name, ghlContactId: r.contact.ghl_contact_id, ghlOpportunityId: null, primary: r.role === 'primary' }] : [])),
+    ((settings.data as { inbound_mode: string } | null)?.inbound_mode ?? 'test_only') === 'test_only',
+    hasTestName,
+  )
+  notes.push(...planned.notes.map((n) => n.replace("they'll be added under the new loan officer when they are", 'the processor can follow them once they are')))
+  let followed = 0
+  let unfollowed = 0
+  for (const c of planned.contacts) {
+    const path = `/contacts/${encodeURIComponent(c.ghlContactId)}/followers`
+    // POST / DELETE /contacts/{id}/followers (contacts.write, Version 2021-07-28), body { followers: [userId] }.
+    if (removeUser) {
+      const r = await g.call({ ...plan('contacts_write'), method: 'DELETE', dryRun: false }, path, { followers: [removeUser] })
+      if (r.outcome.result === 'works') unfollowed++
+      else notes.push(`The previous processor couldn't be removed as a follower: ${r.outcome.detail}`)
+    }
+    if (addUser) {
+      const r = await g.call({ ...plan('contacts_write'), method: 'POST', dryRun: false }, path, { followers: [addUser] })
+      if (r.outcome.result === 'works') followed++
+      else notes.push(`The processor couldn't be added as a follower: ${r.outcome.detail}`)
+    }
+  }
+  return { followed, unfollowed, notes: [...new Set(notes)] }
+}
+
 /** Others in the company (people, or partners) with the same email or 10-digit phone. */
 async function samePeople(admin: SupabaseClient, organizationId: string, table: 'contacts' | 'partners', selfId: string, email: string | null, phone: string | null): Promise<{ email: string | null; phone: string | null }[]> {
   const out: { email: string | null; phone: string | null }[] = []
@@ -1238,6 +1296,15 @@ Deno.serve(async (request) => {
         return reply(200, await transferOwner(admin, g, organizationId, userId, (role.data as { role: string }).role, body))
       } finally {
         if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'transfer_owner', ...c })))
+      }
+    }
+    if (task === 'processor_followers') {
+      // After the Processor slot changes: anyone who can see the file (checked inside, as the caller).
+      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+      try {
+        return reply(200, await processorFollowers(db, admin, g, organizationId, body))
+      } finally {
+        if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'processor_followers', ...c })))
       }
     }
     if (!['owner', 'admin'].includes((role.data as { role: string }).role)) return reply(403, { error: 'Only an owner or admin can manage the GHL connection.' })
