@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { borrowerIntro, milestoneForStage, milestoneForStep, milestoneUpdate, partnerIntro } from './updates'
+import { applicationIntro, applicationLink, borrowerIntro, milestoneForStage, milestoneForStep, milestoneUpdate, partnerIntro } from './updates'
+
+describe('application link', () => {
+  it("puts the loan officer's NMLS # between the address and /register", () => {
+    expect(applicationLink('2611188')).toBe('https://mpsmortgage.my1003app.com/2611188/register?time=')
+    expect(applicationLink(' NMLS #2611188 ')).toBe('https://mpsmortgage.my1003app.com/2611188/register?time=')
+    expect(applicationLink(null)).toBeNull()
+    expect(applicationLink('')).toBeNull()
+  })
+  it('intro text with the link', () => {
+    const link = 'https://mpsmortgage.my1003app.com/2611188/register?time='
+    expect(applicationIntro({ borrowerFirst: 'Pat', loName: 'Connor Jacquart', personalCell: '2145550101', link })).toBe(
+      `Hi Pat, this is Connor with MPS Mortgage. This is my work number, and my personal cell is (214) 555-0101. When you're ready, you can start your loan application here: ${link} I'll reach out as soon as it comes in.`,
+    )
+    expect(applicationIntro({ borrowerFirst: 'Pat', loName: null, personalCell: null, link })).toContain('this is your loan officer with MPS Mortgage. This is my work number. When')
+  })
+})
 
 describe('intro texts', () => {
   it('borrower: work number, and the personal cell when there is one', () => {

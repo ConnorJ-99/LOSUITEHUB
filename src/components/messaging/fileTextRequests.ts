@@ -1,24 +1,25 @@
 import { db, unwrap } from '@/lib/api/client'
 import { linkGhlPartner } from '@/lib/api/ghl'
-import { borrowerIntro, milestoneUpdate, MILESTONE_LABEL, partnerIntro, type Milestone, type UpdateFacts } from '@/lib/messaging/updates'
+import { toast } from 'sonner'
+import { applicationIntro, applicationLink, borrowerIntro, milestoneUpdate, MILESTONE_LABEL, partnerIntro, type Milestone, type UpdateFacts } from '@/lib/messaging/updates'
 import { openFileTexts } from './FileTextsHost'
 
-/** What the texts say about the file: its LO (name, personal cell), borrower, address and closing date. */
-async function fileFacts(loanId: string): Promise<UpdateFacts & { personalCell: string | null }> {
+/** What the texts say about the file: its LO (name, personal cell, NMLS #), borrower, address and closing date. */
+async function fileFacts(loanId: string): Promise<UpdateFacts & { personalCell: string | null; nmls: string | null }> {
   const r = unwrap<{
     closing_date: string | null
-    lo: { full_name: string | null; email: string; personal_cell: string | null } | null
+    lo: { full_name: string | null; email: string; personal_cell: string | null; nmls: string | null } | null
     borrowers: { role: string; contact: { first_name: string } | null }[]
     home: { address_line: string } | null
   }>(
     await db()
       .from('loans')
-      .select('closing_date, lo:profiles!loans_assigned_lo_id_fkey ( full_name, email, personal_cell ), borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( first_name ) ), home:properties!loans_subject_property_id_fkey ( address_line )')
+      .select('closing_date, lo:profiles!loans_assigned_lo_id_fkey ( full_name, email, personal_cell, nmls ), borrowers:loan_borrowers ( role, contact:contacts!loan_borrowers_contact_id_fkey ( first_name ) ), home:properties!loans_subject_property_id_fkey ( address_line )')
       .eq('id', loanId)
       .single(),
   )
   const primary = (r.borrowers.find((b) => b.role === 'primary') ?? r.borrowers[0])?.contact
-  return { loName: r.lo?.full_name || r.lo?.email || null, personalCell: r.lo?.personal_cell ?? null, borrowerFirst: primary?.first_name ?? null, address: r.home?.address_line ?? null, closingDate: r.closing_date }
+  return { loName: r.lo?.full_name || r.lo?.email || null, personalCell: r.lo?.personal_cell ?? null, nmls: r.lo?.nmls ?? null, borrowerFirst: primary?.first_name ?? null, address: r.home?.address_line ?? null, closingDate: r.closing_date }
 }
 
 /** After a borrower is added to GoHighLevel: the intro text, from the LO's work number. */
@@ -31,6 +32,28 @@ export async function offerBorrowerIntro(loanId: string, contactId: string) {
     title: 'Intro text',
     description: "They're in GoHighLevel now. Send them your work number, with your personal cell for anything else. Edit it first if you like.",
     build: (r) => (r.kind === 'borrower' && r.id === contactId ? borrowerIntro({ borrowerFirst: r.name, loName: f.loName, personalCell: f.personalCell }) : null),
+  })
+}
+
+/**
+ * The intro text with the loan application link (Connor, 2026-11-16): the
+ * file's loan officer's NMLS # is built into the link. Opens the usual text
+ * box (edit, tick "They said OK to texts", Send through every check, or save
+ * as a draft). No NMLS # in Settings → My profile: says so, no box.
+ */
+export async function offerApplicationLink(loanId: string, contactId: string) {
+  const f = await fileFacts(loanId).catch(() => null)
+  if (!f) return
+  const link = applicationLink(f.nmls)
+  if (!link) {
+    toast.error(`No application link: ${f.loName ?? "The file's loan officer"} has no NMLS # in Settings → My profile.`)
+    return
+  }
+  openFileTexts({
+    loanId,
+    title: 'Send application link',
+    description: 'Your intro with the loan application link (your NMLS # is built in). Edit it first if you like.',
+    build: (r) => (r.kind === 'borrower' && r.id === contactId ? applicationIntro({ borrowerFirst: r.name, loName: f.loName, personalCell: f.personalCell, link }) : null),
   })
 }
 

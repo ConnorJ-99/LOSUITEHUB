@@ -51,6 +51,23 @@ export function borrowerIntro(o: { borrowerFirst: string; loName: string | null;
   return `Hi ${firstOf(o.borrowerFirst) || 'there'}, this is ${lo} with MPS Mortgage. This is my work number. I'll send your loan updates from here${cell ? `, but for anything else my personal cell is ${cell}` : ''}.`
 }
 
+/**
+ * The loan application link (Connor, 2026-11-16): the 1003 app's register page,
+ * with the loan officer's NMLS # between the address and /register so the
+ * application lands with them. Null without an NMLS #.
+ */
+export function applicationLink(nmls: string | null | undefined): string | null {
+  const id = (nmls ?? '').replace(/\D/g, '')
+  return id ? `https://mpsmortgage.my1003app.com/${id}/register?time=` : null
+}
+
+/** The intro text with the application link: work number, personal cell, then the link. */
+export function applicationIntro(o: { borrowerFirst: string; loName: string | null; personalCell: string | null; link: string }): string {
+  const lo = firstOf(o.loName) || 'your loan officer'
+  const cell = cellLine(o.personalCell)
+  return `Hi ${firstOf(o.borrowerFirst) || 'there'}, this is ${lo} with MPS Mortgage. This is my work number${cell ? `, and my personal cell is ${cell}` : ''}. When you're ready, you can start your loan application here: ${o.link} I'll reach out as soon as it comes in.`
+}
+
 /** "Hi Amy, this is Connor with MPS Mortgage, working with Pat on 123 Main St..." */
 export function partnerIntro(o: { partnerName: string; loName: string | null; borrowerFirst: string | null; address: string | null; personalCell: string | null }): string {
   const lo = firstOf(o.loName) || 'the loan officer'

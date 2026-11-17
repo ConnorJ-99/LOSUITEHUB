@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { MailIcon, MessageSquareIcon, PaperclipIcon, RefreshCwIcon } from 'lucide-react'
+import { FileTextIcon, MailIcon, MessageSquareIcon, PaperclipIcon, RefreshCwIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,7 @@ import { relativeTime } from '@/lib/dates'
 import { consentChip, dayLabel, groupByDay, sharedPhoneIds, timeOfDay } from '@/lib/messaging/thread'
 import { formatPhone } from '@/lib/pipeline/helpers'
 import { AddToGhl } from '@/components/messaging/AddToGhl'
+import { offerApplicationLink } from '@/components/messaging/fileTextRequests'
 import { PartnerMessages } from '@/components/loanfile/PartnerMessages'
 import { usePartnerMessages } from '@/lib/api/partnerRequests'
 import { Composer } from './Composer'
@@ -225,6 +226,7 @@ function ContactConsentCard({ people }: { people: FilePerson[] }) {
 
 function GhlPanel({ loan, people, messages, canCheck }: { loan: LoanProfile; people: FilePerson[]; messages: Message[]; canCheck: boolean }) {
   const links = useGhlLinks()
+  const ghlReady = !!useGhlStatus().data?.ready
   const lo = loan.assignedLo
   const link = lo ? links.data?.find((l) => l.profileId === lo.id) : undefined
   const last = messages.at(-1)
@@ -239,6 +241,15 @@ function GhlPanel({ loan, people, messages, canCheck }: { loan: LoanProfile; peo
               <dd>
                 <AddToGhl target={{ kind: 'borrower', loanId: loan.id, contactId: p.id }} linked={!!p.ghlContactId} name={p.firstName} />
                 {matched?.matchedBy && <span className="ml-2 text-xs text-muted-foreground">matched by {MATCHED_BY_LABEL[matched.matchedBy].toLowerCase()}</span>}
+                {/* The loan application link with the LO's NMLS # (Connor, 2026-11-16), in an intro text: open files only. */}
+                {ghlReady && !['closed', 'lost'].includes(loan.stage) && (
+                  <div className="mt-1">
+                    <Button size="xs" variant="outline" onClick={() => void offerApplicationLink(loan.id, p.id)}>
+                      <FileTextIcon />
+                      Send application link
+                    </Button>
+                  </div>
+                )}
               </dd>
             </div>
           )
