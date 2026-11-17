@@ -18,7 +18,7 @@
 // Nothing is ever sent from here.
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0'
-import { CREDIT_AUTH_VERSION, blankAnswers, hasSsn, intakePayload, normalizeAnswers, stepProblems, submitProblems, thankYouDrafts, type ApplicationAnswers, type StepId } from './form.ts'
+import { CREDIT_AUTH_VERSION, STEPS, blankAnswers, hasSsn, intakePayload, loanFromFile, normalizeAnswers, stepProblems, submitProblems, thankYouDrafts, type ApplicationAnswers, type StepId } from './form.ts'
 import { linkState, sessionValid } from '../document-upload/rules.ts'
 
 const CORS = {
@@ -110,9 +110,12 @@ async function start(request: Request, db: SupabaseClient, body: Record<string, 
     const p = c.data as { first_name: string; last_name: string | null; email: string | null; phone: string | null }
     const answers = blankAnswers()
     answers.borrower = { ...answers.borrower, firstName: p.first_name ?? '', lastName: p.last_name ?? '', email: p.email ?? '', phone: p.phone ?? '' }
-    const ins = await db.from('borrower_applications').insert({ organization_id: l.organization_id, loan_id: l.loan_id, contact_id: l.contact_id, link_id: l.id, answers, step: 'you' }).select(APP_SELECT).single()
+    // The file's loan type, occupancy and DSCR to start with (the borrower confirms or changes them; the file keeps its own).
+    const f = await db.from('loans').select('purpose, occupancy, income_doc_type').eq('id', l.loan_id).maybeSingle()
+    if (f.data) answers.loan = loanFromFile(answers.loan, f.data as { purpose: string | null; occupancy: string | null; income_doc_type: string | null })
+    const ins = await db.from('borrower_applications').insert({ organization_id: l.organization_id, loan_id: l.loan_id, contact_id: l.contact_id, link_id: l.id, answers, step: STEPS[0].id }).select(APP_SELECT).single()
     if (ins.error) throw new Error(ins.error.message)
-    return reply(200, { answers, step: 'you', status: 'in_progress' })
+    return reply(200, { answers, step: STEPS[0].id, status: 'in_progress' })
   }
   // Standalone: a fresh application with a resume code, a few per hour per visitor.
   const ip = await ipHash(request)
@@ -126,9 +129,9 @@ async function start(request: Request, db: SupabaseClient, body: Record<string, 
   const lo = typeof body.lo === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.lo.trim()) ? body.lo.trim().toLowerCase() : null
   const resume = randomHex()
   const answers = blankAnswers()
-  const ins = await db.from('borrower_applications').insert({ organization_id: (org.data as { id: string }).id, resume_hash: await sha256(resume), assigned_to_email: lo, answers, step: 'you', ip_hash: ip }).select('id').single()
+  const ins = await db.from('borrower_applications').insert({ organization_id: (org.data as { id: string }).id, resume_hash: await sha256(resume), assigned_to_email: lo, answers, step: STEPS[0].id, ip_hash: ip }).select('id').single()
   if (ins.error) throw new Error(ins.error.message)
-  return reply(200, { resume, answers, step: 'you', status: 'in_progress' })
+  return reply(200, { resume, answers, step: STEPS[0].id, status: 'in_progress' })
 }
 
 async function save(db: SupabaseClient, body: Record<string, unknown>) {

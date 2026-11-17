@@ -10,21 +10,29 @@ import { db } from '@/lib/api/client'
 import {
   CREDIT_AUTH_TEXT,
   DECLARATIONS,
+  PURPOSE_LABELS,
+  STEPS,
   blankJob,
   blankOwnedHome,
   historyNote,
+  isSecondLien,
   jobMonthlyTotal,
+  loanFromHome,
   normalizeAnswers,
   normalizeJob,
+  onOwnedHome,
+  qualifiesByRent,
   stepProblems,
   stepsFor,
   withHistorySlot,
+  withPurpose,
   type Address,
   type ApplicationAnswers,
   type Asset,
   type Debt,
   type HomeMoney,
   type Job,
+  type LoanWanted,
   type JobKind,
   type OtherIncome,
   type OwnedHome,
@@ -75,7 +83,7 @@ const writeResume = (v: string | null) => {
 
 export function ApplicationWizard({ mode, onExpired }: { mode: WizardMode; onExpired?: () => void }) {
   const [answers, setAnswers] = useState<ApplicationAnswers | null>(null)
-  const [step, setStep] = useState<StepId>('you')
+  const [step, setStep] = useState<StepId>(STEPS[0].id)
   const [status, setStatus] = useState<'loading' | 'intro' | 'in_progress' | 'submitted' | 'error'>('loading')
   const [message, setMessage] = useState<string | null>(null)
   const [problems, setProblems] = useState<string[]>([])
@@ -101,7 +109,7 @@ export function ApplicationWizard({ mode, onExpired }: { mode: WizardMode; onExp
         return setStatus('error')
       }
       setAnswers(normalizeAnswers(r.body.answers))
-      setStep(r.body.step ?? 'you')
+      setStep(r.body.step ?? STEPS[0].id)
       setStatus(r.body.status === 'submitted' ? 'submitted' : 'in_progress')
     })()
     return () => {
@@ -119,7 +127,7 @@ export function ApplicationWizard({ mode, onExpired }: { mode: WizardMode; onExp
     writeResume(r.body.resume)
     setResume(r.body.resume)
     setAnswers(normalizeAnswers(r.body.answers))
-    setStep('you')
+    setStep(STEPS[0].id)
     setStatus('in_progress')
   }
 
@@ -157,8 +165,11 @@ export function ApplicationWizard({ mode, onExpired }: { mode: WizardMode; onExp
       if (p.length) return
     } else setProblems([])
     const next = steps[Math.min(Math.max(to, 0), steps.length - 1)].id
+    // Opening the loan step on a refi or home equity loan of the home they live in: its value and balance start from "Where you live".
+    const saving = next === 'loan' ? { ...answers, loan: loanFromHome(answers) } : answers
+    if (saving !== answers) setAnswers(saving)
     setBusy(true)
-    const r = await callApply({ action: 'save', ...who(), answers, step: next })
+    const r = await callApply({ action: 'save', ...who(), answers: saving, step: next })
     setBusy(false)
     if (r.status === 401 || r.status === 410) return onExpired?.()
     if (r.status !== 200) return setProblems([r.body.error ?? 'Your answers did not save. Try again.'])
@@ -193,6 +204,7 @@ export function ApplicationWizard({ mode, onExpired }: { mode: WizardMode; onExp
       </div>
 
       <div className={`${card} space-y-3`}>
+        {current.id === 'goal' && <GoalFields l={answers.loan} onChange={(loan) => set({ loan })} />}
         {current.id === 'you' && <PersonFields p={answers.borrower} onChange={(borrower) => set({ borrower })} />}
         {current.id === 'co_borrower' && (
           <>
@@ -698,42 +710,106 @@ function DebtFields({ items, co, onChange }: { items: Debt[]; co: boolean; onCha
   )
 }
 
+const GOALS: [NonNullable<LoanWanted['goal']> & string, string][] = [
+  ['purchase', 'Buy a home'],
+  ['refinance_rate_term', 'Lower my rate or payment (refinance)'],
+  ['refinance_cash_out', 'Take cash out with a new mortgage (cash-out refinance)'],
+  ['equity', 'Borrow against my home and keep my mortgage (home equity)'],
+  ['unsure', "I'm not sure, help me pick"],
+]
+
+/** The first step: what they want, worked out into a loan type (Purchase, Rate/Term, Cash-Out, HELOC, HELOAN), and how they'll use the home. */
+function GoalFields({ l, onChange }: { l: LoanWanted; onChange: (l: LoanWanted) => void }) {
+  const set = (patch: Partial<LoanWanted>) => onChange(withPurpose({ ...l, ...patch }))
+  const h = l.helper
+  const setHelper = (patch: Partial<LoanWanted['helper']>) => set({ helper: { ...h, ...patch } })
+  const askEquity = l.goal === 'equity' || (l.goal === 'unsure' && h.buying === false && h.wantsCash === true && h.keepMortgage === true)
+  return (
+    <>
+      <fieldset>
+        <legend className="text-sm font-medium">What are you looking to do?</legend>
+        <div className="mt-1 grid gap-2">
+          {GOALS.map(([v, label]) => (
+            <button key={v} type="button" aria-pressed={l.goal === v} onClick={() => set({ goal: v })} className={`min-h-11 rounded-lg border px-3 py-2 text-left text-sm font-medium ${l.goal === v ? 'border-primary bg-primary/10 text-primary' : 'bg-white'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      {l.goal === 'unsure' && (
+        <div className="space-y-3 border-t pt-3">
+          <YesNo label="Are you buying a home?" value={h.buying} onChange={(buying) => setHelper({ buying, ...(buying ? { wantsCash: null, keepMortgage: null } : {}) })} />
+          {h.buying === false && <YesNo label="Would you like to take cash out of your home?" value={h.wantsCash} onChange={(wantsCash) => setHelper({ wantsCash, ...(wantsCash ? {} : { keepMortgage: null }) })} />}
+          {h.buying === false && h.wantsCash === true && <YesNo label="Would you like to keep the mortgage you have now (and its rate)?" value={h.keepMortgage} onChange={(keepMortgage) => setHelper({ keepMortgage })} />}
+        </div>
+      )}
+      {askEquity && (
+        <Choice
+          label="How would you like the money?"
+          value={l.equityKind}
+          options={[
+            ['heloc', 'A line of credit I can draw from as I need it (HELOC)'],
+            ['heloan', 'One lump sum with a fixed payment (HELOAN)'],
+          ]}
+          onChange={(equityKind) => set({ equityKind })}
+        />
+      )}
+      {l.goal === 'unsure' && l.purpose && (
+        <p className="rounded-lg bg-primary/5 p-3 text-sm">
+          Sounds like a <span className="font-semibold">{PURPOSE_LABELS[l.purpose]}</span>. Your loan officer will go over it with you.
+        </p>
+      )}
+      <Choice label="How will you use the home?" value={l.occupancy} options={[['primary', 'I live in it (or will)'], ['second_home', 'Second home'], ['investment', 'Investment / rental']]} onChange={(occupancy) => set({ occupancy })} />
+      {l.occupancy === 'investment' && (
+        <>
+          <YesNo label="Would you like to qualify by the home's rent instead of your income?" value={l.qualifyByRent} onChange={(qualifyByRent) => set({ qualifyByRent })} />
+          <p className="text-xs text-muted-foreground">Many investors qualify by the rent alone (a DSCR loan). If you are not sure, pick No; your loan officer can look at both.</p>
+        </>
+      )}
+    </>
+  )
+}
+
 function LoanFields({ a, onChange }: { a: ApplicationAnswers; onChange: (l: ApplicationAnswers['loan']) => void }) {
   const l = a.loan
   const set = <K extends keyof typeof l>(k: K, v: (typeof l)[K]) => onChange({ ...l, [k]: v })
   const purchase = l.purpose === 'purchase'
+  // Applications saved before the first question: ask it here.
+  if (!l.purpose) return <GoalFields l={l} onChange={onChange} />
   return (
     <>
-      <Choice label="What is the loan for?" value={l.purpose} options={[['purchase', 'Buying a home'], ['refinance_rate_term', 'Refinancing (lower rate or term)'], ['refinance_cash_out', 'Refinancing with cash out']]} onChange={(v) => set('purpose', v)} />
-      <Choice label="How will you use the home?" value={l.occupancy} options={[['primary', 'I will live in it'], ['second_home', 'Second home'], ['investment', 'Investment / rental']]} onChange={(v) => set('occupancy', v)} />
-      {l.purpose && (
-        <>
-          <Money label={purchase ? 'Price you are looking at' : "The home's estimated value"} value={l.price} onChange={(v) => set('price', v)} />
-          {purchase ? (
-            <div>
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <span className="mr-auto">Down payment you'd like</span>
-                <div className="flex rounded-lg bg-muted p-0.5 text-xs">
-                  {(['percent', 'amount'] as const).map((m) => (
-                    <button key={m} type="button" onClick={() => onChange({ ...l, downMode: m, down: null })} className={`rounded-md px-2.5 py-1 ${l.downMode === m ? 'bg-white font-semibold shadow-sm' : 'text-muted-foreground'}`}>
-                      {m === 'percent' ? '%' : '$'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <input className={field} inputMode="decimal" aria-label="Down payment" placeholder={l.downMode === 'percent' ? 'e.g. 5' : '$'} value={l.down == null ? '' : l.downMode === 'amount' ? l.down.toLocaleString('en-US') : String(l.down)} onChange={(e) => { const t = e.target.value.replace(/[^0-9.]/g, ''); set('down', t === '' ? null : Number(t)) }} />
+      <p className="text-sm text-muted-foreground">
+        {PURPOSE_LABELS[l.purpose]}
+        {qualifiesByRent(l) ? ' · qualifying by the rent (DSCR)' : ''}
+      </p>
+      <Money label={purchase ? 'Price you are looking at' : "The home's estimated value"} value={l.price} onChange={(v) => set('price', v)} />
+      {purchase ? (
+        <div>
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <span className="mr-auto">Down payment you'd like</span>
+            <div className="flex rounded-lg bg-muted p-0.5 text-xs">
+              {(['percent', 'amount'] as const).map((m) => (
+                <button key={m} type="button" onClick={() => onChange({ ...l, downMode: m, down: null })} className={`rounded-md px-2.5 py-1 ${l.downMode === m ? 'bg-white font-semibold shadow-sm' : 'text-muted-foreground'}`}>
+                  {m === 'percent' ? '%' : '$'}
+                </button>
+              ))}
             </div>
-          ) : (
-            <>
-              <Money label="What you owe on it now" value={l.balance} onChange={(v) => set('balance', v)} placeholder="$0 if nothing" />
-              {l.purpose === 'refinance_cash_out' && <Money label="Cash out you'd like" value={l.cashOut} onChange={(v) => set('cashOut', v)} />}
-            </>
-          )}
-          <Text label="State of the home" maxLength={2} value={l.state} onChange={(v) => set('state', v.toUpperCase())} />
-          <Choice label="When would you like to close?" value={l.timeline} options={[['ASAP', 'As soon as possible'], ['1-3 months', 'In 1–3 months'], ['3-6 months', 'In 3–6 months'], ['Just exploring', 'Just exploring']]} onChange={(v) => set('timeline', v)} />
-          <Choice label="Your credit, roughly (optional)" value={l.creditScore == null ? '' : String(l.creditScore)} options={[['760', '760 or higher'], ['720', '720–759'], ['680', '680–719'], ['640', '640–679'], ['600', '600–639'], ['580', 'Below 600']]} onChange={(v) => set('creditScore', Number(v))} />
-        </>
+          </div>
+          <input className={field} inputMode="decimal" aria-label="Down payment" placeholder={l.downMode === 'percent' ? 'e.g. 5' : '$'} value={l.down == null ? '' : l.downMode === 'amount' ? l.down.toLocaleString('en-US') : String(l.down)} onChange={(e) => { const t = e.target.value.replace(/[^0-9.]/g, ''); set('down', t === '' ? null : Number(t)) }} />
+        </div>
+      ) : (
+        onOwnedHome(l.purpose) && (
+          <>
+            <Money label={isSecondLien(l.purpose) ? 'What you owe on your mortgage now' : 'What you owe on it now'} value={l.balance} onChange={(v) => set('balance', v)} placeholder="$0 if nothing" />
+            {l.purpose === 'refinance_cash_out' && <Money label="Cash out you'd like" value={l.cashOut} onChange={(v) => set('cashOut', v)} />}
+            {isSecondLien(l.purpose) && <Money label={l.purpose === 'heloc' ? 'How big a line of credit you would like' : 'How much you would like to borrow'} value={l.cashOut} onChange={(v) => set('cashOut', v)} />}
+          </>
+        )
       )}
+      {qualifiesByRent(l) && <Money label="Monthly rent (what it rents for, or is expected to)" value={l.expectedRent} onChange={(v) => set('expectedRent', v)} />}
+      <Text label="State of the home" maxLength={2} value={l.state} onChange={(v) => set('state', v.toUpperCase())} />
+      <Choice label="When would you like to close?" value={l.timeline} options={[['ASAP', 'As soon as possible'], ['1-3 months', 'In 1–3 months'], ['3-6 months', 'In 3–6 months'], ['Just exploring', 'Just exploring']]} onChange={(v) => set('timeline', v)} />
+      <Choice label="Your credit, roughly (optional)" value={l.creditScore == null ? '' : String(l.creditScore)} options={[['760', '760 or higher'], ['720', '720–759'], ['680', '680–719'], ['640', '640–679'], ['600', '600–639'], ['580', 'Below 600']]} onChange={(v) => set('creditScore', Number(v))} />
     </>
   )
 }
@@ -749,7 +825,7 @@ function Review({ a, onChange }: { a: ApplicationAnswers; onChange: (p: Partial<
     ['Work', a.jobs.filter((j) => j.employer.trim()).map((j) => (j.kind === 'school' ? `${j.employer} (school)` : `${j.employer}${j.current && jobMonthlyTotal(j) ? ` · ${money(jobMonthlyTotal(j))}/mo` : ''}`)).join(', ') || '—'],
     ['Accounts', a.assets.length ? `${a.assets.length} (${money(a.assets.reduce((s, x) => s + (x.amount ?? 0), 0))})` : 'None'],
     ['Debts', a.debts.length ? `${a.debts.length} (${money(a.debts.reduce((s, x) => s + (x.monthlyPayment ?? 0), 0))}/mo)` : 'None'],
-    ['Loan', `${a.loan.purpose === 'purchase' ? 'Buying' : 'Refinancing'} · ${money(a.loan.price)}`],
+    ['Loan', `${a.loan.purpose ? PURPOSE_LABELS[a.loan.purpose] : '—'}${qualifiesByRent(a.loan) ? ' · DSCR (qualify by rent)' : ''} · ${money(a.loan.price)}`],
   ]
   return (
     <>

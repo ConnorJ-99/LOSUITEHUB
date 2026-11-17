@@ -12,7 +12,7 @@ import { CheckCircle2Icon, ChevronDownIcon, FileCode2Icon, MailIcon, MessageSqua
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, confirmAction } from '@/components/shared'
-import { useBorrowerApplications, useApplyApplication, useDraftApplicationInvite, useMarkConditionsAdded, useSaveApplicationMismo, type BorrowerApplication } from '@/lib/api/applications'
+import { useBorrowerApplications, useApplyApplication, useDraftApplicationInvite, useMarkConditionsAdded, useSaveApplicationMismo, useSwitchToApplicationLoanType, type BorrowerApplication } from '@/lib/api/applications'
 import { useConditionSuggestions } from '@/components/conditions/SuggestedConditions'
 import { useAddConditions, useConditions } from '@/lib/api/conditions'
 import { usePortalLinks } from '@/lib/api/portal'
@@ -25,7 +25,7 @@ import { formatCurrency } from '@/lib/format'
 import { buildMismo34 } from '@/lib/mismo/build'
 import { exportFileName } from '@/lib/mismo/checklist'
 import { applicationUrl } from '@/lib/portal/messages'
-import { DECLARATIONS, STEPS, jobMonthlyTotal, normalizeAnswers, type HomeMoney, type Job } from '../../../supabase/functions/apply/form'
+import { DECLARATIONS, PURPOSE_LABELS, STEPS, differsFromFile, jobMonthlyTotal, normalizeAnswers, qualifiesByRent, type HomeMoney, type Job } from '../../../supabase/functions/apply/form'
 
 const OUTCOME: Record<NonNullable<BorrowerApplication['outcome']>, string> = {
   new_lead: 'New lead from the application link',
@@ -44,6 +44,7 @@ export function ApplicationCard({ loan }: { loan: LoanProfile }) {
   const apply = useApplyApplication(loan.id)
   const saveMismo = useSaveApplicationMismo(loan.id)
   const draft = useDraftApplicationInvite(loan.id)
+  const loanTypeSwitch = useSwitchToApplicationLoanType(loan.id)
   const saving = useRef(new Set<string>())
   const conditions = useConditions(loan.id)
   const suggested = useConditionSuggestions(loan, conditions.data)
@@ -105,12 +106,17 @@ export function ApplicationCard({ loan }: { loan: LoanProfile }) {
     })
   }
 
+  const switchLoanType = async (a: BorrowerApplication, changes: ReturnType<typeof differsFromFile>) => {
+    if (!(await confirmAction(`Change the file to what the borrower picked? ${changes.map((c) => `${c.file} → ${c.app}`).join('; ')}. A note is left on the file.`, { confirmLabel: 'Change the file' }))) return
+    loanTypeSwitch.mutate({ organizationId: loan.organizationId, contactId: a.contactId, changes }, { onSuccess: () => toast.success('The file now matches the application'), onError: fail })
+  }
+
   return (
-    <Card title="Application" description="The borrower's own mortgage application: about 10 minutes, saved as they go, no SSN.">
+    <Card title='Application' description="The borrower's own mortgage application: about 10 minutes, saved as they go, no SSN.">
       {(apps.data?.length ?? 0) > 0 && (
         <ul className="mb-3 divide-y">
           {apps.data!.map((a) => (
-            <ApplicationRow key={a.id} a={a} readOnly={readOnly} busy={apply.isPending} onAdd={() => void addTo1003(a)} />
+            <ApplicationRow key={a.id} a={a} readOnly={readOnly} busy={apply.isPending || loanTypeSwitch.isPending} onAdd={() => void addTo1003(a)} file={{ purpose: loan.purpose, occupancy: loan.details.occupancy, incomeDocType: loan.details.incomeDocType }} onSwitch={(changes) => void switchLoanType(a, changes)} />
           ))}
         </ul>
       )}
@@ -152,8 +158,11 @@ export function ApplicationCard({ loan }: { loan: LoanProfile }) {
   )
 }
 
-function ApplicationRow({ a, readOnly, busy, onAdd }: { a: BorrowerApplication; readOnly: boolean; busy: boolean; onAdd: () => void }) {
+function ApplicationRow({ a, readOnly, busy, onAdd, file, onSwitch }: { a: BorrowerApplication; readOnly: boolean; busy: boolean; onAdd: () => void; file: Parameters<typeof differsFromFile>[1]; onSwitch: (changes: ReturnType<typeof differsFromFile>) => void }) {
   const [open, setOpen] = useState(false)
+  // The file keeps its own loan type; when the borrower picked something else, say so and offer the switch.
+  const loanWanted = normalizeAnswers(a.answers).loan
+  const differs = differsFromFile(loanWanted, file)
   const name = `${a.answers.borrower?.firstName ?? ''} ${a.answers.borrower?.lastName ?? ''}`.trim() || 'Borrower'
   const stepLabel = STEPS.find((s) => s.id === a.step)?.label
   return (
@@ -165,6 +174,22 @@ function ApplicationRow({ a, readOnly, busy, onAdd }: { a: BorrowerApplication; 
         </span>
       </div>
       {a.outcome && <p className="text-xs text-muted-foreground">{OUTCOME[a.outcome]}</p>}
+      {loanWanted.purpose && (
+        <p className="text-xs">
+          Looking for: <span className="font-medium">{PURPOSE_LABELS[loanWanted.purpose]}</span>
+          {qualifiesByRent(loanWanted) ? ' · DSCR (qualify by rent)' : ''}
+        </p>
+      )}
+      {differs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+          <span className="mr-auto">{differs.map((d) => `They chose ${d.app}; the file says ${d.file}`).join('. ')}.</span>
+          {!readOnly && (
+            <Button size="xs" variant="outline" disabled={busy} onClick={() => onSwitch(differs)}>
+              Use the application&apos;s
+            </Button>
+          )}
+        </div>
+      )}
       {a.status === 'submitted' && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           {a.appliedAt ? (
@@ -231,7 +256,7 @@ function Answers({ a: raw }: { a: BorrowerApplication['answers'] }) {
     ...(a.hasCoBorrower ? a.coJobs.filter((j) => j.employer.trim()).map((j, i): [string, string] => [`Co-borrower work ${i + 1}`, job(j)]) : []),
     ...(a.assets ?? []).map((x, i): [string, string] => [`Account ${i + 1}`, `${x.kind} · ${x.institution}${x.last4 ? ` ••${x.last4}` : ''} · ${m(x.amount)}${x.owner === 'co' ? ' (co-borrower)' : ''}`]),
     ...(a.debts ?? []).map((d, i): [string, string] => [`Debt ${i + 1}`, `${d.kind} · ${d.creditor} · ${m(d.monthlyPayment)}/mo${d.balance != null ? ` · ${m(d.balance)} owed` : ''}`]),
-    ['Loan', `${a.loan?.purpose ?? '—'} · ${a.loan?.occupancy ?? '—'} · ${m(a.loan?.price)}${a.loan?.purpose === 'purchase' ? ` · ${a.loan.down ?? '—'}${a.loan.downMode === 'percent' ? '%' : ''} down` : ` · owes ${m(a.loan?.balance)}`} · ${a.loan?.state ?? ''} · ${a.loan?.timeline ?? ''}`],
+    ['Loan', `${a.loan.purpose ? PURPOSE_LABELS[a.loan.purpose] : '—'} · ${a.loan?.occupancy ?? '—'}${qualifiesByRent(a.loan) ? ` · DSCR, rent ${m(a.loan.expectedRent)}/mo` : ''} · ${m(a.loan?.price)}${a.loan?.purpose === 'purchase' ? ` · ${a.loan.down ?? '—'}${a.loan.downMode === 'percent' ? '%' : ''} down` : ` · owes ${m(a.loan?.balance)}${a.loan.cashOut ? ` · wants ${m(a.loan.cashOut)}` : ''}`} · ${a.loan?.state ?? ''} · ${a.loan?.timeline ?? ''}`],
     ...DECLARATIONS.filter((d) => a.declarations?.[d.key] === true).map((d): [string, string] => ['Declaration: yes', d.label]),
     ['Texts OK', yes(a.textsOk)],
   ]

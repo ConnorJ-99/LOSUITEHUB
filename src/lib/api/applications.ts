@@ -105,6 +105,28 @@ export function useApplyApplication(loanId: string) {
   })
 }
 
+/**
+ * "Use the application's": switches the file's loan type, occupancy or DSCR to
+ * what the borrower picked (only on Connor's click) and leaves a note on the person.
+ */
+export function useSwitchToApplicationLoanType(loanId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (v: { organizationId: string; contactId: string | null; changes: { field: 'purpose' | 'occupancy' | 'income_doc_type'; value: string; app: string; file: string }[] }) => {
+      const row = Object.fromEntries(v.changes.map((c) => [c.field, c.value]))
+      const rows = unwrap<{ id: string }[]>(await db().from('loans').update(row).eq('id', loanId).select('id'))
+      if (rows.length === 0) throw new Error('You do not have permission to edit this loan.')
+      if (v.contactId) {
+        const body = `Changed from the borrower's application: ${v.changes.map((c) => `${c.file} → ${c.app}`).join('; ')}.`
+        unwrap(await db().from('notes').insert({ organization_id: v.organizationId, contact_id: v.contactId, loan_id: loanId, kind: 'note', body }).select('id'))
+      }
+    },
+    onSettled: () => {
+      for (const k of [keys.loan(loanId), keys.loanFile(loanId), keys.pipeline, ['notes']]) queryClient.invalidateQueries({ queryKey: k })
+    },
+  })
+}
+
 /** Saves the MISMO 3.4 file built from the 1003 to Documents and records it on the application. */
 export function useSaveApplicationMismo(loanId: string) {
   const queryClient = useQueryClient()

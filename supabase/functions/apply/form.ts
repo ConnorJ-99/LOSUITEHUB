@@ -13,9 +13,10 @@ export const CREDIT_AUTH_VERSION = 'credit-auth v1 (placeholder)'
 export const CREDIT_AUTH_TEXT =
   'I authorize MPS Mortgage LLC and its partners to obtain my credit report and verify the information in this application, including my employment, income and assets, for the purpose of evaluating my mortgage loan request. I confirm the information I provided is true and complete to the best of my knowledge.'
 
-export type StepId = 'you' | 'co_borrower' | 'home' | 'homes' | 'work' | 'co_work' | 'assets' | 'debts' | 'loan' | 'declarations' | 'review'
+export type StepId = 'goal' | 'you' | 'co_borrower' | 'home' | 'homes' | 'work' | 'co_work' | 'assets' | 'debts' | 'loan' | 'declarations' | 'review'
 
 export const STEPS: readonly { id: StepId; label: string }[] = [
+  { id: 'goal', label: "What you're looking for" },
   { id: 'you', label: 'About you' },
   { id: 'co_borrower', label: 'Co-borrower' },
   { id: 'home', label: 'Where you live' },
@@ -35,7 +36,10 @@ export const stepsFor = (a: ApplicationAnswers) => STEPS.filter((s) => s.id !== 
 export type Citizenship = 'us_citizen' | 'permanent_resident_alien' | 'non_permanent_resident_alien'
 export type Marital = 'married' | 'separated' | 'unmarried'
 export type Housing = 'own' | 'rent' | 'no_primary_expense'
-export type Purpose = 'purchase' | 'refinance_rate_term' | 'refinance_cash_out'
+export type Purpose = 'purchase' | 'refinance_rate_term' | 'refinance_cash_out' | 'heloc' | 'heloan'
+/** The first question's answer: a loan type, "borrow against my home" (then line of credit or lump sum), or "not sure" (then a few yes/no questions). */
+export type Goal = 'purchase' | 'refinance_rate_term' | 'refinance_cash_out' | 'equity' | 'unsure'
+export type EquityKind = 'heloc' | 'heloan'
 export type Occupancy = 'primary' | 'second_home' | 'investment'
 export type AssetKind = 'checking' | 'savings' | 'retirement' | 'stocks' | 'gift_cash' | 'other_liquid'
 export type DebtKind = 'revolving' | 'installment' | 'lease' | 'child_support' | 'alimony' | 'other'
@@ -168,14 +172,29 @@ export const DECLARATIONS = [
 export type DeclarationKey = (typeof DECLARATIONS)[number]['key']
 export type Declarations = Partial<Record<DeclarationKey, boolean | null>>
 
+/** The "not sure" questions: buying a home? want cash from it? keep the mortgage you have? */
+export interface GoalHelper {
+  buying: boolean | null
+  wantsCash: boolean | null
+  keepMortgage: boolean | null
+}
+
 export interface LoanWanted {
+  /** Worked out from goal, equityKind and helper (purposeFor); what the file gets. */
   purpose: Purpose | ''
+  goal: Goal | ''
+  equityKind: EquityKind | ''
+  helper: GoalHelper
+  /** Investment homes: qualify by the property's rent instead of their income (DSCR). */
+  qualifyByRent: boolean | null
+  /** DSCR: the rent the home brings in (or is expected to), a month. */
+  expectedRent: number | null
   occupancy: Occupancy | ''
   /** Purchase: the price they're looking at. Refinance: the home's estimated value. */
   price: number | null
   downMode: 'amount' | 'percent'
   down: number | null
-  /** Refinance: what they owe now and any cash out. */
+  /** Refinance, HELOC, HELOAN: what they owe on the home now. Cash-out refi: the cash out; HELOC / HELOAN: how much they'd like to borrow. */
   balance: number | null
   cashOut: number | null
   state: string
@@ -208,6 +227,7 @@ export interface ApplicationAnswers {
   creditAuthorized: boolean
 }
 
+const blankHelper = (): GoalHelper => ({ buying: null, wantsCash: null, keepMortgage: null })
 const blankPerson = (): Person => ({ firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', maritalStatus: '', dependents: null, citizenship: '', military: null })
 export const blankHomeMoney = (): HomeMoney => ({ value: null, hasMortgage: null, mortgageBalance: null, mortgagePayment: null, paymentIncludesEscrow: null, annualTaxes: null, annualInsurance: null, monthlyHoa: null, selling: null })
 const blankAddress = (): Address => ({ line: '', unit: '', city: '', state: 'TX', zip: '', housing: '', monthlyRent: null, years: null, months: null, owned: blankHomeMoney() })
@@ -249,12 +269,100 @@ export function blankAnswers(): ApplicationAnswers {
     coOtherIncome: [],
     assets: [],
     debts: [],
-    loan: { purpose: '', occupancy: 'primary', price: null, downMode: 'percent', down: null, balance: null, cashOut: null, state: 'TX', timeline: '', creditScore: null },
+    loan: { purpose: '', goal: '', equityKind: '', helper: blankHelper(), qualifyByRent: null, expectedRent: null, occupancy: 'primary', price: null, downMode: 'percent', down: null, balance: null, cashOut: null, state: 'TX', timeline: '', creditScore: null },
     declarations: {},
     coDeclarations: {},
     textsOk: false,
     creditAuthorized: false,
   }
+}
+
+// ---------------------------------------------------------------------------
+// The loan type: asked first, worked out from their answers
+// ---------------------------------------------------------------------------
+
+export const PURPOSE_LABELS: Record<Purpose, string> = {
+  purchase: 'Purchase',
+  refinance_rate_term: 'Rate/Term Refinance',
+  refinance_cash_out: 'Cash-Out Refinance',
+  heloc: 'HELOC (home equity line of credit)',
+  heloan: 'HELOAN (home equity loan)',
+}
+
+/** A refinance or a 2nd lien: a home they already own, its value and what they owe. */
+export const onOwnedHome = (p: Purpose | '') => p !== '' && p !== 'purchase'
+/** A HELOC or HELOAN: a 2nd lien that keeps the mortgage they have. */
+export const isSecondLien = (p: Purpose | '') => p === 'heloc' || p === 'heloan'
+
+/**
+ * The "not sure" path: buying = Purchase; not buying and no cash = Rate/Term;
+ * cash with a new 1st mortgage = Cash-Out; cash keeping the mortgage = the
+ * equity kind they pick (line of credit or lump sum). '' until enough is answered.
+ */
+export function purposeFromHelper(h: GoalHelper, equityKind: EquityKind | ''): Purpose | '' {
+  if (h.buying === true) return 'purchase'
+  if (h.buying !== false) return ''
+  if (h.wantsCash === false) return 'refinance_rate_term'
+  if (h.wantsCash !== true) return ''
+  if (h.keepMortgage === false) return 'refinance_cash_out'
+  if (h.keepMortgage !== true) return ''
+  return equityKind
+}
+
+/** The loan type their answers point to ('' while it isn't clear yet). */
+export function purposeFor(l: Pick<LoanWanted, 'goal' | 'equityKind' | 'helper'>): Purpose | '' {
+  if (l.goal === 'equity') return l.equityKind
+  if (l.goal === 'unsure') return purposeFromHelper(l.helper, l.equityKind)
+  return l.goal
+}
+
+/** The loan with its purpose worked out again (after any change to the first question). */
+export const withPurpose = (l: LoanWanted): LoanWanted => ({ ...l, purpose: purposeFor(l) })
+
+/**
+ * A portal application starts from the file's loan type, so the borrower only
+ * confirms it (they can still change it; the file's own type is never changed
+ * by the application). Unknown or old purposes start blank.
+ */
+export function loanFromFile(l: LoanWanted, file: { purpose?: string | null; occupancy?: string | null; income_doc_type?: string | null }): LoanWanted {
+  const p = file.purpose as Purpose
+  const known = p in PURPOSE_LABELS
+  const occ = file.occupancy === 'primary' || file.occupancy === 'second_home' || file.occupancy === 'investment' ? file.occupancy : l.occupancy
+  return withPurpose({
+    ...l,
+    goal: !known ? l.goal : isSecondLien(p) ? 'equity' : (p as Goal),
+    equityKind: known && isSecondLien(p) ? (p as EquityKind) : l.equityKind,
+    occupancy: occ,
+    qualifyByRent: occ === 'investment' && file.income_doc_type === 'dscr' ? true : l.qualifyByRent,
+  })
+}
+
+const OCCUPANCY_LABELS: Record<Occupancy, string> = { primary: 'Primary home', second_home: 'Second home', investment: 'Investment' }
+
+/**
+ * Where the application's loan type, occupancy or DSCR differs from the file's
+ * (the file keeps its own; the loan officer can switch with a click). Empty
+ * when they match or the application hasn't picked yet.
+ */
+export function differsFromFile(l: LoanWanted, file: { purpose: string; occupancy: string | null; incomeDocType: string | null }) {
+  const out: { field: 'purpose' | 'occupancy' | 'income_doc_type'; app: string; file: string; value: string }[] = []
+  const label = (p: string) => PURPOSE_LABELS[p as Purpose] ?? p.replace(/_/g, ' ')
+  if (l.purpose && l.purpose !== file.purpose) out.push({ field: 'purpose', app: label(l.purpose), file: label(file.purpose), value: l.purpose })
+  if (l.purpose && l.occupancy && file.occupancy && l.occupancy !== file.occupancy)
+    out.push({ field: 'occupancy', app: OCCUPANCY_LABELS[l.occupancy], file: OCCUPANCY_LABELS[file.occupancy as Occupancy] ?? file.occupancy, value: l.occupancy })
+  if (qualifiesByRent(l) && file.incomeDocType !== 'dscr') out.push({ field: 'income_doc_type', app: 'DSCR (qualify by rent)', file: file.incomeDocType ? file.incomeDocType.replace(/_/g, ' ') : 'not set', value: 'dscr' })
+  return out
+}
+
+/** DSCR: an investment home qualified by its rent. */
+export const qualifiesByRent = (l: LoanWanted) => l.occupancy === 'investment' && l.qualifyByRent === true
+
+/** The loan step's value and balance from the home they live in, when the loan is on that home and they're blank. */
+export function loanFromHome(a: ApplicationAnswers): LoanWanted {
+  const l = a.loan
+  if (!onOwnedHome(l.purpose) || l.occupancy !== 'primary' || a.address.housing !== 'own') return l
+  const h = a.address.owned
+  return { ...l, price: l.price ?? h.value, balance: l.balance ?? (h.hasMortgage === false ? 0 : h.mortgageBalance) }
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +419,13 @@ export function normalizeAnswers(raw: Partial<ApplicationAnswers>): ApplicationA
   a.jobs = (Array.isArray(raw.jobs) ? raw.jobs : base.jobs).map(normalizeJob)
   a.coJobs = (Array.isArray(raw.coJobs) ? raw.coJobs : base.coJobs).map(normalizeJob)
   a.otherHomes = (Array.isArray(raw.otherHomes) ? raw.otherHomes : []).map((h) => ({ ...blankOwnedHome(), ...h }))
+  // Answers saved before the first question existed: the purpose they picked on the loan step becomes the goal.
+  const l = { ...base.loan, ...(raw.loan ?? {}), helper: { ...base.loan.helper, ...(raw.loan?.helper ?? {}) } } as LoanWanted
+  if (!l.goal && l.purpose) {
+    l.goal = isSecondLien(l.purpose) ? 'equity' : (l.purpose as Goal)
+    if (isSecondLien(l.purpose)) l.equityKind = l.purpose as EquityKind
+  }
+  a.loan = withPurpose(l)
   return a
 }
 
@@ -375,10 +490,11 @@ function personProblems(p: Person, who: string, today: string): string[] {
   return out
 }
 
-function jobProblems(jobs: Job[], other: OtherIncome[], who: string, today: string): string[] {
+function jobProblems(jobs: Job[], other: OtherIncome[], who: string, today: string, byRent = false): string[] {
   const out: string[] = []
   const filled = jobs.filter((j) => !isBlankJob(j))
-  if (!filled.length && !other.some((o) => o.monthly != null)) out.push(`Add ${who} current job, school, or other income.`)
+  // DSCR qualifies by the home's rent, so no job or income is required (any they add is still checked).
+  if (!byRent && !filled.length && !other.some((o) => o.monthly != null)) out.push(`Add ${who} current job, school, or other income.`)
   filled.forEach((j, i) => {
     const n = filled.length > 1 ? ` (${j.kind === 'school' ? 'school' : 'job'} ${i + 1})` : ''
     if (!j.employer.trim()) out.push(j.kind === 'school' ? `Enter the school${n}.` : j.kind === 'self_employed' ? `Enter the business name${n}.` : `Enter the employer${n}.`)
@@ -428,6 +544,21 @@ function homeMoneyProblems(h: HomeMoney, n: string): string[] {
 export function stepProblems(step: StepId, a: ApplicationAnswers, today: string): string[] {
   if (hasSsn(a)) return ["Please don't enter a Social Security number. We'll ask for it securely later."]
   switch (step) {
+    case 'goal': {
+      const l = a.loan
+      const out: string[] = []
+      if (!l.goal) out.push('Pick what you are looking to do.')
+      if (l.goal === 'unsure') {
+        const h = l.helper
+        if (h.buying == null) out.push('Are you buying a home? Pick Yes or No.')
+        else if (!h.buying && h.wantsCash == null) out.push('Would you like to take cash out of your home? Pick Yes or No.')
+        else if (!h.buying && h.wantsCash && h.keepMortgage == null) out.push('Would you like to keep the mortgage you have now? Pick Yes or No.')
+      }
+      if (!l.purpose && (l.goal === 'equity' || (l.goal === 'unsure' && l.helper.buying === false && l.helper.wantsCash === true && l.helper.keepMortgage === true))) out.push('Pick a line of credit or one lump sum.')
+      if (!l.occupancy) out.push('Pick how you will use the home.')
+      if (l.occupancy === 'investment' && l.qualifyByRent == null) out.push("Would you like to qualify by the home's rent? Pick Yes or No.")
+      return out
+    }
     case 'you':
       return personProblems(a.borrower, 'your', today)
     case 'co_borrower':
@@ -457,9 +588,9 @@ export function stepProblems(step: StepId, a: ApplicationAnswers, today: string)
       })
     }
     case 'work':
-      return jobProblems(a.jobs, a.otherIncome, 'your', today)
+      return jobProblems(a.jobs, a.otherIncome, 'your', today, qualifiesByRent(a.loan))
     case 'co_work':
-      return a.hasCoBorrower ? jobProblems(a.coJobs, a.coOtherIncome, "your co-borrower's", today) : []
+      return a.hasCoBorrower ? jobProblems(a.coJobs, a.coOtherIncome, "your co-borrower's", today, qualifiesByRent(a.loan)) : []
     case 'assets':
       return a.assets.flatMap((x, i) => [
         ...(x.amount == null ? [`Enter the balance (account ${i + 1}).`] : []),
@@ -470,10 +601,12 @@ export function stepProblems(step: StepId, a: ApplicationAnswers, today: string)
     case 'loan': {
       const l = a.loan
       const out: string[] = []
-      if (!l.purpose) out.push('Pick what the loan is for.')
+      if (!l.purpose) out.push('Pick what you are looking to do (the first step).')
       if (!l.occupancy) out.push('Pick how you will use the home.')
       if (!l.price) out.push(l.purpose === 'purchase' ? 'Enter the price you are looking at.' : "Enter the home's estimated value.")
-      if (l.purpose !== 'purchase' && l.purpose && l.balance == null) out.push('Enter what you owe on the home now (0 if nothing).')
+      if (onOwnedHome(l.purpose) && l.balance == null) out.push('Enter what you owe on the home now (0 if nothing).')
+      if (isSecondLien(l.purpose) && !l.cashOut) out.push('Enter how much you would like to borrow.')
+      if (qualifiesByRent(l) && l.expectedRent == null) out.push("Enter the home's monthly rent (what it rents for, or is expected to).")
       if (!/^[A-Za-z]{2}$/.test(l.state)) out.push('Enter the state of the home.')
       return out
     }
@@ -512,7 +645,7 @@ export function intakePayload(a: ApplicationAnswers, applicationId: string, assi
     timeline: l.timeline || null,
     sms_consent: a.textsOk ? 'true' : 'false',
     assigned_to_email: assignedToEmail,
-    answers: { application: applicationId, purpose: l.purpose, price: l.price, state: l.state },
+    answers: { application: applicationId, purpose: l.purpose, occupancy: l.occupancy, dscr: qualifiesByRent(l), price: l.price, state: l.state },
   }
 }
 
