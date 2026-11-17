@@ -298,14 +298,13 @@ export function SettingsPage() {
 
   const canEditCompany = me?.role === 'owner' || me?.role === 'admin'
 
-  // Loan officers and processors see only their own settings (Connor, 2026-11-16); the company's are for owners and admins.
+  // Loan officers and processors see only My profile (Connor, 2026-11-16); the company's are for owners and admins.
   if (!canEditCompany) {
     return (
       <>
-        <PageHeader title="Settings" description="Your own profile and notifications. Company settings are managed by an admin." />
+        <PageHeader title="Settings" description="Your own profile. Company settings are managed by an admin." />
         <div className="space-y-4">
           {profile.data && me?.organizationId && <MyProfileCard key={JSON.stringify(profile.data)} profile={profile.data} organizationId={me.organizationId} />}
-          <NotificationSettingsCard />
         </div>
       </>
     )
