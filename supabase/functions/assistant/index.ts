@@ -35,6 +35,7 @@ import { ANSWER_SCHEMA, ANSWER_SYSTEM_PROMPT, MAX_PASSAGES, answerPrompt, normal
 import { MAX_EMAIL_CHARS, UPDATE_SCHEMA, UPDATE_SYSTEM_PROMPT, normalizeProposal, updatePrompt, type UpdateProgram } from './productUpdate.ts'
 import { LEAD_MODEL, LEAD_SCHEMA, LEAD_SYSTEM, buildLeadPrompt, leadDraftIssues, lookingFor, readLeadDraft, reachedOut, reworded, type LeadKind, type LeadThreadMessage } from './leadFollowup.ts'
 import { NURTURE_MODEL, NURTURE_READ_SCHEMA, NURTURE_READ_SYSTEM, NURTURE_WORD_SCHEMA, NURTURE_WORD_SYSTEM, buildNurtureReadPrompt, buildNurtureWordPrompt, isNurtureKind, nurtureDraftIssues, nurtureReworded, readNurtureDraft, readNurtureReading, type NurtureThreadMessage, type ReadMilestone } from './nurture.ts'
+import { REPLY_MODEL, REPLY_SCHEMA, REPLY_SYSTEM, THREAD_SENT, buildReplyPrompt, latestBurst, readReply, replyChannel, replySubject, type ThreadMessage } from './replyDraft.ts'
 import { READINESS_MODEL, READINESS_SCHEMA, READINESS_SYSTEM, buildReadinessPrompt, normalizeReadinessPlan, type ReadinessFacts } from './readinessPlan.ts'
 import { DOC_READ_SCHEMA, DOC_READ_SYSTEM_PROMPT, DOC_READ_USER_PROMPT, documentFlags, normalizeDocReading, statusFor, type FlagJob } from './documentRead.ts'
 
@@ -228,6 +229,7 @@ Deno.serve(async (request) => {
     if (task === 'product_update_read') return await handleProductUpdateRead(db, body, userId, apiKey)
     if (task === 'document_read_now') return await handleDocumentReadNow(db, body, apiKey)
     if (task === 'readiness_plan') return await handleReadinessPlan(db, body, userId, apiKey)
+    if (task === 'reply_suggest') return await handleReplySuggest(db, body, userId, apiKey)
     return await handleFollowUp(db, body, userId, apiKey)
   } catch (e) {
     return reply(500, { error: (e as Error).message })
@@ -1230,6 +1232,69 @@ async function wordLeadFollowup(db: SupabaseClient, anthropic: Anthropic, item: 
 // officer edits and approves in the app. Facts come from the file the person
 // can see; the plan is returned, never saved or sent from here.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Suggest a reply (Connor, 2026-11-16): only when the loan officer presses
+// "Suggest a reply" in a file's Messages tab. New client texts no longer get an
+// automatic draft. Runs as the signed-in person (Row Level Security decides the
+// file and the messages), writes nothing but the ai_runs log, and returns the
+// words for the composer; the person edits and sends them the usual way.
+// ---------------------------------------------------------------------------
+
+async function handleReplySuggest(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const { loanId, contactId, channel: wanted } = (body ?? {}) as { loanId?: unknown; contactId?: unknown; channel?: unknown }
+  if (typeof loanId !== 'string' || !UUID.test(loanId) || typeof contactId !== 'string' || !UUID.test(contactId)) return reply(400, { error: 'Invalid file or person.' })
+  const [loan, person, recent] = await Promise.all([
+    db.from('loans').select('organization_id, stage, purpose, assigned_lo_id').eq('id', loanId).maybeSingle(),
+    db.from('contacts').select('first_name').eq('id', contactId).maybeSingle(),
+    db.from('messages').select('id, channel, direction, subject, body, sent_at').eq('contact_id', contactId).order('sent_at', { ascending: false }).limit(30),
+  ])
+  const l = loan.data as { organization_id: string; stage: string; purpose: string; assigned_lo_id: string | null } | null
+  if (!l || !person.data) return reply(404, { error: "That file wasn't found, or it isn't yours." })
+  const thread: ThreadMessage[] = ((recent.data ?? []) as { id: string; channel: 'text' | 'email'; direction: 'inbound' | 'outbound'; subject: string | null; body: string | null; sent_at: string }[])
+    .filter((m) => m.body)
+    .map((m) => ({ id: m.id, channel: m.channel, direction: m.direction, subject: m.subject, body: m.body!, sentAt: m.sent_at }))
+  if (!thread.length) return reply(422, { error: 'There are no messages with them yet to reply to.' })
+  const burst = latestBurst(thread)
+  const channel = wanted === 'text' || wanted === 'email' ? wanted : burst.length ? replyChannel(burst) : thread.some((m) => m.channel === 'text') ? 'text' : 'email'
+  const subject = channel === 'email' ? replySubject(burst.length ? burst : thread.filter((m) => m.direction === 'inbound')) : null
+  const [profile, org] = await Promise.all([
+    l.assigned_lo_id ? db.from('profiles').select('full_name, nmls, phone').eq('id', l.assigned_lo_id).maybeSingle() : Promise.resolve({ data: null }),
+    db.from('organizations').select('name, nmls').eq('id', l.organization_id).maybeSingle(),
+  ])
+  const pr = profile.data as { full_name: string | null; nmls: string | null; phone: string | null } | null
+  const o = org.data as { name: string; nmls: string | null } | null
+  const firstName = ((person.data as { first_name: string | null }).first_name ?? '').trim()
+
+  const runId = await startRun(db, l.organization_id, loanId, 'reply_draft', { contactId, messageIds: thread.slice(0, THREAD_SENT).map((m) => m.id), channel, onDemand: true }, REPLY_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: REPLY_MODEL }
+  try {
+    const params = {
+      model: REPLY_MODEL,
+      max_tokens: 2000,
+      system: REPLY_SYSTEM,
+      messages: [{ role: 'user', content: buildReplyPrompt(channel, { firstName: firstName || 'the client', stage: l.stage, purpose: l.purpose, loName: pr?.full_name ?? null }, thread) }],
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: REPLY_SCHEMA } },
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    }
+    const res = await createForJson(new Anthropic({ apiKey }), params, db, runId)
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to suggest a reply. Write this one yourself.')
+    const read = res.stop_reason === 'end_turn' ? readReply(parseJsonReply(replyText(res))) : { error: res.stop_reason }
+    if ('error' in read) throw new UserError('The suggestion came back unusable. Try again.')
+    const issues = complianceIssues(channel, { subject, body: read.body })
+    if (issues.length) throw new UserError(`The suggestion broke a rule (${issues.join(' ')}). Try again or write it yourself.`)
+    const signer: Signer = { loName: pr?.full_name ?? null, loNmls: pr?.nmls ?? null, loPhone: pr?.phone ?? null, companyName: o?.name ?? 'MPS Mortgage LLC', companyNmls: o?.nmls ?? COMPANY_NMLS }
+    const text = channel === 'email' ? finalBody('email', read.body, signer) : read.body
+    await db.from('ai_runs').update({ status: 'succeeded', output: { body: text, confidence: read.confidence }, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+    return reply(200, { channel, subject, body: text, confidence: read.confidence, runId })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
+  }
+}
 
 async function handleReadinessPlan(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
   const { loanId, facts } = (body ?? {}) as { loanId?: unknown; facts?: unknown }

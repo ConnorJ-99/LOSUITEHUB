@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { CalendarClockIcon, MailIcon, MessageSquareIcon, SendIcon } from 'lucide-react'
+import { CalendarClockIcon, MailIcon, MessageSquareIcon, SendIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { confirmAction, Input, TextArea } from '@/components/shared'
-import { sentOrDrafted, useScheduleMessage, useSendMessage, type FilePerson } from '@/lib/api/messages'
+import { sentOrDrafted, suggestReply, useScheduleMessage, useSendMessage, type FilePerson } from '@/lib/api/messages'
+import { useAiStatus } from '@/lib/api/assistant'
 import { scheduleLabel } from '@/lib/messaging/schedule'
 import { ScheduleDialog } from './ScheduleDialog'
 import type { LoanProfile } from '@/lib/api/types'
@@ -27,6 +28,9 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
   const fileRole = useFileRole(loan.id)
   const drafting = fileRole.role === 'processor'
   const approver = fileRole.loName ?? 'the loan officer'
+  // "Suggest a reply" (Connor, 2026-11-16): the AI writes only when asked, into this box.
+  const ai = useAiStatus()
+  const [suggesting, setSuggesting] = useState(false)
   const send = useSendMessage()
   const schedule = useScheduleMessage()
   const [scheduling, setScheduling] = useState(false)
@@ -76,6 +80,22 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
     )
   }
 
+  const suggest = async () => {
+    if (body.trim() && !(await confirmAction('Replace what you wrote with a suggested reply?', { confirmLabel: 'Replace' }))) return
+    setSuggesting(true)
+    try {
+      const s = await suggestReply({ loanId: loan.id, contactId: person.id, channel })
+      setChannel(s.channel)
+      setBody(s.body)
+      if (s.channel === 'email' && s.subject && !subject.trim()) setSubject(s.subject)
+      toast.success('Suggested reply added. Read it over before you send it.')
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setSuggesting(false)
+    }
+  }
+
   return (
     <div className="mt-4 space-y-3 border-t pt-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
@@ -107,6 +127,12 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
           {from}
         </span>
         <span className={cn('ml-auto', window.open ? TONE_CLASS.ok : TONE_CLASS.warn)}>{window.label}</span>
+        {ai.data?.ready && (
+          <Button size="xs" variant="outline" onClick={() => void suggest()} disabled={suggesting} title="The assistant writes a reply to their latest messages for you to edit. Nothing is sent.">
+            <SparklesIcon />
+            {suggesting ? 'Writing…' : 'Suggest a reply'}
+          </Button>
+        )}
       </div>
       {channel === 'email' && <Input label="Subject" hideLabel placeholder="Subject" value={subject} onChange={setSubject} />}
       <TextArea label="Message" value={body} onChange={setBody} placeholder={`Write a ${channel === 'text' ? 'text' : 'email'} to ${person.firstName}…`} rows={channel === 'text' ? 3 : 6} />

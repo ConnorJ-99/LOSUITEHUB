@@ -276,6 +276,26 @@ export function useInbox() {
   })
 }
 
+export interface ReplySuggestion {
+  channel: MessageChannel
+  subject: string | null
+  body: string
+}
+
+/**
+ * "Suggest a reply" (Connor, 2026-11-16): the assistant writes a reply to the
+ * person's latest messages, only when asked. Nothing is saved or sent; the
+ * words go into the composer for the loan officer to edit and send.
+ */
+export async function suggestReply(v: { loanId: string; contactId: string; channel: MessageChannel }): Promise<ReplySuggestion> {
+  const { data, error } = await db().functions.invoke<ReplySuggestion>('assistant', { body: { task: 'reply_suggest', ...v } })
+  if (error || !data) {
+    const detail = error instanceof FunctionsHttpError ? await error.context.json().catch(() => null) : null
+    throw new Error(detail?.error ?? 'No suggestion this time. Try again.')
+  }
+  return data
+}
+
 /** Whether you are this file's processor (file_role); false before the file roles script has run. */
 export async function isFileProcessor(loanId: string): Promise<boolean> {
   const r = await db().rpc('file_role', { loan: loanId })
