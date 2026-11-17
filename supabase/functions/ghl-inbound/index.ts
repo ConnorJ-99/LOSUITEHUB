@@ -339,12 +339,14 @@ async function syncConversation(db: SupabaseClient, g: Ghl, company: Company, co
 }
 
 /**
- * One reply draft per burst (Phase 2b): what the client sent since our last
- * message gets one Action Queue draft, keyed by the burst's first message, and
- * later messages in the same burst rewrite that same draft while it's still
- * waiting. With ANTHROPIC_API_KEY, Sonnet writes it (logged in ai_runs, checked
- * by the follow-up compliance rules); otherwise, or if the AI's draft can't be
- * used, a short template starts it. Never sends. True when a draft was made or
+ * One waiting reply draft per client (Phase 2b; Connor 2026-11-16): what the
+ * client sent since our last message, read together, in one Action Queue
+ * draft keyed by the burst's first message. Later messages rewrite that same
+ * draft while it's waiting; any reply to the client (MPS HQ, GHL, the LO's
+ * phone, a scheduled send) clears it in the database (messages_reply_sent).
+ * With ANTHROPIC_API_KEY, Sonnet writes it (logged in ai_runs, checked by the
+ * follow-up compliance rules); otherwise, or if the AI's draft can't be used,
+ * a short template starts it. Never sends. True when a draft was made or
  * rewritten.
  */
 async function draftReply(db: SupabaseClient, orgId: string, contactId: string, loanId: string): Promise<boolean> {
@@ -363,11 +365,16 @@ async function draftReply(db: SupabaseClient, orgId: string, contactId: string, 
   const last = burst[burst.length - 1]
   const key = replySourceKey(contactId, burst[0].id)
 
-  const existing = await db.from('action_items').select('id, status, payload').eq('organization_id', orgId).eq('source_key', key).maybeSingle()
+  // Cheap checks before any AI call; save_reply_draft() checks again under the client's lock.
+  const existing = await db.from('action_items').select('id, status, skipped_reason, payload').eq('organization_id', orgId).eq('source_key', key).maybeSingle()
   if (existing.error) throw new Error(existing.error.message)
-  const ex = existing.data as { id: string; status: string; payload: { burstLastId?: string } } | null
-  // Already decided (sent, scheduled or dismissed), or already drafted from the newest message: nothing to do.
-  if (ex && (ex.status !== 'pending' || ex.payload?.burstLastId === last.id)) return false
+  const ex = existing.data as { id: string; status: string; skipped_reason: string | null; payload: { burstLastId?: string } } | null
+  // Sent, scheduled or dismissed by a person: never brought back.
+  if (ex && ex.status !== 'pending' && !['superseded', 'replied'].includes(ex.skipped_reason ?? '')) return false
+  // The client's waiting draft already answers their newest message.
+  const waiting = await db.from('action_items').select('payload').eq('organization_id', orgId).eq('source', 'reply').eq('status', 'pending').eq('payload->>contactId', contactId).maybeSingle()
+  if (waiting.error) throw new Error(waiting.error.message)
+  if ((waiting.data as { payload: { burstLastId?: string } } | null)?.payload?.burstLastId === last.id) return false
 
   const person = await db.from('contacts').select('first_name, phone, email, sms_opted_out_at, email_opted_out_at').eq('id', contactId).maybeSingle()
   const loan = await db.from('loans').select('stage, purpose, assigned_lo_id').eq('id', loanId).maybeSingle()
@@ -453,15 +460,11 @@ async function draftReply(db: SupabaseClient, orgId: string, contactId: string, 
     ai_run_id: fromAi ? aiRunId : null,
     due_on: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date()),
   }
-  if (ex) {
-    // Still waiting: rewrite it with the newest messages (only while nobody has decided it).
-    const u = await db.from('action_items').update(item).eq('id', ex.id).eq('status', 'pending')
-    if (u.error) throw new Error(u.error.message)
-  } else {
-    const ins = await db.from('action_items').upsert({ organization_id: orgId, loan_id: loanId, kind: 'draft_message', source_key: key, created_by: null, ...item }, { onConflict: 'organization_id,source_key', ignoreDuplicates: true })
-    if (ins.error) throw new Error(ins.error.message)
-  }
-  return true
+  // One waiting reply draft per client (20270209000000_one_reply_draft.sql): made, rewritten or replacing an older one,
+  // under a per-client lock, so texts arriving together still leave one draft. Never sends.
+  const saved = await db.rpc('save_reply_draft', { p_org: orgId, p_loan: loanId, p_contact: contactId, p_key: key, p_last_at: last.sentAt, p_item: item })
+  if (saved.error) throw new Error(saved.error.message)
+  return ['created', 'rewritten', 'replaced'].includes(saved.data as string)
 }
 
 async function messageRow(g: Ghl, orgId: string, m: GhlMessage, contact: GhlContact, conversationId: string, match: MatchResult, loanId: string | null) {
