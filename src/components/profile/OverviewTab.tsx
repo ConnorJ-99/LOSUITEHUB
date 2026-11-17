@@ -33,6 +33,7 @@ import { TexasFlags } from './TexasFlags'
 import { ActionQueueCard } from '@/components/queue/ActionQueueCard'
 import { loanScenarioInput } from '@/lib/urla/summary'
 import { useApplication, useDeleteRow, useSaveRow } from '@/lib/api/urla'
+import { FEATURES } from '@/lib/features'
 
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -558,7 +559,7 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
               {!loan.compHidden && (
                 <>
                   <RevenueFields loanAmount={form.loanAmount} type={form.revenueType} value={form.revenueValue} onChange={(type, value) => setForm((f) => ({ ...f, revenueType: value === null ? null : type, revenueValue: value }))} />
-                  <RevenueSuggestion form={form} onApply={(amount, planId) => setForm((f) => ({ ...f, revenueType: 'amount', revenueValue: amount, compPlanId: planId }))} />
+                  {FEATURES.compPlans && <RevenueSuggestion form={form} onApply={(amount, planId) => setForm((f) => ({ ...f, revenueType: 'amount', revenueValue: amount, compPlanId: planId }))} />}
                 </>
               )}
               {purpose === 'purchase' && (

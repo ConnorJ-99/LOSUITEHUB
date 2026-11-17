@@ -14,6 +14,7 @@ import { LenderList } from '@/components/lenders/LenderList'
 import { ApproveAllReadyButton, NeedsReviewList } from '@/components/lenders/ApproveAllReady'
 import { TierReview } from '@/components/lenders/TierReview'
 import { CompPlansCard } from '@/components/lenders/CompPlansCard'
+import { FEATURES } from '@/lib/features'
 import { PasteUpdateDialog } from '@/components/lenders/PasteUpdateDialog'
 import { ProductUpdatesCard } from '@/components/lenders/ProductUpdatesCard'
 import { UploadDocumentDialog } from '@/components/lenders/UploadDocumentDialog'
@@ -181,7 +182,7 @@ function LenderDetail({ lender: l, canEdit, onEdit }: { lender: Lender; canEdit:
             tabs={[
               { id: 'products', label: 'Products', count: rows.filter((r) => r.program.active).length },
               { id: 'documents', label: 'Documents', count: docs.length },
-              { id: 'comp', label: 'Comp' },
+              ...(FEATURES.compPlans ? [{ id: 'comp' as const, label: 'Comp' }] : []),
               { id: 'overlays', label: 'Overlays & notes' },
               { id: 'contacts', label: 'Contacts', count: 1 + (contacts.data?.length ?? 0) },
               { id: 'loans', label: 'Loans', count: files.data?.length ?? 0 },
@@ -230,7 +231,7 @@ function LenderDetail({ lender: l, canEdit, onEdit }: { lender: Lender; canEdit:
               </Card>
             </>
           )}
-          {tab === 'comp' && <CompPlansCard lenderId={l.id} compNotes={l.compNotes} programs={l.programs.map((p) => ({ id: p.id, name: p.name }))} canEdit={canEdit} />}
+          {FEATURES.compPlans && tab === 'comp' && <CompPlansCard lenderId={l.id} compNotes={l.compNotes} programs={l.programs.map((p) => ({ id: p.id, name: p.name }))} canEdit={canEdit} />}
           {tab === 'overlays' && <OverlaysTab lender={l} overlays={overlays.data ?? []} programs={l.programs} canEdit={canEdit} onSaveNotes={saveNotes} />}
           {tab === 'contacts' && <ContactsTab lender={l} canEdit={canEdit} onEditLender={onEdit} />}
           {tab === 'loans' && <LoansTab files={files.data ?? []} />}

@@ -27,4 +27,11 @@ export const FEATURES = {
    * other AI features (contract reader, call notes, drafts) aren't affected.
    */
   assistant: false,
+  /**
+   * Lender comp plans (Phase 5, taken out 2026-11-17): the Comp tab on a
+   * lender, "Missing comp plan" on the lender list, "From [Lender] comp plan"
+   * under the file's revenue, and the register's "differs from the plan" flag.
+   * Off = hidden; saved plans stay in the database. Revenue is typed by hand.
+   */
+  compPlans: false,
 } as const

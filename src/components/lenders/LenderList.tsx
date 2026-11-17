@@ -4,6 +4,7 @@ import { cn } from 'cn'
 import { SearchInput, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { LenderMark } from '@/components/products/ProgramCard'
 import { useCompPlans } from '@/lib/api/compPlans'
+import { FEATURES } from '@/lib/features'
 import { useLenderLoans, usePendingReviewCounts, type Lender } from '@/lib/api/lenders'
 import { missingPlan } from '@/lib/calc/lenderComp'
 import { todayIso } from '@/lib/dates'
@@ -42,7 +43,7 @@ export function LenderList({ lenders, onOpen }: { lenders: Lender[]; onOpen: (id
   const [f, setF] = useState<LenderFilters>({ tab: 'all', text: '', offers: [] })
   const plans = useCompPlans()
   // Signed-up (approved) lenders with no comp plan in effect today; unknown until the comp plans script has run.
-  const noPlan = (l: Pick<Lender, 'id' | 'status'>) => plans.isSuccess && l.status === 'approved' && missingPlan(l.id, plans.data, today)
+  const noPlan = (l: Pick<Lender, 'id' | 'status'>) => FEATURES.compPlans && plans.isSuccess && l.status === 'approved' && missingPlan(l.id, plans.data, today)
   const [onlyNoPlan, setOnlyNoPlan] = useState(false)
   const rows: ListLender[] = lenders.map((l) => ({ ...l, pendingReviews: pending.data?.get(l.id) ?? 0 }))
   const tiles = lenderTiles(rows, today)

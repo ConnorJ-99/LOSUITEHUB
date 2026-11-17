@@ -6,6 +6,7 @@ import { Card, DateInput, EmptyState, PageHeader, Select } from '@/components/sh
 import { OCCUPANCY_OPTIONS } from '@/components/profile/options'
 import { AriveLink } from '@/components/loanfile/AriveLink'
 import { useCompPlans } from '@/lib/api/compPlans'
+import { FEATURES } from '@/lib/features'
 import { useLenders } from '@/lib/api/lenders'
 import { useRegisterLoans } from '@/lib/api/register'
 import { useAuth } from '@/lib/auth/context'
@@ -36,7 +37,7 @@ export function ClosedRegisterPage() {
   const today = todayIso()
   const [f, setF] = useState<RegisterFilters>({ ...thisMonth(today), loId: null, leadSource: null, commission: null })
 
-  const all = useMemo(() => (loans.data ?? []).map((l) => registerRow(l, plans.data ?? [])), [loans.data, plans.data])
+  const all = useMemo(() => (loans.data ?? []).map((l) => registerRow(l, FEATURES.compPlans ? (plans.data ?? []) : [])), [loans.data, plans.data])
   const rows = useMemo(() => filterRegister(all, f), [all, f])
   const totals = registerTotals(rows)
   const los = [...new Map(all.filter((r) => r.loId).map((r) => [r.loId!, r.loName ?? 'Unknown'])).entries()].sort((a, b) => a[1].localeCompare(b[1]))
@@ -88,7 +89,7 @@ export function ClosedRegisterPage() {
         </Card>
       ) : (
         <Card>
-          {flagged > 0 && <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">{flagged} {flagged === 1 ? 'loan needs' : 'loans need'} cleaning up (no funding date, no revenue, or revenue that doesn't match the lender's comp plan).</p>}
+          {flagged > 0 && <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">{flagged} {flagged === 1 ? 'loan needs' : 'loans need'} cleaning up ({FEATURES.compPlans ? "no funding date, no revenue, or revenue that doesn't match the lender's comp plan" : 'no funding date or no revenue'}).</p>}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b text-[11px] tracking-wide text-muted-foreground uppercase">
