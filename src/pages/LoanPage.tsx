@@ -41,7 +41,7 @@ import { LoanNumberChips } from '@/components/loanfile/LoanNumberChips'
 import { NurtureOverview } from '@/components/nurture/NurtureOverview'
 import { ReassessDialog } from '@/components/nurture/ReassessDialog'
 import { NextActionHeader } from '@/components/leads/NextActionHeader'
-import { afterPartnerJoined } from '@/components/messaging/fileTextRequests'
+import { afterPartnerJoined, offerApplicationLink } from '@/components/messaging/fileTextRequests'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
 import { WorkflowPanel } from '@/components/loanfile/WorkflowPanel'
 import { HoldDialog } from '@/components/pipeline/HoldDialog'
@@ -365,6 +365,13 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
                 <DropdownMenuItem onSelect={() => openRequestDocuments(loan.id)}>
                   <FileUpIcon />
                   Request documents…
+                </DropdownMenuItem>
+              )}
+              {/* The loan application link with the LO's NMLS # (Connor, 2026-11-16): the primary borrower's intro text. Co-borrowers: Messages tab. */}
+              {!closedFile && loan.stage !== 'lost' && loan.borrower && (
+                <DropdownMenuItem onSelect={() => void offerApplicationLink(loan.id, loan.borrower!.id)}>
+                  <FileTextIcon />
+                  Send application link…
                 </DropdownMenuItem>
               )}
               {canDelete && (
