@@ -1,4 +1,8 @@
 import { useState } from 'react'
+import { LogoField } from '@/components/quicklinks/LogoImage'
+import { removeLogoFile } from '@/lib/api/quickLinks'
+import { useAuth } from '@/lib/auth/context'
+import { urlProblem } from '@/lib/quicklinks/links'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -11,6 +15,19 @@ const options = <T extends string>(l: { values: T[]; label: Record<T, string> })
 /** Add or edit a lender: name, status (Approved / Application pending / Not signed up / Inactive), channel, AE and portal. */
 export function LenderDialog({ initial, onClose, onSaved }: { initial: LenderDraft; onClose: () => void; onSaved?: (id: string) => void }) {
   const [l, setL] = useState(initial)
+  const { state } = useAuth()
+  const orgId = (state.status === 'signedIn' ? state.user.organizationId : null) ?? ''
+  // Logos uploaded while the window is open; the unsaved ones are removed on close.
+  const [uploaded, setUploaded] = useState<string[]>([])
+  const cleanUp = async (keep: string | null) => {
+    for (const p of uploaded) if (p !== keep) await removeLogoFile(p)
+    if (keep !== initial.logoPath) await removeLogoFile(initial.logoPath)
+  }
+  const cancel = async () => {
+    for (const p of uploaded) await removeLogoFile(p)
+    onClose()
+  }
+  const portalProblem = urlProblem(l.portalUrl)
   const save = useSaveLender()
   const remove = useDeleteLender()
   const set = <K extends keyof LenderDraft>(key: K) => (value: LenderDraft[K]) => setL((s) => ({ ...s, [key]: value }))
@@ -19,7 +36,7 @@ export function LenderDialog({ initial, onClose, onSaved }: { initial: LenderDra
   const text = (key: 'shortName' | 'aeName' | 'aePhone' | 'aeEmail' | 'portalUrl' | 'compNotes' | 'mortgageeClause' | 'notes') => (v: string) => set(key)(v || null)
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={(o) => !o && cancel()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{l.id ? `Edit ${initial.name}` : 'Add a lender'}</DialogTitle>
@@ -34,7 +51,7 @@ export function LenderDialog({ initial, onClose, onSaved }: { initial: LenderDra
           <Input label="AE phone" type="tel" value={l.aePhone ?? ''} onChange={text('aePhone')} />
           <Input label="AE email" type="email" value={l.aeEmail ?? ''} onChange={text('aeEmail')} />
           {l.details && <Input label="AE covers" value={l.details.aeCovers ?? ''} onChange={detail('aeCovers')} span={4} hint="States or products this AE handles" />}
-          <Input label="Lender portal" value={l.portalUrl ?? ''} onChange={text('portalUrl')} span={2} placeholder="https://" />
+          <Input label="Portal URL" value={l.portalUrl ?? ''} onChange={text('portalUrl')} span={2} placeholder="https://" hint="Shown on Quick Links" error={portalProblem ?? undefined} />
           {l.details && (
             <>
               <Input label="Portal username" value={l.details.portalUsername ?? ''} onChange={detail('portalUsername')} hint="Never a password" />
@@ -63,6 +80,13 @@ export function LenderDialog({ initial, onClose, onSaved }: { initial: LenderDra
             <TextArea label="Mortgagee clause" value={l.mortgageeClause ?? ''} onChange={text('mortgageeClause')} rows={2} span={2} hint="Shown on this lender's estimates (for the insurance agent)" />
           )}
           <TextArea label="Notes" value={l.notes ?? ''} onChange={text('notes')} rows={2} span={2} />
+          <LogoField name={l.name} value={l.logoPath} onChange={set('logoPath')} onUploaded={(p) => setUploaded((u) => [...u, p])} organizationId={orgId} siteUrl={l.portalUrl} />
+          {l.showInQuickLinks !== undefined && (
+            <label className="flex items-center gap-2 text-sm sm:col-span-2 lg:col-span-4">
+              <input type="checkbox" className="size-4 accent-primary" checked={l.showInQuickLinks} onChange={(e) => set('showInQuickLinks')(e.target.checked)} />
+              Show on Quick Links
+            </label>
+          )}
         </FormGrid>
         <DialogFooter>
           {l.id && (
@@ -84,21 +108,23 @@ export function LenderDialog({ initial, onClose, onSaved }: { initial: LenderDra
               Delete lender
             </Button>
           )}
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={cancel}>
             Cancel
           </Button>
           <Button
             disabled={save.isPending}
-            onClick={() =>
+            onClick={() => {
+              if (portalProblem) return toast.error(portalProblem)
               save.mutate(l, {
-                onSuccess: (id) => {
+                onSuccess: async (id) => {
+                  await cleanUp(l.logoPath)
                   toast.success(l.id ? 'Lender saved' : 'Lender added')
                   onSaved?.(id)
                   onClose()
                 },
                 onError: (e) => toast.error(e.message),
               })
-            }
+            }}
           >
             {save.isPending ? 'Saving…' : 'Save'}
           </Button>

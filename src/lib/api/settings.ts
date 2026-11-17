@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth, type OrgRole } from '@/lib/auth/context'
+import { normalizeUrl } from '@/lib/quicklinks/links'
 import { db, keys, unwrap } from './client'
 
 export interface Organization {
@@ -15,6 +16,8 @@ export interface Organization {
   logoPath: string | null
   /** "Open in Arive": an Arive loan address with {number} where the loan number goes (null = no link). */
   ariveLoanUrl?: string | null
+  /** The company's Arive login page (https://<company>.myarive.com), for Quick Links (quick links script). */
+  ariveLoginUrl?: string | null
   /** The home county's one-unit loan limits for Max Approval (null = not set or the script hasn't run). */
   conformingLoanLimit?: number | null
   fhaLoanLimit?: number | null
@@ -47,6 +50,8 @@ interface OrgRow {
   logo_path: string | null
   /** Present once the Arive link script has run (selected with *, so nothing breaks before). */
   arive_loan_url?: string | null
+  /** Present once the quick links script has run. */
+  arive_login_url?: string | null
   /** Present once the loan limits script has run. */
   conforming_loan_limit?: number | string | null
   fha_loan_limit?: number | string | null
@@ -88,7 +93,7 @@ export function useOrganization() {
       const r = unwrap<OrgRow | null>(
         await db().from('organizations').select('*').eq('id', orgId!).maybeSingle(),
       )
-      return r ? { id: r.id, name: r.name, nmls: r.nmls, addressLine: r.address_line, city: r.city, state: r.state, zip: r.zip, phone: r.phone, logoPath: r.logo_path, ariveLoanUrl: r.arive_loan_url ?? null, conformingLoanLimit: num(r.conforming_loan_limit), fhaLoanLimit: num(r.fha_loan_limit), defaultHoiPct: num(r.default_hoi_pct) } : null
+      return r ? { id: r.id, name: r.name, nmls: r.nmls, addressLine: r.address_line, city: r.city, state: r.state, zip: r.zip, phone: r.phone, logoPath: r.logo_path, ariveLoanUrl: r.arive_loan_url ?? null, ariveLoginUrl: r.arive_login_url ?? null, conformingLoanLimit: num(r.conforming_loan_limit), fhaLoanLimit: num(r.fha_loan_limit), defaultHoiPct: num(r.default_hoi_pct) } : null
     },
   })
 }
@@ -110,6 +115,8 @@ export function useUpdateOrganization() {
             phone: o.phone?.trim() || null,
             // Sent only when it changed, so saving company details works before the Arive link script has run.
             ...((o.ariveLoanUrl?.trim() || null) !== (queryClient.getQueryData<Organization | null>(keys.organization)?.ariveLoanUrl ?? null) ? { arive_loan_url: o.ariveLoanUrl?.trim() || null } : {}),
+            // Same for the Arive login (the quick links script).
+            ...((normalizeUrl(o.ariveLoginUrl)) !== (queryClient.getQueryData<Organization | null>(keys.organization)?.ariveLoginUrl ?? null) ? { arive_login_url: normalizeUrl(o.ariveLoginUrl) } : {}),
             // Same for the loan limits (the loan limits script).
             ...((o.conformingLoanLimit ?? null) !== (queryClient.getQueryData<Organization | null>(keys.organization)?.conformingLoanLimit ?? null) ? { conforming_loan_limit: o.conformingLoanLimit ?? null } : {}),
             ...((o.fhaLoanLimit ?? null) !== (queryClient.getQueryData<Organization | null>(keys.organization)?.fhaLoanLimit ?? null) ? { fha_loan_limit: o.fhaLoanLimit ?? null } : {}),

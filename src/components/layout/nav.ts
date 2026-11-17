@@ -3,6 +3,7 @@ import {
   ChartColumnIcon,
   CalculatorIcon,
   ComponentIcon,
+  ExternalLinkIcon,
   FileTextIcon,
   HandshakeIcon,
   PanelsTopLeftIcon,
@@ -44,6 +45,7 @@ export const navSections: NavSection[] = [
       { to: '/pages', label: 'Pages', icon: FileTextIcon },
       { to: '/quick-quote', label: 'Quick Quote', icon: CalculatorIcon },
       { to: '/product-search', label: 'Product Search', icon: SearchIcon },
+      { to: '/quick-links', label: 'Quick Links', icon: ExternalLinkIcon },
     ],
   },
   {

@@ -19,6 +19,7 @@ import { phoneDigits } from '@/lib/pipeline/helpers'
 import { useAddMember, useOrganization, useProfile, useRemoveMember, useSetMemberRole, useUpdateMyProfile, useUpdateOrganization, type Organization, type Profile } from '@/lib/api/settings'
 import type { OrgMember } from '@/lib/api/types'
 import { ariveTemplateProblem } from '@/lib/arive'
+import { ariveLoginProblem } from '@/lib/quicklinks/links'
 import { CompensationCard } from '@/components/settings/CompensationCard'
 import { LeadFollowupsCard } from '@/components/settings/LeadFollowupsCard'
 import { NurtureFollowupsCard } from '@/components/settings/NurtureFollowupsCard'
@@ -146,6 +147,16 @@ function CompanyCard({ org, canEdit, userId }: { org: Organization; canEdit: boo
           error={ariveTemplateProblem(form.ariveLoanUrl) ?? undefined}
           hint="Open any loan in Arive, copy the address from your browser, paste it here, and replace the loan number with {number}. Files then get an Open in Arive button."
         />
+        <Input
+          label="Arive login"
+          value={form.ariveLoginUrl ?? ''}
+          onChange={text('ariveLoginUrl')}
+          readOnly={!canEdit}
+          span={4}
+          placeholder="https://yourcompany.myarive.com"
+          error={ariveLoginProblem(form.ariveLoginUrl) ?? undefined}
+          hint="Your company's Arive sign-in page (it ends in .myarive.com). The Arive tile on Quick Links opens it."
+        />
         <CurrencyInput label="Conforming loan limit" value={form.conformingLoanLimit ?? null} onChange={(v) => set('conformingLoanLimit')(v)} readOnly={!canEdit} span={2} hint="Your main county, one unit. Max Approval on the Prequal tab stops conventional loans here. Blank = no check." />
         <CurrencyInput label="FHA loan limit" value={form.fhaLoanLimit ?? null} onChange={(v) => set('fhaLoanLimit')(v)} readOnly={!canEdit} span={2} hint="Your main county, one unit (HUD's FHA limits lookup). Blank = no check." />
       </FormGrid>
@@ -157,6 +168,8 @@ function CompanyCard({ org, canEdit, userId }: { org: Organization; canEdit: boo
           if (!form.name.trim()) return toast.error('Company name is required')
           const arive = ariveTemplateProblem(form.ariveLoanUrl)
           if (arive) return toast.error(arive)
+          const login = ariveLoginProblem(form.ariveLoginUrl)
+          if (login) return toast.error(login)
           update.mutate(form, { onSuccess: () => toast.success('Company details saved'), onError: (e) => toast.error(e.message) })
         }}
       />

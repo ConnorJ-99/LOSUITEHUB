@@ -5,6 +5,7 @@ import { guessDocument, matchPrograms, type DocGuess } from '@/lib/products/docG
 import type { LenderLoan } from '@/lib/products/lenderSummary'
 import type { LenderClause } from '@/lib/loans/mortgagee'
 import type { ExistingLender, LenderCsvContact, LenderCsvFields, LenderCsvRow, LenderUpdate } from '@/lib/products/lenderCsv'
+import { normalizeUrl } from '@/lib/quicklinks/links'
 import { splitIntoPassages, type ExtractedPassage } from '@/lib/products/passages'
 import { termMonths, type DocType, type Feature, type LenderChannel, type LenderStatus, type Lien, type MatrixPurpose, type ProductFamily, type ProgramTerm } from '@/lib/products/taxonomy'
 import type { GuidelineDocument } from './products'
@@ -31,6 +32,10 @@ export interface Lender {
   clause?: LenderClauseFields
   /** NMLS #, website, broker ID, portal username, AE covers; undefined until the lender details script has run. */
   details?: LenderDetails
+  /** Logo for Quick Links: a file in the logos bucket or a pasted https:// address. */
+  logoPath: string | null
+  /** Shown on Quick Links; undefined until the quick links script has run. */
+  showInQuickLinks?: boolean
   states: string[] | null
   notes: string | null
   programs: { id: string; name: string; family: ProductFamily; lien: Lien; docTypes: DocType[]; features: Feature[]; active: boolean; lastVerifiedOn: string | null }[]
@@ -63,6 +68,8 @@ interface LenderRow {
   broker_id?: string | null
   portal_username?: string | null
   ae_covers?: string | null
+  logo_path: string | null
+  show_in_quick_links?: boolean
   states: string[] | null
   notes: string | null
   programs: { id: string; name: string; product_family: ProductFamily; lien: Lien; doc_types: DocType[]; features: Feature[]; active: boolean; last_verified_on: string | null }[]
@@ -230,6 +237,8 @@ export function useLenders() {
           mortgageeClause: r.mortgagee_clause ?? null,
           clause: toClause(r),
           details: toDetails(r),
+          logoPath: r.logo_path,
+          showInQuickLinks: r.show_in_quick_links,
           states: r.states,
           notes: r.notes,
           programs: r.programs.map((p) => ({ id: p.id, name: p.name, family: p.product_family, lien: p.lien, docTypes: p.doc_types, features: p.features, active: p.active, lastVerifiedOn: p.last_verified_on })).sort((a, b) => a.name.localeCompare(b.name)),
@@ -275,7 +284,7 @@ export function useLenderLoans() {
 
 export type LenderDraft = Omit<Lender, 'id' | 'programs' | 'documentCount'> & { id: string | null }
 
-export const blankLender = (): LenderDraft => ({ id: null, name: '', shortName: null, status: 'not_signed_up', channel: 'wholesale', aeName: null, aePhone: null, aeEmail: null, portalUrl: null, compNotes: null, mortgageeClause: null, states: ['TX'], notes: null })
+export const blankLender = (): LenderDraft => ({ id: null, name: '', shortName: null, status: 'not_signed_up', channel: 'wholesale', aeName: null, aePhone: null, aeEmail: null, portalUrl: null, compNotes: null, mortgageeClause: null, logoPath: null, states: ['TX'], notes: null })
 
 const invalidateCatalog = (queryClient: ReturnType<typeof useQueryClient>) => {
   queryClient.invalidateQueries({ queryKey: keys.lenders })
@@ -298,12 +307,15 @@ export function useSaveLender() {
         ae_name: l.aeName?.trim() || null,
         ae_phone: l.aePhone?.trim() || null,
         ae_email: l.aeEmail?.trim() || null,
-        portal_url: l.portalUrl?.trim() || null,
+        portal_url: normalizeUrl(l.portalUrl),
         comp_notes: l.compNotes?.trim() || null,
         // Sent only once there is one, so lenders still save before the Smart Fees script runs.
         ...(l.mortgageeClause?.trim() && { mortgagee_clause: l.mortgageeClause.trim() }),
         ...(l.clause && clauseRow(l.clause)),
         ...(l.details && detailsRow(l.details)),
+        logo_path: l.logoPath?.trim() || null,
+        // Sent only once the quick links script has run.
+        ...(l.showInQuickLinks !== undefined && { show_in_quick_links: l.showInQuickLinks }),
         states: states.length ? states : null,
         notes: l.notes?.trim() || null,
       }
