@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CalendarClockIcon, MailIcon, MessageSquareIcon, SendIcon, SparklesIcon } from 'lucide-react'
+import { CalendarClockIcon, FileTextIcon, MailIcon, MessageSquareIcon, SendIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { sentOrDrafted, suggestReply, useScheduleMessage, useSendMessage, type F
 import { useAiStatus } from '@/lib/api/assistant'
 import { scheduleLabel } from '@/lib/messaging/schedule'
 import { ScheduleDialog } from './ScheduleDialog'
+import { TemplatesDialog } from './TemplatesDialog'
 import type { LoanProfile } from '@/lib/api/types'
 import { formatPhone } from '@/lib/pipeline/helpers'
 import { MAX_TEXT_LENGTH } from '../../../supabase/functions/ghl/sendRules'
@@ -34,6 +35,8 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
   const send = useSendMessage()
   const schedule = useScheduleMessage()
   const [scheduling, setScheduling] = useState(false)
+  // Templates (Connor, 2026-11-17): they fill the box only; sending is still the click below.
+  const [templating, setTemplating] = useState(false)
   const [channel, setChannel] = useState<'text' | 'email'>('text')
   const [personId, setPersonId] = useState(people[0]?.id ?? '')
   const [body, setBody] = useState('')
@@ -96,6 +99,14 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
     }
   }
 
+  const applyTemplate = async (t: { body: string; subject: string }) => {
+    if (body.trim() && !(await confirmAction('Replace what you wrote with this template?', { confirmLabel: 'Replace' }))) return
+    setBody(t.body)
+    if (channel === 'email') setSubject(t.subject)
+    setTemplating(false)
+    toast.success('Template added. Read it over and edit it before you send it.')
+  }
+
   return (
     <div className="mt-4 space-y-3 border-t pt-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
@@ -127,6 +138,10 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
           {from}
         </span>
         <span className={cn('ml-auto', window.open ? TONE_CLASS.ok : TONE_CLASS.warn)}>{window.label}</span>
+        <Button size="xs" variant="outline" onClick={() => setTemplating(true)} title="Fill the box with a ready-made message to edit. Nothing is sent.">
+          <FileTextIcon />
+          Templates
+        </Button>
         {ai.data?.ready && (
           <Button size="xs" variant="outline" onClick={() => void suggest()} disabled={suggesting} title="The assistant writes a reply to their latest messages for you to edit. Nothing is sent.">
             <SparklesIcon />
@@ -161,6 +176,16 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
           </Button>
         </div>
       </div>
+      {templating && (
+        <TemplatesDialog
+          channel={channel}
+          borrowerFirst={person.firstName}
+          loName={rules.loName}
+          loId={loan.assignedLo?.id ?? null}
+          onUse={(t) => void applyTemplate(t)}
+          onClose={() => setTemplating(false)}
+        />
+      )}
       {scheduling && (
         <ScheduleDialog
           what={channel === 'text' ? `this text to ${person.firstName}` : `this email to ${person.firstName}`}
