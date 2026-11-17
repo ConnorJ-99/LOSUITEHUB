@@ -554,8 +554,13 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
                 />
               </div>
               <LenderFields loan={loan} lenderName={form.lenderName} programName={form.programName} onLender={(v) => set('lenderName')(v.trim() ? v : null)} onProgram={(v) => set('programName')(v.trim() ? v : null)} />
-              <RevenueFields loanAmount={form.loanAmount} type={form.revenueType} value={form.revenueValue} onChange={(type, value) => setForm((f) => ({ ...f, revenueType: value === null ? null : type, revenueValue: value }))} />
-              <RevenueSuggestion form={form} onApply={(amount, planId) => setForm((f) => ({ ...f, revenueType: 'amount', revenueValue: amount, compPlanId: planId }))} />
+              {/* A file's processor doesn't see its revenue or comp (Connor, 2026-11-16; the database hides them too). */}
+              {!loan.compHidden && (
+                <>
+                  <RevenueFields loanAmount={form.loanAmount} type={form.revenueType} value={form.revenueValue} onChange={(type, value) => setForm((f) => ({ ...f, revenueType: value === null ? null : type, revenueValue: value }))} />
+                  <RevenueSuggestion form={form} onApply={(amount, planId) => setForm((f) => ({ ...f, revenueType: 'amount', revenueValue: amount, compPlanId: planId }))} />
+                </>
+              )}
               {purpose === 'purchase' && (
                 <>
                   <DateInput label="Contract date" value={form.contractDate} onChange={set('contractDate')} span={2} />

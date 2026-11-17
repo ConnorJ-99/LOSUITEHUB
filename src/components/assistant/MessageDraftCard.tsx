@@ -8,7 +8,7 @@ import { useSendPlan } from '@/components/messages/useSendPlan'
 import { useEstimateData } from '@/components/estimates/useEstimateData'
 import { useEstimatePdf } from '@/components/estimates/useEstimatePdf'
 import { useLoan } from '@/lib/api/loans'
-import { useFilePeople, useSendMessage, type FilePerson } from '@/lib/api/messages'
+import { sentOrDrafted, useFilePeople, useSendMessage, type FilePerson } from '@/lib/api/messages'
 import type { LoanProfile } from '@/lib/api/types'
 import { useActionStatuses, useMarkAction } from '@/lib/assistant/chat'
 import type { AssistantCard } from '@/lib/assistant/cards'
@@ -96,6 +96,12 @@ function DraftView({ card, loan, person, makePdfs }: { card: MessageCard; loan: 
       }
       const r = await send.mutateAsync({ contactId: person.id, loanId: loan.id, channel: card.channel, body, subject: isEmail ? subject : null, idempotencyKey: keys.main, documentIds })
       if (r.alreadySent && r.error) throw new Error(`That message already failed: ${r.error}`)
+      // A file's processor: saved for the loan officer to approve (the heads-up text too), nothing sent.
+      if (r.drafted) {
+        if (isEmail && textOk) await send.mutateAsync({ contactId: person.id, loanId: loan.id, channel: 'text', body: headsUp, subject: null, idempotencyKey: keys.text })
+        toast.success(sentOrDrafted(r, ''))
+        return
+      }
       let textNote = ''
       if (isEmail && textOk) {
         try {

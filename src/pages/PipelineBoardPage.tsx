@@ -16,6 +16,7 @@ import { boardStats, cardType, matchesQuick, matchesSearch, QUICK_FILTERS, sortC
 import type { LeadTypeId } from '@/lib/pipeline/leadType'
 import { matchesLoanNumber } from '@/lib/loans/numbers'
 import { BOARDS, isBoard, pipelineFor, pipelineInfo, type BoardId, type PipelineColumn } from '@/lib/pipeline/pipelines'
+import { useProcessingFiles } from '@/lib/api/fileRole'
 import type { LoanPurpose } from '@/lib/pipeline/stages'
 
 const DENSITY_KEY = 'mpshq.boardDensity'
@@ -52,7 +53,12 @@ function Board({ id }: { id: BoardId }) {
   const [phoneCol, setPhoneCol] = useState<string>(() => params.get('stage') ?? info.columns[0].id)
   const columnRefs = useRef(new Map<string, HTMLDivElement>())
 
-  const all = useMemo(() => (files ?? []).filter((f) => f.stage !== 'closed' && f.stage !== 'nurture' && f.stage !== 'lost'), [files])
+  // Anyone processing another loan officer's files gets a My loans / Processing switch (Connor, 2026-11-16).
+  const processing = useProcessingFiles()
+  const processingIds = useMemo(() => new Set((processing.data ?? []).map((p) => p.loanId)), [processing.data])
+  const [view, setView] = useState<'mine' | 'processing'>('mine')
+  const viewed = useMemo(() => (processingIds.size ? (files ?? []).filter((f) => processingIds.has(f.id) === (view === 'processing')) : (files ?? [])), [files, processingIds, view])
+  const all = useMemo(() => viewed.filter((f) => f.stage !== 'closed' && f.stage !== 'nurture' && f.stage !== 'lost'), [viewed])
   const mine = useMemo(() => all.filter((f) => pipelineFor(f) === id), [all, id])
   const shown = useMemo(
     () => mine.filter((f) => (!type || cardType(f) === type) && (matchesSearch(search, [f.name, f.address]) || matchesLoanNumber(search, f.loanNumbers)) && [...quick].every((q) => matchesQuick(f, q, now, today))),
@@ -130,6 +136,15 @@ function Board({ id }: { id: BoardId }) {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
+        {processingIds.size > 0 && (
+          <div role="group" aria-label="Whose files" className="flex gap-0.5 rounded-[10px] bg-[#e9edf2] p-[3px]">
+            {([['mine', 'My loans'], ['processing', `Processing ${processingIds.size}`]] as const).map(([v, label]) => (
+              <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)} className={cn('rounded-lg px-3 py-[5px] text-xs', view === v ? 'bg-white font-bold text-[#111827] shadow-[0_1px_2px_rgba(0,0,0,.08)]' : 'font-medium text-[#374151]')}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         <TypeChips files={mine} value={type} onChange={setType} />
         <span className="flex-1" />
         {QUICK_FILTERS.map((q) => (

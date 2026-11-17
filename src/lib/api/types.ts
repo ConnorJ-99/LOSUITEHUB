@@ -175,6 +175,8 @@ export type PossessionTerms = 'closing_and_funding' | 'temporary_lease'
 export interface LoanProfile extends PipelineLoan {
   details: LoanDetails
   organizationId: string
+  /** True when you process this file: its revenue and comp aren't shown to you (file_role, Connor 2026-11-16). */
+  compHidden?: boolean
 }
 
 export interface Lien {

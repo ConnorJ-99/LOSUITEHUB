@@ -7,7 +7,7 @@ import { confirmAction, Input, TextArea, ToggleChip } from '@/components/shared'
 import { EditDialog } from '@/components/urla/parts'
 import { db } from '@/lib/api/client'
 import { useLoanDocuments, type LoanDocument } from '@/lib/api/documents'
-import { useFilePeople, useSendMessage, type FilePerson } from '@/lib/api/messages'
+import { sentOrDrafted, useFilePeople, useSendMessage, type FilePerson } from '@/lib/api/messages'
 import { useQueueDraft } from '@/lib/api/queue'
 import { useProfile } from '@/lib/api/settings'
 import type { LoanProfile } from '@/lib/api/types'
@@ -63,6 +63,7 @@ function Form({ loan, doc, people, onClose }: { loan: LoanProfile; doc: LoanDocu
       {
         onSuccess: (r) => {
           if (r.alreadySent) toast.info(r.error ? `That email already failed: ${r.error}` : 'That email was already sent.')
+          else if (r.drafted) toast.success(sentOrDrafted(r, ''))
           else {
             toast.success(`${doc.fileName} emailed to ${person.firstName}`)
             // Sending the roadmap moves a Nurture file to Plan Delivered.
@@ -80,7 +81,7 @@ function Form({ loan, doc, people, onClose }: { loan: LoanProfile; doc: LoanDocu
           send.mutate(
             { contactId: person.id, loanId: loan.id, channel: 'text', body: text, subject: null, idempotencyKey: keys.text },
             {
-              onSuccess: () => toast.success(`Heads-up text sent to ${person.firstName}`),
+              onSuccess: (t) => toast.success(sentOrDrafted(t, `Heads-up text sent to ${person.firstName}`)),
               onError: (e) => toast.error(`The email went, but the text didn't: ${e.message}`),
               onSettled: onClose,
             },

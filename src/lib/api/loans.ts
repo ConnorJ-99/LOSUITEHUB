@@ -123,7 +123,43 @@ interface LoanProfileRow extends LoanRow {
   [column: string]: unknown
 }
 
-const PROFILE_SELECT = `${LOAN_SELECT}, organization_id, ${Object.values(DETAIL_COLUMNS).map(([c]) => c).join(', ')}`
+// Revenue and comp aren't readable directly (20270208000000_file_roles.sql): they come from loan_comp_rows(),
+// which leaves them out on a file you process.
+const COMP_COLUMNS = ['revenue_type', 'revenue_value', 'comp_plan_id']
+const PROFILE_SELECT = `${LOAN_SELECT}, organization_id, ${Object.values(DETAIL_COLUMNS)
+  .map(([c]) => c)
+  .filter((c) => !COMP_COLUMNS.includes(c))
+  .join(', ')}`
+
+export interface LoanCompRow {
+  loan_id: string
+  revenue_type: 'percent' | 'amount' | null
+  revenue_value: unknown
+  comp_plan_id: string | null
+  lead_source_type: 'company' | 'self' | null
+  comp_base_mode: 'revenue' | 'loan_bps' | null
+  comp_base_bps: unknown
+  comp_split_pct: unknown
+  comp_member_type: 'commission' | 'salary' | null
+  comp_snapshot_at: string | null
+  comp_confirmed_at: string | null
+  comp_confirmed_by_name: string | null
+  comp_paid_on: string | null
+}
+
+/** The revenue and comp of these files (null = every file you can see), leaving out files you process. */
+export async function fetchLoanComp(loanIds: string[] | null): Promise<Map<string, LoanCompRow>> {
+  const r = await db().rpc('loan_comp_rows', { p_loan_ids: loanIds })
+  // Before the file roles script has run there's no function yet; the columns are still readable then.
+  if (r.error?.code === 'PGRST202') {
+    let q = db().from('loans').select('loan_id:id, revenue_type, revenue_value, comp_plan_id, lead_source_type, comp_base_mode, comp_base_bps, comp_split_pct, comp_member_type, comp_snapshot_at')
+    if (loanIds) q = q.in('id', loanIds)
+    const old = unwrap<Omit<LoanCompRow, 'comp_confirmed_at' | 'comp_confirmed_by_name' | 'comp_paid_on'>[]>(await q.limit(20000))
+    return new Map(old.map((o) => [o.loan_id, { ...o, comp_confirmed_at: null, comp_confirmed_by_name: null, comp_paid_on: null }]))
+  }
+  const rows = unwrap<LoanCompRow[]>(r)
+  return new Map(rows.map((x) => [x.loan_id, x]))
+}
 
 export function toContact(row: ContactRow): Contact {
   return { id: row.id, firstName: row.first_name, lastName: row.last_name, email: row.email, phone: row.phone }
@@ -185,7 +221,9 @@ function toProfile(row: LoanProfileRow): LoanProfile {
 /** One loan with its deal details (the borrower profile, and the assistant's summary). Null if it isn't visible. */
 export async function fetchLoanProfile(id: string): Promise<LoanProfile | null> {
   const row = unwrap<LoanProfileRow | null>(await db().from('loans').select(PROFILE_SELECT).eq('id', id).maybeSingle())
-  return row ? toProfile(row) : null
+  if (!row) return null
+  const comp = (await fetchLoanComp([id])).get(id)
+  return { ...toProfile({ ...row, revenue_type: comp?.revenue_type ?? null, revenue_value: comp?.revenue_value ?? null, comp_plan_id: comp?.comp_plan_id ?? null }), compHidden: !comp }
 }
 
 /** One loan with its deal details, for the borrower profile. */

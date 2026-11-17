@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FunctionsHttpError } from '@supabase/supabase-js'
 import { useAuth } from '@/lib/auth/context'
 import type { MessageChannel } from './assistant'
-import { db, unwrap } from './client'
+import { db, keys, unwrap } from './client'
 
 // GHL texts and emails in LOSuite (Phase 2b, Connor 2026-10-29). The
 // ghl-inbound Edge Function copies them in; the app only reads them, marks
@@ -276,6 +276,15 @@ export function useInbox() {
   })
 }
 
+/** Whether you are this file's processor (file_role); false before the file roles script has run. */
+export async function isFileProcessor(loanId: string): Promise<boolean> {
+  const r = await db().rpc('file_role', { loan: loanId })
+  return !r.error && r.data === 'processor'
+}
+
+/** The toast after a send that may have been a processor's draft. */
+export const sentOrDrafted = (r: SendResult, sent: string) => (r.drafted ? 'Saved for the loan officer to approve. Nothing was sent.' : sent)
+
 /**
  * Approves one text or email now, to go out at a chosen time (Phase 2a).
  * Nothing is sent here: the every-minute timer sends it when it's due, as
@@ -284,8 +293,9 @@ export function useInbox() {
 export function useScheduleMessage() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (v: { contactId: string; loanId: string; channel: MessageChannel; body: string; subject: string | null; idempotencyKey: string; documentIds?: string[]; sendAt: Date }) =>
-      unwrap<string>(
+    mutationFn: async (v: { contactId: string; loanId: string; channel: MessageChannel; body: string; subject: string | null; idempotencyKey: string; documentIds?: string[]; sendAt: Date }) => {
+      if (await isFileProcessor(v.loanId)) throw new Error("You're this file's processor: use Send, and it goes to the loan officer to approve.")
+      return unwrap<string>(
         await db().rpc('approve_send', {
           p_loan_id: v.loanId,
           p_contact_id: v.contactId,
@@ -296,7 +306,8 @@ export function useScheduleMessage() {
           p_client_key: v.idempotencyKey,
           p_send_at: v.sendAt.toISOString(),
         }),
-      ),
+      )
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: msgKeys.all }),
   })
 }
@@ -613,6 +624,8 @@ export function useRecordConsent() {
 
 export interface SendResult {
   sent?: boolean
+  /** True when you are the file's processor: the message was saved for the loan officer to approve, nothing was sent. */
+  drafted?: boolean
   alreadySent?: boolean
   status: string | null
   error?: string | null
@@ -635,6 +648,22 @@ export function useSendMessage() {
   const orgId = state.status === 'signedIn' ? state.user.organizationId : null
   return useMutation({
     mutationFn: async (v: { contactId: string; loanId: string; channel: MessageChannel; body: string; subject: string | null; idempotencyKey: string; documentIds?: string[] }) => {
+      // A file's processor drafts for the loan officer instead (Connor, 2026-11-16): nothing sends.
+      if (await isFileProcessor(v.loanId)) {
+        unwrap(
+          await db().rpc('draft_for_lo', {
+            p_loan_id: v.loanId,
+            p_contact_id: v.contactId,
+            p_channel: v.channel,
+            p_subject: v.channel === 'email' ? v.subject : null,
+            p_body: v.body,
+            p_document_ids: v.documentIds ?? [],
+            p_client_key: v.idempotencyKey,
+          }),
+        )
+        for (const key of [keys.queue(v.loanId), keys.today]) queryClient.invalidateQueries({ queryKey: key })
+        return { drafted: true, sent: false, status: 'drafted' } as SendResult
+      }
       const approvalId = unwrap<string>(
         await db().rpc('approve_send', {
           p_loan_id: v.loanId,

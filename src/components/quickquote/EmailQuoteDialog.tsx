@@ -10,7 +10,7 @@ import { useSendPlan } from '@/components/messages/useSendPlan'
 import { keys } from '@/lib/api/client'
 import { saveGeneratedPdf } from '@/lib/api/documents'
 import { useLoan } from '@/lib/api/loans'
-import { useFilePeople, useSendMessage, type FilePerson } from '@/lib/api/messages'
+import { sentOrDrafted, useFilePeople, useSendMessage, type FilePerson } from '@/lib/api/messages'
 import { useAddNote } from '@/lib/api/notes'
 import type { LoanProfile } from '@/lib/api/types'
 import { QUICK_QUOTE_TEMPLATE } from '@/lib/documents/quickQuote'
@@ -69,6 +69,12 @@ function Form({ loan, person, quote, onSaved, onSent, onClose }: { loan: LoanPro
       }
       const r = await send.mutateAsync({ contactId: person.id, loanId: loan.id, channel: 'email', body, subject, idempotencyKey: sendKeys.email, documentIds: [docId] })
       if (r.alreadySent && r.error) throw new Error(`That email already failed: ${r.error}`)
+      // A file's processor: saved for the loan officer to approve (the text too); the quote isn't marked sent.
+      if (r.drafted) {
+        if (withText) await send.mutateAsync({ contactId: person.id, loanId: loan.id, channel: 'text', body: text, subject: null, idempotencyKey: sendKeys.text })
+        toast.success(sentOrDrafted(r, ''))
+        return onClose()
+      }
       let texted = false
       if (withText) {
         try {

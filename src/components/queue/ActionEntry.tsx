@@ -10,6 +10,7 @@ import { ScheduleDialog } from '@/components/messages/ScheduleDialog'
 import { useScheduleMessage, useSendMessage } from '@/lib/api/messages'
 import { scheduleLabel } from '@/lib/messaging/schedule'
 import { useDecideAction, type FileInfo } from '@/lib/api/queue'
+import { useFileRoleOnly } from '@/lib/api/fileRole'
 import { draftContactId } from '@/lib/queue/drafts'
 import { formatIsoDate } from '@/lib/dates'
 import { LeadContextBlock, LeadFollowupButtons } from '@/components/leads/LeadFollowupParts'
@@ -19,6 +20,12 @@ import { NurtureContextBlock } from '@/components/nurture/NurtureFollowupParts'
 import { readNurtureContext } from '@/lib/nurture/followups'
 import { fillLink, missingLink, readLeadContext, readLinkToken } from '@/lib/leads/followups'
 import { approvalNote, decisionFor, readDraft, readReviewLink, readTask, type ActionItem, type DraftMessage, type TaskSuggestion } from '@/lib/queue/today'
+
+/** The documents a drafted email carries (payload.documentIds). */
+function draftDocumentIds(payload: unknown): string[] {
+  const ids = (payload as { documentIds?: unknown } | null)?.documentIds
+  return Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []
+}
 
 /** Copies text to the clipboard; false if the browser blocks it. */
 async function copy(text: string): Promise<boolean> {
@@ -71,6 +78,11 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
   }
   // Drafts that know who they're for can go out through GHL, with every server check (consent, hours, test mode, the LO's number).
   const sendTo = draft ? draftContactId(item.payload) : null
+  // A processor's email draft can carry documents (Connor, 2026-11-16); they go with it, by email only.
+  const draftDocs = draft?.channel === 'email' ? draftDocumentIds(item.payload) : []
+  // A file's processor sees its drafts but the loan officer approves them (Connor, 2026-11-16).
+  const myRole = useFileRoleOnly(file.loanId)
+  const waiting = item.kind === 'draft_message' && myRole.data === 'processor'
   const canSend = !!sendTo && ghl.data?.ready === true
   const sendDraft = async (final: DraftMessage) => {
     if (!sendTo) return
@@ -90,7 +102,7 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
     const what = final.channel === 'text' ? 'this text' : 'this email'
     if (!(await confirmAction(`Send ${what} to ${final.to || file.borrowerName}? It goes out through GHL.`, { confirmLabel: final.channel === 'text' ? 'Send text' : 'Send email' }))) return
     send.mutate(
-      { contactId: sendTo, loanId: file.loanId, channel: final.channel, body: final.body, subject: final.channel === 'email' ? final.subject : null, idempotencyKey: sendKey },
+      { contactId: sendTo, loanId: file.loanId, channel: final.channel, body: final.body, subject: final.channel === 'email' ? final.subject : null, idempotencyKey: sendKey, documentIds: draftDocs },
       {
         onSuccess: (r) => {
           if (r.alreadySent && r.error) return toast.error(`That message already failed: ${r.error}`)
@@ -114,7 +126,7 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
     if (!sendTo) return
     if (final.channel === 'email' && !final.subject?.trim()) return toast.error('An email needs a subject. Edit it first.')
     schedule.mutate(
-      { contactId: sendTo, loanId: file.loanId, channel: final.channel, body: final.body, subject: final.channel === 'email' ? final.subject : null, idempotencyKey: `${sendKey}:at:${sendAt.toISOString()}`, sendAt },
+      { contactId: sendTo, loanId: file.loanId, channel: final.channel, body: final.body, subject: final.channel === 'email' ? final.subject : null, idempotencyKey: `${sendKey}:at:${sendAt.toISOString()}`, sendAt, documentIds: draftDocs },
       {
         onSuccess: () => {
           decide.mutate({ item, file, status: decisionFor(draft, final), payload: final }, { onError: (e) => toast.error(e.message) })
@@ -151,9 +163,11 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
           busy={common.busy || send.isPending}
           approveLabel={canSend ? (draft.channel === 'text' ? 'Send text' : 'Send email') : 'Approve and copy'}
           onApprove={() => (canSend ? sendDraft(draft) : approveDraft(draft))}
-          onEdit={() => setEditing(true)}
+          approveDisabledReason={waiting ? 'Waiting for the loan officer to approve' : undefined}
+          onDismiss={waiting ? undefined : common.onDismiss}
+          onEdit={waiting ? undefined : () => setEditing(true)}
           extra={
-            (canSend || lead || nurture) && (
+            !waiting && (canSend || lead || nurture) && (
               <>
                 {lead && <LeadFollowupButtons itemId={item.id} loanId={file.loanId} disabled={common.busy || send.isPending} />}
                 {nurture && <LeadFollowupButtons itemId={item.id} loanId={file.loanId} disabled={common.busy || send.isPending} viewLabel="View file" />}

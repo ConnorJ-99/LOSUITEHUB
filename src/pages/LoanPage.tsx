@@ -77,6 +77,8 @@ import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 import { pipelineFor, pipelineInfo } from '@/lib/pipeline/pipelines'
 import { applicationSummary } from '@/lib/urla/summary'
 import { useAuth } from '@/lib/auth/context'
+import { useFileRole } from '@/lib/api/fileRole'
+import type { PipelineStage } from '@/lib/pipeline/stages'
 
 const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions'] as const
 type Section = (typeof SECTIONS)[number]
@@ -142,8 +144,11 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const { state } = useAuth()
   const navigate = useNavigate()
   const deleteLead = useDeleteLead()
-  // Processors work files but don't delete them; the database checks the rest.
-  const canDelete = state.status === 'signedIn' && state.user.role !== null && state.user.role !== 'processor'
+  // Your role on THIS file (Connor, 2026-11-16): its processor works the file but doesn't delete it, change
+  // its loan officer or move it to Lost or Closed. The database checks the same rule (file_role()).
+  const fileRole = useFileRole(loan.id)
+  const canDelete = fileRole.manageFile
+  const lockedStages: PipelineStage[] = fileRole.manageFile ? [] : ['lost', 'closed']
   const [editing, setEditing] = useState(false)
   const [holding, setHolding] = useState(false)
   const [reassessing, setReassessing] = useState(false)
@@ -214,7 +219,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
 
   const memberName = (id: string | null) => members.data?.find((m) => m.id === id)?.name ?? null
   const team: TeamMember[] = TEAM.filter((t) => !t.purchaseOnly || isPurchase).map((t) => {
-    if (t.role === 'loan_officer') return { group: t.group, role: t.label, name: loan.assignedLo?.name ?? null, options: members.data?.map((m) => m.name) }
+    if (t.role === 'loan_officer') return { group: t.group, role: t.label, name: loan.assignedLo?.name ?? null, options: fileRole.manageFile ? members.data?.map((m) => m.name) : undefined }
     const record = file.data?.team.find((r) => r.role === t.role)
     const shown = record ? (memberName(record.profileId) ?? [record.name, record.company && `(${record.company})`].filter(Boolean).join(' ')) : null
     return { group: t.group, role: t.label, name: shown || null, options: t.role === 'processor' ? members.data?.map((m) => m.name) : undefined, allowCustom: true }
@@ -224,7 +229,10 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     const t = roleFor(label)
     const memberId = picked ? (members.data?.find((m) => m.name === picked)?.id ?? null) : null
     const done = { onSuccess: () => toast.success(picked ? `${label}: ${picked}` : `${label} unassigned`), onError: (e: Error) => toast.error(e.message) }
-    if (t.role === 'loan_officer') setLo.mutate(memberId, done)
+    if (t.role === 'loan_officer') {
+      if (!fileRole.manageFile) return toast.error('Only this file\x27s loan officer or an admin can change its loan officer.')
+      setLo.mutate(memberId, done)
+    }
     else saveTeam.mutate({ role: t.role, member: picked ? { profileId: memberId, name: memberId ? null : picked } : null }, done)
   }
   const custom = (label: string) => {
@@ -268,7 +276,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     onClick: f.tab && nav.some((n) => n.id === f.tab) ? () => goTo(f.tab!) : undefined,
   }))
   const statusButton = (size: 'xs' | 'sm') => (
-    <StageMenu stage={loan.stage} onSelect={(stage) => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, stage)}>
+    <StageMenu stage={loan.stage} hide={lockedStages} onSelect={(stage) => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, stage)}>
       <Button size={size}>
         Change status
         <ChevronDownIcon />
@@ -314,6 +322,11 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
             </span>
             <NextActionHeader loanId={loan.id} stage={loan.stage} timeline={loan.timeline} />
             {!nurtureFile && <LoanNumberChips loanId={loan.id} />}
+            {fileRole.role === 'processor' && (
+              <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[0.7rem] font-medium text-amber-800" title="You are this file's processor. The loan officer approves messages, changes the loan officer and moves it to Lost or Closed.">
+                Processing for {fileRole.loName ?? 'the loan officer'}
+              </span>
+            )}
           </>
         }
         detailsOpen={detailsOpen}
@@ -387,7 +400,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
         progress={
           file.data && !closedFile && !nurtureFile && loan.stage !== 'lost' ? (
             <div className="flex min-w-0 items-center gap-3">
-              <StageMenu stage={loan.stage} onSelect={(stage) => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, stage)}>
+              <StageMenu stage={loan.stage} hide={lockedStages} onSelect={(stage) => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, stage)}>
                 <ChevronProgress
                   milestones={milestoneView(file.data.milestones).map((m) => ({ label: m.label, state: m.state, date: m.date ? formatIsoDate(m.date) : null }))}
                   current={stageLabel(loan.stage)}
@@ -469,7 +482,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
       )}
       {holding && <HoldDialog loan={loan} onClose={() => setHolding(false)} />}
       {reassessing && <ReassessDialog loanId={loan.id} borrowerName={name} onClose={() => setReassessing(false)} />}
-      {editing && <EditLeadDialog loan={loan} ariveLoanNumber={loan.details.ariveLoanNumber} open={editing} onOpenChange={setEditing} />}
+      {editing && <EditLeadDialog loan={loan} ariveLoanNumber={loan.details.ariveLoanNumber} open={editing} onOpenChange={setEditing} lockLo={!fileRole.manageFile} />}
       {teamEdit && (
         <TeamMemberDialog
           role={teamEdit.role}

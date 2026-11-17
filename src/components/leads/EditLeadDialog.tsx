@@ -15,12 +15,15 @@ export function EditLeadDialog({
   ariveLoanNumber,
   open,
   onOpenChange,
+  lockLo = false,
 }: {
   loan: PipelineLoan
   /** Shown and saved when given (the loan file page). */
   ariveLoanNumber?: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** A file's processor sees the loan officer but can't change it (the database refuses too). */
+  lockLo?: boolean
 }) {
   const members = useOrgMembers()
   const updateLead = useUpdateLead()
@@ -87,13 +90,17 @@ export function EditLeadDialog({
             <Input label="Phone" type="tel" value={form.phone} onChange={set('phone')} span={2} error={submitted ? errors.contact : undefined} />
             <Input label="Email" type="email" value={form.email} onChange={set('email')} span={2} />
             <Select label="Loan purpose" value={form.purpose} onChange={set('purpose')} options={PURPOSES} required span={2} />
-            <Select
-              label="Assigned LO"
-              value={form.assignedLoId}
-              onChange={set('assignedLoId')}
-              options={(members.data ?? []).map((m) => ({ value: m.id, label: m.name }))}
-              span={2}
-            />
+            {lockLo ? (
+              <Input label="Assigned LO" value={loan.assignedLo?.name ?? 'Unassigned'} readOnly hint="Only this file's loan officer or an admin can change it." span={2} />
+            ) : (
+              <Select
+                label="Assigned LO"
+                value={form.assignedLoId}
+                onChange={set('assignedLoId')}
+                options={(members.data ?? []).map((m) => ({ value: m.id, label: m.name }))}
+                span={2}
+              />
+            )}
             <Input label="Referral source" value={form.referralSource} onChange={set('referralSource')} span={4} />
             {ariveLoanNumber !== undefined && <Input label="Arive loan number" value={form.ariveLoanNumber} onChange={set('ariveLoanNumber')} span={2} />}
           </FormGrid>

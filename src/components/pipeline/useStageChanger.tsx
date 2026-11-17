@@ -66,6 +66,14 @@ export function useStageChanger() {
 
   async function requestChange(loan: { id: string; stage: PipelineStage; borrowerName: string; closingDate?: string | null }, stage: PipelineStage, numbersChecked = false): Promise<void> {
     if (stage === loan.stage) return
+    // A file's processor can't move it to Lost or Closed (Connor, 2026-11-16); the database refuses too.
+    if (stage === 'lost' || stage === 'closed') {
+      const role = await db().rpc('file_role', { loan: loan.id })
+      if (!role.error && role.data === 'processor') {
+        toast.error(`Only this file's loan officer or an admin can move it to ${stageLabel(stage)}.`)
+        return
+      }
+    }
     if (!numbersChecked && needsLenderNumber(stage)) {
       let numbers: LoanNumbers | null = null
       try {

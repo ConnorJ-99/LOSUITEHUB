@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CompSnapshot } from '@/lib/calc/loanComp'
 import { useAuth } from '@/lib/auth/context'
 import { db, keys, num, unwrap } from './client'
+import { fetchLoanComp } from './loans'
 
 /** The company's comp settings (build plan Phase 5). Defaults until saved. */
 export interface CompSettings {
@@ -91,9 +92,9 @@ export function useLoanCompFields(loanId: string) {
     queryKey: ['loanComp', loanId],
     retry: false,
     queryFn: async (): Promise<LoanCompFields> => {
-      const r = unwrap<{ lead_source_type: LoanCompFields['leadSourceType']; comp_base_mode: CompSnapshot['baseMode'] | null; comp_base_bps: unknown; comp_split_pct: unknown; comp_member_type: CompSnapshot['memberType'] | null; comp_snapshot_at: string | null }>(
-        await db().from('loans').select('lead_source_type, comp_base_mode, comp_base_bps, comp_split_pct, comp_member_type, comp_snapshot_at').eq('id', loanId).single(),
-      )
+      // Read through loan_comp_rows: the comp columns aren't readable directly, and a file you process has none.
+      const r = (await fetchLoanComp([loanId])).get(loanId)
+      if (!r) throw new Error("Only this file's loan officer or an admin can see its comp.")
       const split = num(r.comp_split_pct)
       return {
         leadSourceType: r.lead_source_type,
@@ -142,10 +143,9 @@ export function useCompConfirmation(loanId: string) {
     queryKey: ['compConfirmation', loanId],
     retry: false,
     queryFn: async (): Promise<CompConfirmation | null> => {
-      const r = await db().from('loans').select('comp_confirmed_at, comp_paid_on, confirmer:profiles!loans_comp_confirmed_by_fkey ( full_name, email )').eq('id', loanId).single()
-      if (r.error) return null
-      const x = r.data as unknown as { comp_confirmed_at: string | null; comp_paid_on: string | null; confirmer: { full_name: string | null; email: string } | null }
-      return { confirmedAt: x.comp_confirmed_at, confirmedBy: x.confirmer ? x.confirmer.full_name || x.confirmer.email : null, paidOn: x.comp_paid_on }
+      const x = (await fetchLoanComp([loanId]).catch(() => null))?.get(loanId)
+      if (!x) return null
+      return { confirmedAt: x.comp_confirmed_at, confirmedBy: x.comp_confirmed_by_name, paidOn: x.comp_paid_on }
     },
   })
 }

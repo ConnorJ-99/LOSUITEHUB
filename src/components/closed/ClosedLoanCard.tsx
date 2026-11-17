@@ -48,8 +48,8 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
   const automate = useSetAutomateReminders()
   const [copying, setCopying] = useState(false)
   const { state } = useAuth()
-  // The lead source and comp show to owners and admins only.
-  const isManager = state.status === 'signedIn' && (state.user.role === 'owner' || state.user.role === 'admin')
+  // The lead source and comp show to owners and admins only, and never on a file they only process.
+  const isManager = state.status === 'signedIn' && (state.user.role === 'owner' || state.user.role === 'admin') && !loan.compHidden
   const ghl = useGhlOpportunity()
   const [form, setForm] = useState({
     lenderName: c.lenderName,

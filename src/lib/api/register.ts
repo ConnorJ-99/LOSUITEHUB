@@ -2,6 +2,9 @@ import { useQuery } from '@tanstack/react-query'
 import type { CompSnapshot } from '@/lib/calc/loanComp'
 import type { RegisterLoan } from '@/lib/closed/register'
 import { db, num, unwrap } from './client'
+import { fetchLoanComp } from './loans'
+
+type CompKey = 'lead_source_type' | 'revenue_type' | 'revenue_value' | 'comp_plan_id' | 'comp_base_mode' | 'comp_base_bps' | 'comp_split_pct' | 'comp_member_type'
 
 interface Row {
   id: string
@@ -33,7 +36,7 @@ interface Row {
 }
 
 const SELECT = `id, closing_date, funding_date, stage_changed_at, purpose, occupancy, loan_amount, note_rate, term_months, arive_loan_number,
-  lead_source_type, revenue_type, revenue_value, comp_plan_id, comp_base_mode, comp_base_bps, comp_split_pct, comp_member_type, review_status,
+  review_status,
   lender_name, program_name, assigned_lo_id,
   program:programs!loans_program_id_fkey ( id, name, lender:lenders ( id, name ) ),
   lo:profiles!loans_assigned_lo_id_fkey ( full_name, email ),
@@ -50,10 +53,13 @@ export function useRegisterLoans(lenders: { id: string; name: string }[] | undef
     queryKey: ['register', lenders?.length ?? 0],
     enabled: !!lenders,
     queryFn: async (): Promise<RegisterLoan[]> => {
-      const rows = unwrap<Row[]>(await db().from('loans').select(SELECT).eq('stage', 'closed').limit(5000))
-      // Commission confirmation (read on its own, so the register works before that script has run).
-      const conf = await db().from('loans').select('id, comp_confirmed_at, comp_paid_on').eq('stage', 'closed').limit(5000)
-      const confirmed = new Map(((conf.error ? [] : conf.data) as { id: string; comp_confirmed_at: string | null; comp_paid_on: string | null }[]).map((c) => [c.id, c]))
+      const base = unwrap<Omit<Row, CompKey>[]>(await db().from('loans').select(SELECT).eq('stage', 'closed').limit(5000))
+      // Revenue and comp come through loan_comp_rows (not readable directly; files you process have none).
+      const comp = await fetchLoanComp(null)
+      const rows: Row[] = base.map((b) => {
+        const c = comp.get(b.id)
+        return { ...b, lead_source_type: c?.lead_source_type ?? null, revenue_type: c?.revenue_type ?? null, revenue_value: c?.revenue_value ?? null, comp_plan_id: c?.comp_plan_id ?? null, comp_base_mode: c?.comp_base_mode ?? null, comp_base_bps: c?.comp_base_bps ?? null, comp_split_pct: c?.comp_split_pct ?? null, comp_member_type: c?.comp_member_type ?? null }
+      })
       return rows.map((r) => {
         const people = r.borrowers.filter((b) => b.contact)
         const primary = (people.find((b) => b.role === 'primary') ?? people[0])?.contact
@@ -85,8 +91,8 @@ export function useRegisterLoans(lenders: { id: string; name: string }[] | undef
           compPlanId: r.comp_plan_id,
           reviewStatus: r.review_status ?? null,
           snapshot: r.comp_base_mode && split != null ? { baseMode: r.comp_base_mode, baseBps: num(r.comp_base_bps), splitPct: split, memberType: r.comp_member_type ?? 'commission' } : null,
-          compConfirmedAt: confirmed.get(r.id)?.comp_confirmed_at ?? null,
-          compPaidOn: confirmed.get(r.id)?.comp_paid_on ?? null,
+          compConfirmedAt: comp.get(r.id)?.comp_confirmed_at ?? null,
+          compPaidOn: comp.get(r.id)?.comp_paid_on ?? null,
         }
       })
     },

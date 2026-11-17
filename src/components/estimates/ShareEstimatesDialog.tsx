@@ -7,7 +7,7 @@ import { Input, Select, TextArea, ToggleChip, confirmAction } from '@/components
 import { db } from '@/lib/api/client'
 import { createShare, shareKeys, useShareRecipients, type ShareRecipient } from '@/lib/api/estimateShares'
 import { useMessagingSettings } from '@/lib/api/ghl'
-import { useSendMessage } from '@/lib/api/messages'
+import { sentOrDrafted, useSendMessage } from '@/lib/api/messages'
 import type { LoanProfile } from '@/lib/api/types'
 import { productLabel } from '@/lib/documents/feeWorksheet'
 import { nowIso } from '@/lib/dates'
@@ -124,9 +124,9 @@ export function ShareEstimatesDialog({
       })
       shareId = created.id
       const body = fillLink(words.trim(), shareUrl(window.location.origin, created.token))
-      await send.mutateAsync({ contactId: person.contactId, loanId: loan.id, channel, body, subject: channel === 'email' ? subject.trim() : null, idempotencyKey: `share-${created.id}` })
+      const r = await send.mutateAsync({ contactId: person.contactId, loanId: loan.id, channel, body, subject: channel === 'email' ? subject.trim() : null, idempotencyKey: `share-${created.id}` })
       shareId = null
-      toast.success(`Sent the link to ${person.name}`)
+      toast.success(sentOrDrafted(r, `Sent the link to ${person.name}`))
       onClose()
     } catch (e) {
       if (shareId) {

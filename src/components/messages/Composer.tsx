@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { confirmAction, Input, TextArea } from '@/components/shared'
-import { useScheduleMessage, useSendMessage, type FilePerson } from '@/lib/api/messages'
+import { sentOrDrafted, useScheduleMessage, useSendMessage, type FilePerson } from '@/lib/api/messages'
 import { scheduleLabel } from '@/lib/messaging/schedule'
 import { ScheduleDialog } from './ScheduleDialog'
 import type { LoanProfile } from '@/lib/api/types'
@@ -12,6 +12,7 @@ import { formatPhone } from '@/lib/pipeline/helpers'
 import { MAX_TEXT_LENGTH } from '../../../supabase/functions/ghl/sendRules'
 import { TONE_CLASS } from './tone'
 import { useSendPlan } from './useSendPlan'
+import { useFileRole } from '@/lib/api/fileRole'
 
 const newKey = () => crypto.randomUUID()
 
@@ -22,6 +23,10 @@ const newKey = () => crypto.randomUUID()
  */
 export function Composer({ loan, people }: { loan: LoanProfile; people: FilePerson[] }) {
   const rules = useSendPlan(loan)
+  // A file's processor drafts for the loan officer (Connor, 2026-11-16): nothing sends, so sending hours don't apply yet.
+  const fileRole = useFileRole(loan.id)
+  const drafting = fileRole.role === 'processor'
+  const approver = fileRole.loName ?? 'the loan officer'
   const send = useSendMessage()
   const schedule = useScheduleMessage()
   const [scheduling, setScheduling] = useState(false)
@@ -34,7 +39,8 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
 
   const person = people.find((p) => p.id === personId) ?? people[0]
   if (!person || !rules) return null
-  const plan = rules.plan(person, channel, body, subject)
+  const sendPlan = rules.plan(person, channel, body, subject)
+  const plan = drafting ? { ...sendPlan, problems: sendPlan.problems.filter((p) => p === 'Write a message first.' || p === 'An email needs a subject.') } : sendPlan
   const window = rules.window
   // "Write a message first" and the subject aren't worth a warning before you've typed.
   const blockers = plan.problems.filter((p) => !(p === 'Write a message first.' || (p === 'An email needs a subject.' && !body.trim())))
@@ -47,13 +53,16 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
   const submit = async () => {
     if (plan.problems.length) return toast.error(plan.problems[0])
     const what = channel === 'text' ? `this text to ${person.firstName} at ${to}` : `this email to ${person.firstName} at ${to}`
-    if (!(await confirmAction(`Send ${what}? It goes out through GHL from ${from}.`, { confirmLabel: channel === 'text' ? 'Send text' : 'Send email' }))) return
+    const ok = drafting
+      ? await confirmAction(`Save ${what} for ${approver} to approve? Nothing is sent until they do, from their number.`, { confirmLabel: 'Save for approval' })
+      : await confirmAction(`Send ${what}? It goes out through GHL from ${from}.`, { confirmLabel: channel === 'text' ? 'Send text' : 'Send email' })
+    if (!ok) return
     send.mutate(
       { contactId: person.id, loanId: loan.id, channel, body, subject: channel === 'email' ? subject : null, idempotencyKey: key },
       {
         onSuccess: (r) => {
           if (r.alreadySent) toast.info(r.error ? `That message already failed: ${r.error}` : 'That message was already sent.')
-          else toast.success(`${channel === 'text' ? 'Text' : 'Email'} sent to ${person.firstName}`)
+          else toast.success(sentOrDrafted(r, `${channel === 'text' ? 'Text' : 'Email'} sent to ${person.firstName}`))
           setBody('')
           setSubject('')
           setKey(newKey())
@@ -114,13 +123,15 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
           {rules.testMode && ' · Test mode: only people named TEST'}
         </span>
         <div className="ml-auto flex gap-2">
-          <Button variant="outline" onClick={() => (laterProblems.length ? toast.error(laterProblems[0]) : setScheduling(true))} disabled={send.isPending || schedule.isPending || laterProblems.length > 0}>
-            <CalendarClockIcon />
-            Schedule…
-          </Button>
+          {!drafting && (
+            <Button variant="outline" onClick={() => (laterProblems.length ? toast.error(laterProblems[0]) : setScheduling(true))} disabled={send.isPending || schedule.isPending || laterProblems.length > 0}>
+              <CalendarClockIcon />
+              Schedule…
+            </Button>
+          )}
           <Button onClick={submit} disabled={send.isPending || plan.problems.length > 0}>
             <SendIcon />
-            {send.isPending ? 'Sending…' : channel === 'text' ? 'Send text' : 'Send email'}
+            {drafting ? (send.isPending ? 'Saving…' : `Save for ${approver} to approve`) : send.isPending ? 'Sending…' : channel === 'text' ? 'Send text' : 'Send email'}
           </Button>
         </div>
       </div>

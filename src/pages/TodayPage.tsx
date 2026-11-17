@@ -28,6 +28,7 @@ import { WebLeadsCard } from '@/components/queue/WebLeadsCard'
 import { PortalRequestsCard } from '@/components/portal/PortalRequestsCard'
 import { PriorityListCard } from '@/components/queue/PriorityList'
 import { NewMessagesCard } from '@/components/messages/NewMessages'
+import { ProcessingFilesCard } from '@/components/queue/ProcessingFilesCard'
 import { ScheduledCard } from '@/components/messages/ScheduledCard'
 import { buildToday, groupToday, type TodayEntry } from '@/lib/queue/today'
 
@@ -201,7 +202,10 @@ export function TodayPage() {
   const loading = data.isLoading || tasks.isLoading
   const error = data.error ?? tasks.error
   // Snoozed lead follow-ups stay hidden until their day (Connor, 2026-11-16).
-  const actions = (data.data?.actions ?? []).filter((a) => !isSnoozed(followupMeta.data?.get(a.id)?.snoozedUntil, today))
+  // Drafts on a file you only process wait for its loan officer, on their Today (Connor, 2026-11-16).
+  const me = state.status === 'signedIn' ? state.user : null
+  const forMe = (a: { kind: string; assignedLoId: string | null }) => a.kind !== 'draft_message' || me?.role === 'admin' || a.assignedLoId === me?.id
+  const actions = (data.data?.actions ?? []).filter((a) => forMe(a) && !isSnoozed(followupMeta.data?.get(a.id)?.snoozedUntil, today))
   const files = new Map(actions.map((a) => [a.id, a]))
   const entries = buildToday(
     actions,
@@ -254,9 +258,10 @@ export function TodayPage() {
           {tasks.isSuccess && <PriorityListCard tasks={tasks.data} />}
           <NewMessagesCard />
           <ScheduledCard />
+          <ProcessingFilesCard />
           <PortalRequestsCard />
           <WebLeadsCard />
-          <LeadFollowupsBox items={data.data?.actions ?? []} meta={followupMeta.data} today={today} />
+          <LeadFollowupsBox items={(data.data?.actions ?? []).filter(forMe)} meta={followupMeta.data} today={today} />
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : error ? (

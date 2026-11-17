@@ -93,7 +93,8 @@ export function useQueueDraft(loanId: string, organizationId: string) {
 }
 
 export interface TodayData {
-  actions: (ActionItem & FileInfo)[]
+  /** assignedLoId: the file's loan officer (drafts go to them, not to the file's processor). */
+  actions: (ActionItem & FileInfo & { assignedLoId: string | null })[]
   loans: (LoanDates & FileInfo)[]
 }
 
@@ -105,7 +106,7 @@ export function useTodayData() {
       const [actionRows, loanRows] = await Promise.all([
         db()
           .from('action_items')
-          .select(`${ACTION_SELECT}, organization_id, loan:loans!action_items_loan_id_fkey ( ${BORROWERS} )`)
+          .select(`${ACTION_SELECT}, organization_id, loan:loans!action_items_loan_id_fkey ( assigned_lo_id, ${BORROWERS} )`)
           .eq('status', 'pending')
           .order('created_at'),
         db()
@@ -114,9 +115,10 @@ export function useTodayData() {
           .or('option_end_date.not.is.null,closing_date.not.is.null'),
       ])
       return {
-        actions: unwrap<(ActionRow & { organization_id: string; loan: BorrowerRows | null })[]>(actionRows).map((r) => ({
+        actions: unwrap<(ActionRow & { organization_id: string; loan: (BorrowerRows & { assigned_lo_id: string | null }) | null })[]>(actionRows).map((r) => ({
           ...toAction(r),
           ...fileInfo(r.loan_id, r.organization_id, r.loan),
+          assignedLoId: r.loan?.assigned_lo_id ?? null,
         })),
         loans: unwrap<({ id: string; organization_id: string; stage: string; option_end_date: string | null; closing_date: string | null } & BorrowerRows)[]>(loanRows).map((r) => ({
           ...fileInfo(r.id, r.organization_id, r),

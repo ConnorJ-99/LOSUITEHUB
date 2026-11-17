@@ -3,7 +3,7 @@ import { AlertTriangleIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { confirmAction } from '@/components/shared'
-import { useClearFailedSend, useSendMessage, type Message } from '@/lib/api/messages'
+import { sentOrDrafted, useClearFailedSend, useSendMessage, type Message } from '@/lib/api/messages'
 
 /**
  * A send that failed stays on screen with GHL's reason until someone resends
@@ -28,7 +28,7 @@ export function FailedSendActions({ m }: { m: Message }) {
       {
         onSuccess: (r) => {
           if (r.alreadySent) toast.info('That resend already went out.')
-          else toast.success(`${what === 'text' ? 'Text' : 'Email'} resent`)
+          else toast.success(sentOrDrafted(r, `${what === 'text' ? 'Text' : 'Email'} resent`))
           clear.mutate({ messageId: m.id, reason: 'resent' })
         },
         onError: (e) => toast.error(e.message),

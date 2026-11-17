@@ -4,6 +4,7 @@
 import { useQuery } from '@tanstack/react-query'
 import type { PipelineLoan } from '@/lib/metrics/business'
 import { db, unwrap } from './client'
+import { fetchLoanComp } from './loans'
 
 interface Row {
   id: string
@@ -11,7 +12,6 @@ interface Row {
   stage: string
   import_key: string | null
   assigned_lo_id: string | null
-  lead_source_type: 'company' | 'self' | null
   lo: { full_name: string | null; email: string } | null
   borrowers: { role: string; contact_id: string }[]
 }
@@ -23,9 +23,11 @@ export function useMetricsFiles() {
       const rows = unwrap<Row[]>(
         await db()
           .from('loans')
-          .select('id, created_at, stage, import_key, assigned_lo_id, lead_source_type, lo:profiles!loans_assigned_lo_id_fkey ( full_name, email ), borrowers:loan_borrowers ( role, contact_id )')
+          .select('id, created_at, stage, import_key, assigned_lo_id, lo:profiles!loans_assigned_lo_id_fkey ( full_name, email ), borrowers:loan_borrowers ( role, contact_id )')
           .limit(20000),
       )
+      // The lead source is comp: read through loan_comp_rows (files you process have none).
+      const comp = await fetchLoanComp(null)
       const names = new Map<string, string>()
       for (const r of rows) if (r.assigned_lo_id && r.lo) names.set(r.assigned_lo_id, r.lo.full_name || r.lo.email)
       return {
@@ -36,7 +38,7 @@ export function useMetricsFiles() {
           stage: r.stage,
           imported: !!r.import_key,
           loId: r.assigned_lo_id,
-          leadSource: r.lead_source_type,
+          leadSource: comp.get(r.id)?.lead_source_type ?? null,
           contactId: (r.borrowers.find((b) => b.role === 'primary') ?? r.borrowers[0])?.contact_id ?? null,
         })),
       }

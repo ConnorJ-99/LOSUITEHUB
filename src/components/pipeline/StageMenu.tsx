@@ -15,14 +15,17 @@ export function StageMenu({
   stage,
   onSelect,
   children,
+  hide = [],
 }: {
   stage: PipelineStage
   onSelect: (stage: PipelineStage) => void
   /** The trigger button. */
   children: React.ReactElement
+  /** Stages left out (a file's processor can't move it to Lost or Closed). */
+  hide?: PipelineStage[]
 }) {
-  const main = STAGES.filter((s) => s.kind === 'main')
-  const side = STAGES.filter((s) => s.kind === 'side')
+  const main = STAGES.filter((s) => s.kind === 'main' && !hide.includes(s.value))
+  const side = STAGES.filter((s) => s.kind === 'side' && !hide.includes(s.value))
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
