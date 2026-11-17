@@ -33,7 +33,7 @@ import { MATRIX_FORMAT_PROMPT, MATRIX_SYSTEM_PROMPT, MATRIX_USER_PROMPT, MAX_MAT
 import { SCENARIO_SCHEMA, SCENARIO_SYSTEM_PROMPT, normalizeScenarioRead } from './scenarioRead.ts'
 import { ANSWER_SCHEMA, ANSWER_SYSTEM_PROMPT, MAX_PASSAGES, answerPrompt, normalizeAnswer, type AnswerPassage } from './guidelineAnswer.ts'
 import { MAX_EMAIL_CHARS, UPDATE_SCHEMA, UPDATE_SYSTEM_PROMPT, normalizeProposal, updatePrompt, type UpdateProgram } from './productUpdate.ts'
-import { LEAD_MODEL, LEAD_SCHEMA, LEAD_SYSTEM, buildLeadPrompt, leadDraftIssues, readLeadDraft, reworded, type LeadKind, type LeadThreadMessage } from './leadFollowup.ts'
+import { LEAD_MODEL, LEAD_SCHEMA, LEAD_SYSTEM, buildLeadPrompt, leadDraftIssues, lookingFor, readLeadDraft, reachedOut, reworded, type LeadKind, type LeadThreadMessage } from './leadFollowup.ts'
 import { NURTURE_MODEL, NURTURE_READ_SCHEMA, NURTURE_READ_SYSTEM, NURTURE_WORD_SCHEMA, NURTURE_WORD_SYSTEM, buildNurtureReadPrompt, buildNurtureWordPrompt, isNurtureKind, nurtureDraftIssues, nurtureReworded, readNurtureDraft, readNurtureReading, type NurtureThreadMessage, type ReadMilestone } from './nurture.ts'
 import { READINESS_MODEL, READINESS_SCHEMA, READINESS_SYSTEM, buildReadinessPrompt, normalizeReadinessPlan, type ReadinessFacts } from './readinessPlan.ts'
 import { DOC_READ_SCHEMA, DOC_READ_SYSTEM_PROMPT, DOC_READ_USER_PROMPT, documentFlags, normalizeDocReading, statusFor, type FlagJob } from './documentRead.ts'
@@ -1158,18 +1158,32 @@ async function wordLeadFollowup(db: SupabaseClient, anthropic: Anthropic, item: 
   }
   const [contact, loan, thread] = await Promise.all([
     db.from('contacts').select('first_name').eq('id', p.contactId).maybeSingle(),
-    db.from('loans').select('lo:profiles!loans_assigned_lo_id_fkey ( full_name )').eq('id', item.loan_id).maybeSingle(),
+    db.from('loans').select('purpose, occupancy, income_doc_type, created_at, lo:profiles!loans_assigned_lo_id_fkey ( full_name )').eq('id', item.loan_id).maybeSingle(),
     db.from('messages').select('direction, channel, body, sent_at').eq('contact_id', p.contactId).order('sent_at', { ascending: false }).limit(10),
   ])
   const firstName = ((contact.data as { first_name: string | null } | null)?.first_name ?? '').trim()
-  const loFull = ((loan.data as { lo: { full_name: string | null } | null } | null)?.lo?.full_name ?? '').trim()
+  const ld =loan.data as { purpose: string | null; occupancy: string | null; income_doc_type: string | null; created_at: string | null; lo: { full_name: string | null } | null } | null
+  const loFull = (ld?.lo?.full_name ?? '').trim()
   const messages: LeadThreadMessage[] = ((thread.data ?? []) as { direction: string; channel: string; body: string | null; sent_at: string }[]).flatMap((m) =>
     (m.direction === 'inbound' || m.direction === 'outbound') && (m.channel === 'text' || m.channel === 'email') && m.body
       ? [{ direction: m.direction, channel: m.channel, body: m.body, sentAt: m.sent_at }]
       : [],
   )
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date())
-  const prompt = buildLeadPrompt({ kind: kind as LeadKind, firstName: firstName || 'there', loFirstName: loFull.split(' ')[0] || 'your loan officer', timeline: p.lead?.timeline ?? null, today }, template, messages)
+  const prompt = buildLeadPrompt(
+    {
+      kind: kind as LeadKind,
+      firstName: firstName || 'there',
+      loFirstName: loFull.split(' ')[0] || 'your loan officer',
+      loFullName: loFull || null,
+      lookingFor: lookingFor({ purpose: ld?.purpose ?? null, occupancy: ld?.occupancy ?? null, incomeDocType: ld?.income_doc_type ?? null }),
+      reachedOut: reachedOut(ld?.created_at ?? null, today),
+      timeline: p.lead?.timeline ?? null,
+      today,
+    },
+    template,
+    messages,
+  )
   const run = await db
     .from('ai_runs')
     .insert({ organization_id: item.organization_id, loan_id: item.loan_id, task_type: 'lead_followup', input_ref: { actionItemId: item.id, kind, messages: messages.length }, model: LEAD_MODEL, created_by: null })
