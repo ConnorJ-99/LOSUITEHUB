@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { UserCheckIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FormGrid, Input, Select, ToggleChip } from '@/components/shared'
@@ -12,7 +13,8 @@ import { useMatchingContacts } from '@/lib/api/contacts'
 import { db, keys, unwrap } from '@/lib/api/client'
 import { linkGhlContact, useGhlStatus } from '@/lib/api/ghl'
 import { offerApplicationLink, offerBorrowerIntro } from '@/components/messaging/fileTextRequests'
-import { reassignLoan, useCreateLead, useOrgMembers, useUpdateStage } from '@/lib/api/loans'
+import { useCreateLead, useOrgMembers, useUpdateStage } from '@/lib/api/loans'
+import { addLeadForLo, useTeamAccess } from '@/lib/api/team'
 import type { ContactSummary } from '@/lib/api/types'
 import { useAuth } from '@/lib/auth/context'
 import { formatPhone, fullName } from '@/lib/pipeline/helpers'
@@ -38,6 +40,23 @@ const blankForm = (myId: string | null, preset: NewLeadPreset | null = null): Fo
   referralSource: '',
   assignedLoId: myId,
 })
+
+// The loan officer an LO Assistant picked last (this device only).
+const LAST_LO_KEY = 'mpshq.newLead.lastLo'
+const readLastLo = (): string | null => {
+  try {
+    return localStorage.getItem(LAST_LO_KEY)
+  } catch {
+    return null
+  }
+}
+const writeLastLo = (id: string) => {
+  try {
+    localStorage.setItem(LAST_LO_KEY, id)
+  } catch {
+    // Private window: just not remembered.
+  }
+}
 
 /** Waits until typing pauses before looking up duplicates. */
 function useDebounced<T>(value: T, ms = 400): T {
@@ -80,6 +99,26 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
 
   const set = <K extends keyof FormState>(key: K) => (value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
 
+  // Who the lead can go to (Connor, 2026-11-17): owners and admins pick any loan officer; an LO Assistant picks
+  // the loan officers they assist or themselves; everyone else adds their own. Before the LO assistant roles
+  // script, the old picker stays.
+  const access = useTeamAccess()
+  const companyAdmin = state.status === 'signedIn' && (state.user.role === 'owner' || state.user.role === 'admin')
+  const meMember = access.data?.members.find((m) => m.id === myId)
+  const assists = (meMember?.secondaryRoles.includes('loa') ? meMember.assists : []).filter((id) => access.data?.members.some((m) => m.id === id))
+  const pickMode: 'all' | 'loa' | 'none' = !access.data?.ready || companyAdmin ? 'all' : assists.length ? 'loa' : 'none'
+  const nameOf = (id: string | null) => access.data?.members.find((m) => m.id === id)?.name ?? members.data?.find((m) => m.id === id)?.name ?? 'the loan officer'
+  const firstOf = (id: string | null) => nameOf(id).split(/\s+/)[0]
+  const [notifyLo, setNotifyLo] = useState(true)
+  // An LO Assistant starts on the loan officer they picked last time.
+  const [loaDefaulted, setLoaDefaulted] = useState(false)
+  if (open && pickMode === 'loa' && !loaDefaulted) {
+    setLoaDefaulted(true)
+    const last = readLastLo()
+    setForm((f) => ({ ...f, assignedLoId: last && (assists.includes(last) || last === myId) ? last : assists[0] }))
+  }
+  const forOther = !!form.assignedLoId && form.assignedLoId !== myId
+
   const email = useDebounced(form.email)
   const phone = useDebounced(form.phone)
   const matches = useMatchingContacts(existing ? '' : email, existing ? '' : phone)
@@ -90,6 +129,8 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
     setExisting(null)
     setDismissedIds([])
     setSubmitted(false)
+    setLoaDefaulted(false)
+    setNotifyLo(true)
   }
 
   const close = (next: boolean) => {
@@ -161,10 +202,12 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
             }
           }
           const where = startStage ? stageLabel(startStage) : 'Lead'
-          // For another loan officer: theirs now, and out of your pipeline unless you're an admin.
+          if (pickMode === 'loa' && form.assignedLoId) writeLastLo(form.assignedLoId)
+          // For another loan officer: theirs now (and in GHL), and out of your pipeline unless you're an admin or
+          // their LO Assistant (then you stay on the file as its LO Assistant, Connor 2026-11-17).
           if (form.assignedLoId !== myId) {
             try {
-              await reassignLoan(loanId, form.assignedLoId)
+              await addLeadForLo(loanId, form.assignedLoId, notifyLo)
             } catch (e) {
               toast.error(`${name} was added as your lead, but couldn't be handed over: ${(e as Error).message}`)
               return
@@ -172,6 +215,10 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
             await queryClient.invalidateQueries({ queryKey: keys.pipeline })
             await ghlAdd()
             const owner = members.data?.find((m) => m.id === form.assignedLoId)?.name ?? 'no one yet'
+            if (pickMode === 'loa') {
+              toast.success(`${name} added to ${where} for ${owner}. You're on the file as LO Assistant.`, { action: { label: 'Open', onClick: () => navigate(`/loans/${loanId}`) } })
+              return
+            }
             toast.success(`${name} added to ${where} for ${owner}`)
             return
           }
@@ -197,10 +244,36 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New Lead</DialogTitle>
-          <DialogDescription>Starts in {startStage ? stageLabel(startStage) : 'the Lead stage'}. You can fill in the rest later.</DialogDescription>
+          <DialogDescription>
+            {pickMode === 'loa' && "You're adding as LO Assistant. "}Starts in {startStage ? stageLabel(startStage) : 'the Lead stage'}. You can fill in the rest later.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-4" noValidate>
+          {pickMode === 'loa' && (
+            <div>
+              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Loan officer on this file</p>
+              <div className="mt-1.5 inline-flex flex-wrap rounded-lg border bg-muted/40 p-0.5" role="radiogroup" aria-label="Loan officer on this file">
+                {[...assists, myId!].map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={form.assignedLoId === id}
+                    onClick={() => set('assignedLoId')(id)}
+                    className={cn('rounded-md px-3 py-1 text-sm', form.assignedLoId === id ? 'bg-white font-medium text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+                  >
+                    {id === myId ? `Me (${firstOf(myId)})` : firstOf(id)}
+                  </button>
+                ))}
+              </div>
+              {forOther && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Lead lands in {firstOf(form.assignedLoId)}'s pipeline, owned by {firstOf(form.assignedLoId)} in GHL. You're attached as LO Assistant so you can keep working it.
+                </p>
+              )}
+            </div>
+          )}
           {existing ? (
             <div className="flex items-start justify-between gap-3 rounded-lg border border-primary/30 bg-accent p-3">
               <div className="flex gap-3">
@@ -257,14 +330,16 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
 
           <FormGrid className="lg:grid-cols-4">
             <Select label="Loan purpose" value={form.purpose} onChange={set('purpose')} options={PURPOSES} required span={2} />
-            <Select
-              label="Assigned LO"
-              value={form.assignedLoId}
-              onChange={set('assignedLoId')}
-              options={memberOptions}
-              placeholder={members.isLoading ? 'Loading…' : 'Select…'}
-              span={2}
-            />
+            {pickMode === 'all' && (
+              <Select
+                label="Assigned LO"
+                value={form.assignedLoId}
+                onChange={set('assignedLoId')}
+                options={memberOptions}
+                placeholder={members.isLoading ? 'Loading…' : 'Select…'}
+                span={2}
+              />
+            )}
             <Input
               label="Referral source"
               value={form.referralSource}
@@ -279,6 +354,12 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
             {ghl.data?.ready && <ToggleChip label="Add to GoHighLevel after saving" pressed={addToGhl} onChange={setAddToGhl} />}
             {ghl.data?.ready && <ToggleChip label="Text application link after saving" pressed={sendApplication} onChange={setSendApplication} />}
           </div>
+          {forOther && access.data?.ready && (
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input type="checkbox" className="size-4 accent-primary" checked={notifyLo} onChange={(e) => setNotifyLo(e.target.checked)} />
+              Notify {firstOf(form.assignedLoId)} now (push + Today: "New lead added by {firstOf(myId)}")
+            </label>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => close(false)}>

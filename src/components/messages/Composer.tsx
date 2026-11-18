@@ -27,7 +27,7 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
   const rules = useSendPlan(loan)
   // A file's processor drafts for the loan officer (Connor, 2026-11-16): nothing sends, so sending hours don't apply yet.
   const fileRole = useFileRole(loan.id)
-  const drafting = fileRole.role === 'processor'
+  const drafting = fileRole.role === 'processor' || fileRole.role === 'loa'
   const approver = fileRole.loName ?? 'the loan officer'
   // "Suggest a reply" (Connor, 2026-11-16): the AI writes only when asked, into this box.
   const ai = useAiStatus()

@@ -107,3 +107,22 @@ export function useSaveMemberLinks() {
     },
   })
 }
+
+/**
+ * Hand a lead you just added to another loan officer (add_lead_for_lo): owners and
+ * admins to anyone; an LO Assistant to the loan officers they assist, staying on
+ * the file as its LO Assistant. notify = an Action Queue item and a push for the LO.
+ * Before the LO assistant files script, falls back to the plain hand-over.
+ */
+export async function addLeadForLo(loanId: string, loId: string | null, notify: boolean): Promise<void> {
+  if (!loId) {
+    unwrap(await db().rpc('reassign_loan', { p_loan_id: loanId, p_lo_id: null }))
+    return
+  }
+  const r = await db().rpc('add_lead_for_lo', { p_loan_id: loanId, p_lo_id: loId, p_notify: notify })
+  if (r.error && /add_lead_for_lo/.test(r.error.message) && /(find|exist)/i.test(r.error.message)) {
+    unwrap(await db().rpc('reassign_loan', { p_loan_id: loanId, p_lo_id: loId }))
+    return
+  }
+  if (r.error) throw new Error(r.error.message)
+}

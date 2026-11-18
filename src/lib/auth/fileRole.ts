@@ -5,7 +5,7 @@
 
 import type { OrgRole } from './context'
 
-export type FileRole = 'admin' | 'lo' | 'processor'
+export type FileRole = 'admin' | 'lo' | 'loa' | 'processor'
 
 export interface FileRoleFacts {
   userId: string | null
@@ -13,13 +13,16 @@ export interface FileRoleFacts {
   assignedLoId: string | null
   /** Company users on the file's team (loan_team_members.profile_id). */
   teamProfileIds: (string | null)[]
+  /** Company users in the file's LO Assistant slot (loan_team_members.role = 'loa'). */
+  loaProfileIds?: (string | null)[]
 }
 
-/** 'admin' (sees every file), 'lo' (the assigned loan officer), 'processor' (on the team, not the LO), else null. */
+/** 'admin' (sees every file), 'lo' (the assigned loan officer), 'loa' (its LO Assistant), 'processor' (on the team, not the LO), else null. */
 export function fileRoleFor(f: FileRoleFacts): FileRole | null {
   if (!f.userId || !f.companyRole) return null
   if (f.companyRole === 'admin') return 'admin'
   if (f.assignedLoId === f.userId) return 'lo'
+  if (f.loaProfileIds?.includes(f.userId)) return 'loa'
   if (f.teamProfileIds.includes(f.userId)) return 'processor'
   return null
 }
@@ -34,5 +37,7 @@ export function filePermissions(role: FileRole | null) {
     seeComp: runs,
     /** Approve and send messages (others draft them for the loan officer). */
     sendMessages: runs,
+    /** Move the stage (an LO Assistant asks the loan officer instead, Connor 2026-11-17). */
+    moveStage: role !== 'loa',
   }
 }

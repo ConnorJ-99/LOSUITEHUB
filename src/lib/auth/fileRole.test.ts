@@ -21,6 +21,10 @@ describe('fileRoleFor', () => {
   it('a processor-only hire is processor on the files they are on', () => {
     expect(fileRoleFor({ userId: 'p', companyRole: 'processor', assignedLoId: CONNOR, teamProfileIds: ['p'] })).toBe('processor')
   })
+  it('the file LO Assistant is loa, not processor', () => {
+    expect(fileRoleFor({ userId: JANE, companyRole: 'loan_officer', assignedLoId: CONNOR, teamProfileIds: [JANE], loaProfileIds: [JANE] })).toBe('loa')
+    expect(filePermissions('loa')).toEqual({ manageFile: false, seeComp: false, sendMessages: false, moveStage: false })
+  })
   it('no one signed in has no role', () => {
     expect(fileRoleFor({ userId: null, companyRole: null, assignedLoId: CONNOR, teamProfileIds: [] })).toBeNull()
   })
@@ -28,10 +32,10 @@ describe('fileRoleFor', () => {
 
 describe('filePermissions', () => {
   it('a processor works the file but does not run it', () => {
-    expect(filePermissions('processor')).toEqual({ manageFile: false, seeComp: false, sendMessages: false })
+    expect(filePermissions('processor')).toEqual({ manageFile: false, seeComp: false, sendMessages: false, moveStage: true })
   })
   it('the loan officer and admin run it', () => {
-    expect(filePermissions('lo')).toEqual({ manageFile: true, seeComp: true, sendMessages: true })
-    expect(filePermissions('admin')).toEqual({ manageFile: true, seeComp: true, sendMessages: true })
+    expect(filePermissions('lo')).toEqual({ manageFile: true, seeComp: true, sendMessages: true, moveStage: true })
+    expect(filePermissions('admin')).toEqual({ manageFile: true, seeComp: true, sendMessages: true, moveStage: true })
   })
 })

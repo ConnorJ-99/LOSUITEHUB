@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { DateInput, FormGrid, TextArea, ToggleChip, ToggleChipGroup } from '@/components/shared'
+import { confirmAction, DateInput, FormGrid, TextArea, ToggleChip, ToggleChipGroup } from '@/components/shared'
 import { useGhlOpportunity } from '@/components/messaging/useGhlOpportunity'
 import { db, keys, unwrap } from '@/lib/api/client'
 import { useCloseLoan, useUpdateStage } from '@/lib/api/loans'
@@ -66,9 +66,17 @@ export function useStageChanger() {
 
   async function requestChange(loan: { id: string; stage: PipelineStage; borrowerName: string; closingDate?: string | null }, stage: PipelineStage, numbersChecked = false): Promise<void> {
     if (stage === loan.stage) return
+    const role = await db().rpc('file_role', { loan: loan.id })
+    // An LO Assistant only asks the loan officer to move the file (Connor, 2026-11-17); the database refuses a move too.
+    if (!role.error && role.data === 'loa') {
+      if (!(await confirmAction(`Ask the loan officer to move ${loan.borrowerName} to ${stageLabel(stage)}? They get it on their Today page and decide.`, { confirmLabel: 'Request stage change' }))) return
+      const r = await db().rpc('request_stage_change', { p_loan_id: loan.id, p_stage: stage, p_note: null })
+      if (r.error) toast.error(r.error.message)
+      else toast.success(`Asked the loan officer to move ${loan.borrowerName} to ${stageLabel(stage)}`)
+      return
+    }
     // A file's processor can't move it to Lost or Closed (Connor, 2026-11-16); the database refuses too.
     if (stage === 'lost' || stage === 'closed') {
-      const role = await db().rpc('file_role', { loan: loan.id })
       if (!role.error && role.data === 'processor') {
         toast.error(`Only this file's loan officer or an admin can move it to ${stageLabel(stage)}.`)
         return

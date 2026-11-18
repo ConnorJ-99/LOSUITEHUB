@@ -82,7 +82,7 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
   const draftDocs = draft?.channel === 'email' ? draftDocumentIds(item.payload) : []
   // A file's processor sees its drafts but the loan officer approves them (Connor, 2026-11-16).
   const myRole = useFileRoleOnly(file.loanId)
-  const waiting = item.kind === 'draft_message' && myRole.data === 'processor'
+  const waiting = item.kind === 'draft_message' && (myRole.data === 'processor' || myRole.data === 'loa')
   const canSend = !!sendTo && ghl.data?.ready === true
   const sendDraft = async (final: DraftMessage) => {
     if (!sendTo) return

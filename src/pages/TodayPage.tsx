@@ -204,7 +204,12 @@ export function TodayPage() {
   // Snoozed lead follow-ups stay hidden until their day (Connor, 2026-11-16).
   // Drafts on a file you only process wait for its loan officer, on their Today (Connor, 2026-11-16).
   const me = state.status === 'signedIn' ? state.user : null
-  const forMe = (a: { kind: string; assignedLoId: string | null }) => a.kind !== 'draft_message' || me?.role === 'admin' || a.assignedLoId === me?.id
+  // Items addressed to one person (an LO Assistant's "New lead added" and stage requests, Connor 2026-11-17) show only to them.
+  const forMe = (a: { kind: string; assignedLoId: string | null; payload: unknown }) => {
+    const forUser = a.payload && typeof a.payload === 'object' ? (a.payload as { forUserId?: unknown }).forUserId : undefined
+    if (typeof forUser === 'string') return me?.role === 'admin' || forUser === me?.id
+    return a.kind !== 'draft_message' || me?.role === 'admin' || a.assignedLoId === me?.id
+  }
   const actions = (data.data?.actions ?? []).filter((a) => forMe(a) && !isSnoozed(followupMeta.data?.get(a.id)?.snoozedUntil, today))
   const files = new Map(actions.map((a) => [a.id, a]))
   const entries = buildToday(

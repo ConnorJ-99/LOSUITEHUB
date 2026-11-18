@@ -93,6 +93,7 @@ const CLOSED_SECTIONS: Section[] = ['overview', 'loans', '1003', 'properties', '
 const TEAM: { role: TeamRole | 'loan_officer'; label: string; group: string; purchaseOnly?: boolean; company?: boolean }[] = [
   { role: 'loan_officer', label: 'Loan Officer', group: 'Broker' },
   { role: 'processor', label: 'Processor', group: 'Broker' },
+  { role: 'loa', label: 'LO Assistant', group: 'Broker' },
   { role: 'lender_ae', label: 'Account Exec', group: 'Lender', company: true },
   { role: 'title', label: 'Title', group: 'Contract', company: true },
   { role: 'buyer_agent', label: "Buyer's agent", group: 'Contract', purchaseOnly: true, company: true },
@@ -219,12 +220,15 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const next = workflow?.next
 
   const memberName = (id: string | null) => members.data?.find((m) => m.id === id)?.name ?? null
-  const team: TeamMember[] = TEAM.filter((t) => !t.purchaseOnly || isPurchase).map((t) => {
+  // The LO Assistant slot shows once someone in the company is an LO Assistant, or the file has one (Connor, 2026-11-17).
+  const anyLoa = !!members.data?.some((m) => m.secondaryRoles?.includes('loa')) || !!file.data?.team.some((r) => r.role === 'loa')
+  const team: TeamMember[] = TEAM.filter((t) => (!t.purchaseOnly || isPurchase) && (t.role !== 'loa' || anyLoa)).map((t) => {
     if (t.role === 'loan_officer') return { group: t.group, role: t.label, name: loan.assignedLo?.name ?? null, options: fileRole.manageFile ? members.data?.map((m) => m.name) : undefined }
     const record = file.data?.team.find((r) => r.role === t.role)
     const shown = record ? (memberName(record.profileId) ?? [record.name, record.company && `(${record.company})`].filter(Boolean).join(' ')) : null
     // The Processor slot lists people with the Processor role, primary or secondary (Connor, 2026-11-17), plus whoever is in it now.
     const processors = members.data?.filter((m) => canProcess(m) || m.id === record?.profileId).map((m) => m.name)
+    if (t.role === 'loa') return { group: t.group, role: t.label, name: shown || null, options: members.data?.filter((m) => m.secondaryRoles?.includes('loa') && m.id !== loan.assignedLo?.id).map((m) => m.name) }
     return { group: t.group, role: t.label, name: shown || null, options: t.role === 'processor' ? processors : undefined, allowCustom: true }
   })
   const roleFor = (label: string) => TEAM.find((t) => t.label === label)!
@@ -340,6 +344,11 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
             {fileRole.role === 'processor' && (
               <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[0.7rem] font-medium text-amber-800" title="You are this file's processor. The loan officer approves messages, changes the loan officer and moves it to Lost or Closed.">
                 Processing for {fileRole.loName ?? 'the loan officer'}
+              </span>
+            )}
+            {fileRole.role === 'loa' && (
+              <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[0.7rem] font-medium text-amber-800" title="You are this file's LO Assistant. The loan officer owns it, moves its stage and approves messages.">
+                LO Assistant for {fileRole.loName ?? 'the loan officer'}
               </span>
             )}
           </>
