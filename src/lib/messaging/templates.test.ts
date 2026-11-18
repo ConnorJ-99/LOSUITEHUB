@@ -62,3 +62,20 @@ describe('everyday templates', () => {
     expect('subject' in r && r.subject).toBe('Your loan application')
   })
 })
+
+describe('LO Assistant templates', () => {
+  it('uses merge tags that fill from the file LO', async () => {
+    const { resolveTags, tagValues } = await import('./mergeTags')
+    const t = buildTemplate('loa_intro', 'text', { borrowerFirst: 'Maria', loName: 'Dave Smith', nmls: null, realtors: [] })
+    if ('error' in t) throw new Error(t.error)
+    const values = tagValues({ borrowerFirst: 'Maria', sender: { fullName: 'Jamie Lee' }, lo: { fullName: 'Dave Smith', applicationLink: 'https://mps.mortgage/apply/dave' }, documentUploadLink: null })
+    expect(resolveTags(t.body, values)).toEqual({
+      text: "Hi Maria, this is Jamie, Dave's loan officer assistant at MPS Mortgage. Thanks for the call today! Here's Dave's secure application so we can get you pre-approved: https://mps.mortgage/apply/dave",
+      missing: [],
+    })
+    const book = buildTemplate('loa_booking', 'email', { borrowerFirst: 'Maria', loName: null, nmls: null, realtors: [] })
+    if ('error' in book) throw new Error(book.error)
+    expect(resolveTags(book.body, values).missing).toEqual(['LO booking link'])
+    expect(book.body).toContain('Loan Officer Assistant to {{lo.full_name}}')
+  })
+})

@@ -296,10 +296,10 @@ export async function suggestReply(v: { loanId: string; contactId: string; chann
   return data
 }
 
-/** Whether you draft for this file's loan officer: its processor (or, until LOA sending is built, its LO Assistant); false before the file roles script. */
+/** Whether you are this file's processor (file_role), who drafts for the loan officer; false before the file roles script has run. An LO Assistant sends from their own number. */
 export async function isFileProcessor(loanId: string): Promise<boolean> {
   const r = await db().rpc('file_role', { loan: loanId })
-  return !r.error && (r.data === 'processor' || r.data === 'loa')
+  return !r.error && r.data === 'processor'
 }
 
 /** The toast after a send that may have been a processor's draft. */

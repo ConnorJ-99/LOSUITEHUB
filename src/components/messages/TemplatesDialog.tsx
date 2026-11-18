@@ -8,6 +8,7 @@ import { usePartners } from '@/lib/api/partners'
 import { useProfile } from '@/lib/api/settings'
 import { partnerStageLabel } from '@/lib/partners/stages'
 import { formatPhone } from '@/lib/pipeline/helpers'
+import { TagText } from './TagEditor'
 import { buildTemplate, realtorChoices, realtorMissing, TEMPLATES, type Channel, type TemplateId } from '@/lib/messaging/templates'
 
 /**
@@ -20,6 +21,7 @@ export function TemplatesDialog({
   borrowerFirst,
   loName,
   loId,
+  asLoa = false,
   onUse,
   onClose,
 }: {
@@ -27,10 +29,12 @@ export function TemplatesDialog({
   borrowerFirst: string
   loName: string | null
   loId: string | null
+  /** The file's LO Assistant also gets the LOA templates (Connor, 2026-11-17), first. */
+  asLoa?: boolean
   onUse: (t: { body: string; subject: string }) => void
   onClose: () => void
 }) {
-  const [pick, setPick] = useState<TemplateId>('realtor_intro')
+  const [pick, setPick] = useState<TemplateId>(asLoa ? 'loa_intro' : 'realtor_intro')
   const [chosen, setChosen] = useState<string[]>([])
   const [search, setSearch] = useState('')
   const partners = usePartners()
@@ -53,7 +57,7 @@ export function TemplatesDialog({
           <DialogDescription>It fills the message box for you to edit. Nothing is sent until you click Send.</DialogDescription>
         </DialogHeader>
         <div className="space-y-1.5">
-          {TEMPLATES.map((t) => {
+          {(asLoa ? [...TEMPLATES.filter((t) => t.loa), ...TEMPLATES.filter((t) => !t.loa)] : TEMPLATES.filter((t) => !t.loa)).map((t) => {
             const ok = t.channels.includes(channel)
             return (
               <button
@@ -96,7 +100,7 @@ export function TemplatesDialog({
             </div>
           </div>
         )}
-        <div className="rounded-md bg-muted px-3 py-2 text-sm whitespace-pre-wrap">{error ? <span className="text-muted-foreground">{error}</span> : 'body' in result ? result.body : null}</div>
+        <div className="rounded-md bg-muted px-3 py-2 text-sm whitespace-pre-wrap">{error ? <span className="text-muted-foreground">{error}</span> : 'body' in result ? <TagText text={result.body} /> : null}</div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
             Cancel

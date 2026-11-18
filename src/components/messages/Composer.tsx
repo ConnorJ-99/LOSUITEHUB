@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { CalendarClockIcon, FileTextIcon, MailIcon, MessageSquareIcon, SendIcon, SparklesIcon } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { CalendarClockIcon, FileTextIcon, LinkIcon, MailIcon, MessageSquareIcon, SendIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { confirmAction, Input, TextArea } from '@/components/shared'
+import { confirmAction, Input } from '@/components/shared'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { sentOrDrafted, suggestReply, useScheduleMessage, useSendMessage, type FilePerson } from '@/lib/api/messages'
 import { useAiStatus } from '@/lib/api/assistant'
 import { scheduleLabel } from '@/lib/messaging/schedule'
@@ -15,6 +16,12 @@ import { MAX_TEXT_LENGTH } from '../../../supabase/functions/ghl/sendRules'
 import { TONE_CLASS } from './tone'
 import { useSendPlan } from './useSendPlan'
 import { useFileRole } from '@/lib/api/fileRole'
+import { usePortalLinks } from '@/lib/api/portal'
+import { useTeamAccess } from '@/lib/api/team'
+import { useAuth } from '@/lib/auth/context'
+import { LINK_BAR, resolveTags, TAGS, tagsIn, tagValues } from '@/lib/messaging/mergeTags'
+import { applicationLinkFor } from '@/lib/team/secondaryRoles'
+import { TagEditor, type TagEditorHandle } from './TagEditor'
 
 const newKey = () => crypto.randomUUID()
 
@@ -24,11 +31,20 @@ const newKey = () => crypto.randomUUID()
  * from the same rules the server checks again on send.
  */
 export function Composer({ loan, people }: { loan: LoanProfile; people: FilePerson[] }) {
-  const rules = useSendPlan(loan)
   // A file's processor drafts for the loan officer (Connor, 2026-11-16): nothing sends, so sending hours don't apply yet.
   const fileRole = useFileRole(loan.id)
-  const drafting = fileRole.role === 'processor' || fileRole.role === 'loa'
+  const drafting = fileRole.role === 'processor'
   const approver = fileRole.loName ?? 'the loan officer'
+  // The file's LO Assistant sends from their own GHL number (Connor, 2026-11-17); merge tags fill from the FILE's loan officer.
+  const asLoa = fileRole.role === 'loa'
+  const { state } = useAuth()
+  const meId = state.status === 'signedIn' ? state.user.id : null
+  const team = useTeamAccess()
+  const meMember = team.data?.members.find((m) => m.id === meId) ?? null
+  const loMember = team.data?.members.find((m) => m.id === loan.assignedLo?.id) ?? null
+  const rules = useSendPlan(loan, asLoa && meId ? { id: meId, name: meMember?.name ?? (state.status === 'signedIn' ? state.user.fullName : 'You') } : null)
+  const portalLinks = usePortalLinks(loan.id)
+  const editor = useRef<TagEditorHandle>(null)
   // "Suggest a reply" (Connor, 2026-11-16): the AI writes only when asked, into this box.
   const ai = useAiStatus()
   const [suggesting, setSuggesting] = useState(false)
@@ -46,13 +62,33 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
 
   const person = people.find((p) => p.id === personId) ?? people[0]
   if (!person || !rules) return null
-  const sendPlan = rules.plan(person, channel, body, subject)
-  const plan = drafting ? { ...sendPlan, problems: sendPlan.problems.filter((p) => p === 'Write a message first.' || p === 'An email needs a subject.') } : sendPlan
+  // Merge tags, filled for this person on this file; anything that can't be filled blocks Send.
+  const now = Date.now()
+  const uploadLink = portalLinks.data?.find((l) => l.contactId === person.id && new Date(l.expiresAt).getTime() > now)?.url ?? null
+  const values = tagValues({
+    borrowerFirst: person.firstName,
+    sender: meMember,
+    lo: loMember ? { ...loMember, applicationLink: applicationLinkFor(loMember) } : loan.assignedLo ? { fullName: loan.assignedLo.name } : null,
+    documentUploadLink: uploadLink,
+  })
+  const filled = resolveTags(body, values)
+  const filledSubject = resolveTags(subject, values)
+  const missing = [...new Set([...filled.missing, ...(channel === 'email' ? filledSubject.missing : [])])]
+  const hasTags = tagsIn(body).length > 0 || (channel === 'email' && tagsIn(subject).length > 0)
+  const sendPlan = rules.plan(person, channel, filled.text, filledSubject.text)
+  const base = drafting ? { ...sendPlan, problems: sendPlan.problems.filter((p) => p === 'Write a message first.' || p === 'An email needs a subject.') } : sendPlan
+  const plan = { ...base, problems: [...base.problems, ...(missing.length ? [`Missing: ${missing.join(', ')}`] : [])] }
   const window = rules.window
   // "Write a message first" and the subject aren't worth a warning before you've typed.
   const blockers = plan.problems.filter((p) => !(p === 'Write a message first.' || (p === 'An email needs a subject.' && !body.trim())))
   const to = channel === 'text' ? (person.phone ? formatPhone(person.phone) : 'no mobile') : (person.email ?? 'no email')
-  const from = channel === 'text' ? (plan.fromNumber ? `${rules.loName} · ${formatPhone(plan.fromNumber)}` : '—') : (plan.fromEmail ?? '—')
+  const from =
+    channel === 'text'
+      ? plan.fromNumber
+        ? `${rules.fromName} · ${formatPhone(plan.fromNumber)}${asLoa ? ` · LO Assistant for ${rules.loName ?? 'the loan officer'}` : ''}`
+        : '—'
+      : `${plan.fromEmail ?? '—'}${asLoa && plan.fromEmail ? ` · LO Assistant for ${rules.loName ?? 'the loan officer'}` : ''}`
+  const loFirst = (rules.loName ?? 'the loan officer').split(/\s+/)[0]
 
   // Scheduling for later: everything but "outside sending hours right now" (the time picked is checked instead).
   const laterProblems = plan.problems.filter((p) => !p.includes('Nothing sends outside them'))
@@ -65,7 +101,7 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
       : await confirmAction(`Send ${what}? It goes out through GHL from ${from}.`, { confirmLabel: channel === 'text' ? 'Send text' : 'Send email' })
     if (!ok) return
     send.mutate(
-      { contactId: person.id, loanId: loan.id, channel, body, subject: channel === 'email' ? subject : null, idempotencyKey: key },
+      { contactId: person.id, loanId: loan.id, channel, body: filled.text, subject: channel === 'email' ? filledSubject.text : null, idempotencyKey: key },
       {
         onSuccess: (r) => {
           if (r.alreadySent) toast.info(r.error ? `That message already failed: ${r.error}` : 'That message was already sent.')
@@ -150,7 +186,53 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
         )}
       </div>
       {channel === 'email' && <Input label="Subject" hideLabel placeholder="Subject" value={subject} onChange={setSubject} />}
-      <TextArea label="Message" value={body} onChange={setBody} placeholder={`Write a ${channel === 'text' ? 'text' : 'email'} to ${person.firstName}…`} rows={channel === 'text' ? 3 : 6} />
+      <div className="@container">
+        <div className={cn('gap-4', body.trim() && '@3xl:grid @3xl:grid-cols-[minmax(0,1fr)_18rem]')}>
+          <div className="space-y-2">
+            <TagEditor ref={editor} label="Message" value={body} onChange={setBody} placeholder={`Write a ${channel === 'text' ? 'text' : 'email'} to ${person.firstName}…`} rows={channel === 'text' ? 3 : 6} />
+            {/* Insert link bar (Connor, 2026-11-17): chips that fill from the file's loan officer at send time. */}
+            <div>
+              <p className="text-[0.7rem] font-medium tracking-wide text-muted-foreground uppercase">Insert link · resolves to the file's loan officer ({rules.loName ?? 'none yet'}){asLoa ? ', not you' : ''}</p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {LINK_BAR.map((b) => (
+                  <Button key={b.key} type="button" size="xs" variant="outline" onClick={() => editor.current?.insertTag(b.key)}>
+                    <LinkIcon />
+                    {b.label}
+                  </Button>
+                ))}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" size="xs" variant="ghost">
+                      More fields…
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {TAGS.filter((t) => !t.link).map((t) => (
+                      <DropdownMenuItem key={t.key} onSelect={() => editor.current?.insertTag(t.key)}>
+                        {t.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          </div>
+          {body.trim() && (
+            <div className="mt-3 rounded-lg border bg-muted/40 p-3 text-sm @3xl:mt-0">
+              <p className="text-[0.7rem] font-medium tracking-wide text-muted-foreground uppercase">Preview · what {person.firstName} receives</p>
+              <p className="mt-1 text-xs text-muted-foreground">From {channel === 'text' ? (plan.fromNumber ? formatPhone(plan.fromNumber) : '—') : (plan.fromEmail ?? '—')}</p>
+              {channel === 'email' && filledSubject.text.trim() && <p className="mt-2 font-medium">{filledSubject.text}</p>}
+              <p className="mt-2 break-words whitespace-pre-wrap">{filled.text}</p>
+              {hasTags && (
+                <p className={cn('mt-2 text-xs', missing.length ? 'text-destructive' : 'text-emerald-700')}>
+                  {missing.length ? `! Missing: ${missing.join(', ')}. Send is blocked until it's filled.` : `✓ Every field filled${loMember ? ` from ${loFirst}'s profile` : ''}`}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      {asLoa && <p className="text-xs text-muted-foreground">Replies to your number show on this file and in {loFirst}'s inbox and yours.</p>}
       {blockers.length > 0 && (
         <ul className="space-y-1 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {blockers.map((b) => (
@@ -160,7 +242,7 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground tabular-nums">
-          {channel === 'text' ? `${body.trim().length} / ${MAX_TEXT_LENGTH}` : 'Sent as plain text'}
+          {channel === 'text' ? `${filled.text.trim().length} / ${MAX_TEXT_LENGTH}` : 'Sent as plain text'}
           {rules.testMode && ' · Test mode: only people named TEST'}
         </span>
         <div className="ml-auto flex gap-2">
@@ -172,7 +254,7 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
           )}
           <Button onClick={submit} disabled={send.isPending || plan.problems.length > 0}>
             <SendIcon />
-            {drafting ? (send.isPending ? 'Saving…' : `Save for ${approver} to approve`) : send.isPending ? 'Sending…' : channel === 'text' ? 'Send text' : 'Send email'}
+            {drafting ? (send.isPending ? 'Saving…' : `Save for ${approver} to approve`) : send.isPending ? 'Sending…' : asLoa ? (channel === 'text' ? 'Send from my number' : 'Send email') : channel === 'text' ? 'Send text' : 'Send email'}
           </Button>
         </div>
       </div>
@@ -182,6 +264,7 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
           borrowerFirst={person.firstName}
           loName={rules.loName}
           loId={loan.assignedLo?.id ?? null}
+          asLoa={asLoa}
           onUse={(t) => void applyTemplate(t)}
           onClose={() => setTemplating(false)}
         />
@@ -193,7 +276,7 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
           onClose={() => setScheduling(false)}
           onSchedule={(sendAt) =>
             schedule.mutate(
-              { contactId: person.id, loanId: loan.id, channel, body, subject: channel === 'email' ? subject : null, idempotencyKey: key, sendAt },
+              { contactId: person.id, loanId: loan.id, channel, body: filled.text, subject: channel === 'email' ? filledSubject.text : null, idempotencyKey: key, sendAt },
               {
                 onSuccess: () => {
                   toast.success(`Scheduled for ${scheduleLabel(sendAt)}`)

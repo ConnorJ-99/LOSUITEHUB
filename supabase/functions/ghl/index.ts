@@ -556,16 +556,28 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
   const settings = await admin.from('messaging_settings').select('send_hours, inbound_mode, email_domain_verified').eq('organization_id', organizationId).maybeSingle()
   if (settings.error) throw new Error(settings.error.message)
   const s = settings.data as { send_hours: SendHoursValue; inbound_mode: string; email_domain_verified: boolean } | null
+  // Who it goes out from: the file's loan officer, or the file's LO Assistant when they approved it (Connor,
+  // 2026-11-17): their own GHL number and email. The GHL contact still belongs to the loan officer.
+  let senderId = loId
+  if (loId && userId !== loId && !req.partnerId) {
+    const asLoa = await admin.from('loan_team_members').select('id').eq('loan_id', req.loanId).eq('profile_id', userId).eq('role', 'loa').limit(1)
+    if (asLoa.error && !/invalid input value for enum/i.test(asLoa.error.message)) throw new Error(asLoa.error.message)
+    if (asLoa.data?.length) senderId = userId
+  }
   let lo: { name: string; ghlNumber: string | null; numberConfirmed: boolean; ghlEmail: string | null } | null = null
   let loGhlUserId: string | null = null
   if (loId) {
-    const prof = await db.from('profiles').select('full_name, email').eq('id', loId).maybeSingle()
-    const link = await admin.from('ghl_user_links').select('ghl_user_id, ghl_number, ghl_email, number_confirmed_at').eq('organization_id', organizationId).eq('profile_id', loId).maybeSingle()
+    const link = await admin.from('ghl_user_links').select('ghl_user_id').eq('organization_id', organizationId).eq('profile_id', loId).maybeSingle()
+    if (link.error) throw new Error(link.error.message)
+    loGhlUserId = (link.data as { ghl_user_id: string } | null)?.ghl_user_id ?? null
+  }
+  if (senderId) {
+    const prof = await admin.from('profiles').select('full_name, email').eq('id', senderId).maybeSingle()
+    const link = await admin.from('ghl_user_links').select('ghl_user_id, ghl_number, ghl_email, number_confirmed_at').eq('organization_id', organizationId).eq('profile_id', senderId).maybeSingle()
     if (prof.error || link.error) throw new Error((prof.error ?? link.error)!.message)
     const pr = prof.data as { full_name: string | null; email: string } | null
     const l = link.data as { ghl_user_id: string; ghl_number: string | null; ghl_email: string | null; number_confirmed_at: string | null } | null
-    lo = { name: pr?.full_name || pr?.email || 'The loan officer', ghlNumber: l?.ghl_number ?? null, numberConfirmed: !!l?.number_confirmed_at, ghlEmail: l?.ghl_email ?? null }
-    loGhlUserId = l?.ghl_user_id ?? null
+    lo = { name: pr?.full_name || pr?.email || (senderId === loId ? 'The loan officer' : 'The LO Assistant'), ghlNumber: l?.ghl_number ?? null, numberConfirmed: !!l?.number_confirmed_at, ghlEmail: l?.ghl_email ?? null }
   }
 
   const sendPlan = planSend({
