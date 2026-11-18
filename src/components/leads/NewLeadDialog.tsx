@@ -1,5 +1,5 @@
 import type * as React from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { UserCheckIcon, XIcon } from 'lucide-react'
@@ -110,6 +110,7 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
   const nameOf = (id: string | null) => access.data?.members.find((m) => m.id === id)?.name ?? members.data?.find((m) => m.id === id)?.name ?? 'the loan officer'
   const firstOf = (id: string | null) => nameOf(id).split(/\s+/)[0]
   const [notifyLo, setNotifyLo] = useState(true)
+  const intakeAfter = useRef(false)
   // An LO Assistant starts on the loan officer they picked last time.
   const [loaDefaulted, setLoaDefaulted] = useState(false)
   if (open && pickMode === 'loa' && !loaDefaulted) {
@@ -164,6 +165,9 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
       },
       {
         onSuccess: async (loanId) => {
+          // "Save & start intake interview" (Connor, 2026-11-17): the interview opens once the lead is saved and handed over.
+          const thenIntake = intakeAfter.current
+          intakeAfter.current = false
           const name = existing ? fullName(existing) : `${form.firstName} ${form.lastName}`.trim()
           close(false)
           // "Add to GoHighLevel after saving": the same match-or-create as the file's button, once the file has its loan officer.
@@ -215,6 +219,11 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
             await queryClient.invalidateQueries({ queryKey: keys.pipeline })
             await ghlAdd()
             const owner = members.data?.find((m) => m.id === form.assignedLoId)?.name ?? 'no one yet'
+            if (thenIntake) {
+              navigate(`/loans/${loanId}/intake`)
+              toast.success(`${name} added to ${where} for ${owner}`)
+              return
+            }
             if (pickMode === 'loa') {
               toast.success(`${name} added to ${where} for ${owner}. You're on the file as LO Assistant.`, { action: { label: 'Open', onClick: () => navigate(`/loans/${loanId}`) } })
               return
@@ -223,6 +232,11 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
             return
           }
           await ghlAdd()
+          if (thenIntake) {
+            navigate(`/loans/${loanId}/intake`)
+            toast.success(`${name} added to ${where}`)
+            return
+          }
           if (startPrequal) {
             navigate(`/loans/${loanId}?tab=1003`)
             toast.success(`${name} added to ${where}`)
@@ -365,8 +379,11 @@ export function NewLeadDialog({ open, onOpenChange, preset = null }: { open: boo
             <Button type="button" variant="outline" onClick={() => close(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={createLead.isPending}>
-              {createLead.isPending ? 'Saving…' : 'Add lead'}
+            <Button type="submit" variant="outline" disabled={createLead.isPending} onClick={() => (intakeAfter.current = false)}>
+              {createLead.isPending ? 'Saving…' : 'Save lead only'}
+            </Button>
+            <Button type="submit" disabled={createLead.isPending} onClick={() => (intakeAfter.current = true)}>
+              Save &amp; start intake interview →
             </Button>
           </DialogFooter>
         </form>

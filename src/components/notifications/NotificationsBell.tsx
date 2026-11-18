@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
-import { AlertTriangleIcon, ArrowRightIcon, BellIcon, BellOffIcon, CalendarClockIcon, CheckIcon, FileTextIcon, MessageSquareIcon, ReceiptIcon, SproutIcon, UserPlusIcon, UserSearchIcon } from 'lucide-react'
+import { AlertTriangleIcon, ArrowRightIcon, BellIcon, BellOffIcon, CalendarClockIcon, CheckIcon, ClipboardListIcon, FileTextIcon, MessageSquareIcon, ReceiptIcon, SproutIcon, UserPlusIcon, UserSearchIcon } from 'lucide-react'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -20,6 +20,8 @@ const ICON: Record<AppNotification['kind'], typeof BellIcon> = {
   nurture_reply: SproutIcon,
   lead_added: UserPlusIcon,
   stage_request: ArrowRightIcon,
+  intake_submitted: ClipboardListIcon,
+  intake_returned: ClipboardListIcon,
   test: BellIcon,
 }
 

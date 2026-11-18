@@ -3,6 +3,7 @@ import { cn } from 'cn'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   CalculatorIcon,
+  ClipboardListIcon,
   SproutIcon,
   RotateCcwIcon,
   ChevronDownIcon,
@@ -409,6 +410,13 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
                 <DropdownMenuItem onSelect={() => void offerApplicationLink(loan.id, loan.borrower!.id)}>
                   <FileTextIcon />
                   Send application link…
+                </DropdownMenuItem>
+              )}
+              {/* The guided intake call (LO Assistant step 4, Connor 2026-11-17). */}
+              {!closedFile && loan.stage !== 'lost' && (
+                <DropdownMenuItem onSelect={() => navigate(`/loans/${loan.id}/intake`)}>
+                  <ClipboardListIcon />
+                  Intake interview
                 </DropdownMenuItem>
               )}
               {canDelete && (

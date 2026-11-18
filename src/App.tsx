@@ -15,6 +15,7 @@ import { LoanFileGalleryPage } from '@/pages/LoanFileGalleryPage'
 import { LendersPage } from '@/pages/LendersPage'
 import { QuickLinksPage } from '@/pages/QuickLinksPage'
 import { LoanPage } from '@/pages/LoanPage'
+import { IntakePage } from '@/pages/IntakePage'
 import { MatrixImportPage } from '@/pages/MatrixImportPage'
 import { ProductUpdatePage } from '@/pages/ProductUpdatePage'
 import { BusinessMetricsPage } from '@/pages/BusinessMetricsPage'
@@ -71,6 +72,7 @@ const router = createBrowserRouter([
       { path: 'pages/:pageId/submissions', element: <PageSubmissionsPage /> },
       { path: 'assistant', element: <AssistantPage /> },
       { path: 'loans/:loanId', element: <LoanPage /> },
+      { path: 'loans/:loanId/intake', element: <IntakePage /> },
       { path: 'product-search', element: <ProductSearchPage /> },
       { path: 'quick-quote', element: <QuickQuotePage /> },
       { path: 'quick-links', element: <QuickLinksPage /> },

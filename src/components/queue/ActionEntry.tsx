@@ -230,6 +230,12 @@ export function ActionEntry({ item, file, showFile }: { item: ActionItem; file: 
     )
   }
 
+  // "Intake ready" (LO Assistant step 4, Connor 2026-11-17): Review opens the intake.
+  const intakeId = item.payload && typeof item.payload === 'object' ? (item.payload as { intakeId?: unknown }).intakeId : undefined
+  if (task && typeof intakeId === 'string') {
+    return <QueueItem {...common} approveLabel="Review intake" onApprove={() => navigate(`/loans/${file.loanId}/intake`)} />
+  }
+
   if (task) {
     return (
       <>

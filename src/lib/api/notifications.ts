@@ -9,7 +9,7 @@ import { db, unwrap } from './client'
 // app shows your own, marks them read, keeps your settings and turns phone
 // push on for a device.
 
-export type NotificationKind = 'reply' | 'needs_matching' | 'send_failed' | 'opted_out' | 'scheduled_sent' | 'scheduled_stopped' | 'page_submission' | 'estimate_picked' | 'nurture_reply' | 'lead_added' | 'stage_request' | 'test'
+export type NotificationKind = 'reply' | 'needs_matching' | 'send_failed' | 'opted_out' | 'scheduled_sent' | 'scheduled_stopped' | 'page_submission' | 'estimate_picked' | 'nurture_reply' | 'lead_added' | 'stage_request' | 'intake_submitted' | 'intake_returned' | 'test'
 
 export interface AppNotification {
   id: string
@@ -33,6 +33,8 @@ export const NOTIFICATION_KINDS: { kind: Exclude<NotificationKind, 'test'>; labe
   { kind: 'nurture_reply', label: 'A borrower in Nurture replies (an update to verify)', pushDefault: true },
   { kind: 'lead_added', label: 'Your LO Assistant adds a lead for you', pushDefault: true },
   { kind: 'stage_request', label: 'Your LO Assistant asks to move a file', pushDefault: true },
+  { kind: 'intake_submitted', label: 'An intake interview is ready for your review', pushDefault: true },
+  { kind: 'intake_returned', label: 'An intake you ran is sent back with a question', pushDefault: true },
   { kind: 'needs_matching', label: 'A message needs matching', adminsOnly: true, pushDefault: true },
 ]
 
