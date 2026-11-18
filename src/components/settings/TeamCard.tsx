@@ -205,8 +205,10 @@ export function TeamCard({ me }: { me: CurrentUser }) {
   const access = useTeamAccess()
   const ghl = useGhlLinks()
   const addMember = useAddMember()
+  const setAccess = useSetMemberAccess()
   const [email, setEmail] = useState('')
   const [role, setNewRole] = useState<OrgRole>('loan_officer')
+  const [newSecondary, setNewSecondary] = useState<SecondaryRole[]>([])
   const [editing, setEditing] = useState<string | null>(null)
   const canManage = me.role === 'owner' || me.role === 'admin'
   const isOwner = me.role === 'owner'
@@ -220,12 +222,25 @@ export function TeamCard({ me }: { me: CurrentUser }) {
   const add = (e: FormEvent) => {
     e.preventDefault()
     if (!email.trim()) return toast.error("Type the person's email")
+    const who = email.trim()
     addMember.mutate(
-      { email: email.trim(), role },
+      { email: who, role },
       {
-        onSuccess: () => {
-          toast.success(`${email.trim()} added as ${role === 'admin' || role === 'owner' ? 'an' : 'a'} ${roleLabels[role].toLowerCase()}`)
+        onSuccess: async (userId) => {
+          const extra = newSecondary.length ? ` and ${newSecondary.map((r) => SECONDARY_ROLES.find((s) => s.value === r)!.label).join(' and ')}` : ''
+          // Secondary roles right after: LO Assistant opens Edit so the loan officers they assist can be picked.
+          if (newSecondary.length && userId) {
+            try {
+              await setAccess.mutateAsync({ userId, secondaryRoles: newSecondary, assists: [] })
+            } catch (e) {
+              toast.error(`${who} was added, but the secondary roles weren't saved: ${(e as Error).message}`)
+              return
+            }
+          }
+          toast.success(`${who} added as ${role === 'admin' || role === 'owner' ? 'an' : 'a'} ${roleLabels[role].toLowerCase()}${extra}`)
+          if (newSecondary.includes('loa') && userId) setEditing(userId)
           setEmail('')
+          setNewSecondary([])
         },
         onError: (err) => toast.error(err.message),
       },
@@ -277,11 +292,22 @@ export function TeamCard({ me }: { me: CurrentUser }) {
             <Input label="Email" type="email" value={email} onChange={setEmail} span={2} />
             <Select label="Role" value={role} onChange={setNewRole} options={roleOptions} />
             <div className="flex items-end">
-              <Button type="submit" disabled={addMember.isPending}>
-                {addMember.isPending ? 'Adding…' : 'Add'}
+              <Button type="submit" disabled={addMember.isPending || setAccess.isPending}>
+                {addMember.isPending || setAccess.isPending ? 'Adding…' : 'Add'}
               </Button>
             </div>
           </FormGrid>
+          {ready && (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <span className="text-xs text-muted-foreground">Also:</span>
+              {SECONDARY_ROLES.map((r) => (
+                <label key={r.value} className="flex cursor-pointer items-center gap-1.5" title={r.description}>
+                  <input type="checkbox" className="size-4 accent-primary" checked={newSecondary.includes(r.value)} onChange={(e) => setNewSecondary((s) => (e.target.checked ? [...s, r.value] : s.filter((x) => x !== r.value)))} />
+                  {r.label}
+                </label>
+              ))}
+            </div>
+          )}
         </form>
       )}
     </Card>

@@ -175,9 +175,8 @@ export function useAddMember() {
   const { state } = useAuth()
   const orgId = state.status === 'signedIn' ? state.user.organizationId : null
   return useMutation({
-    mutationFn: async ({ email, role }: { email: string; role: OrgRole }) => {
-      unwrap(await db().rpc('add_member_by_email', { p_organization_id: orgId, p_email: email, p_role: role }))
-    },
+    /** Returns the new member's id. */
+    mutationFn: async ({ email, role }: { email: string; role: OrgRole }) => unwrap<string>(await db().rpc('add_member_by_email', { p_organization_id: orgId, p_email: email, p_role: role })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.orgMembers }),
   })
 }
