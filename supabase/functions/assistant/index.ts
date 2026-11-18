@@ -36,6 +36,7 @@ import { MAX_EMAIL_CHARS, UPDATE_SCHEMA, UPDATE_SYSTEM_PROMPT, normalizeProposal
 import { LEAD_MODEL, LEAD_SCHEMA, LEAD_SYSTEM, buildLeadPrompt, leadDraftIssues, lookingFor, readLeadDraft, reachedOut, reworded, type LeadKind, type LeadThreadMessage } from './leadFollowup.ts'
 import { NURTURE_MODEL, NURTURE_READ_SCHEMA, NURTURE_READ_SYSTEM, NURTURE_WORD_SCHEMA, NURTURE_WORD_SYSTEM, buildNurtureReadPrompt, buildNurtureWordPrompt, isNurtureKind, nurtureDraftIssues, nurtureReworded, readNurtureDraft, readNurtureReading, type NurtureThreadMessage, type ReadMilestone } from './nurture.ts'
 import { REPLY_MODEL, REPLY_SCHEMA, REPLY_SYSTEM, THREAD_SENT, buildReplyPrompt, latestBurst, readReply, replyChannel, replySubject, type ThreadMessage } from './replyDraft.ts'
+import { INTAKE_MODEL, INTAKE_SCHEMA, INTAKE_SYSTEM, buildIntakePrompt, readIntakeSummary } from './intakeSummary.ts'
 import { READINESS_MODEL, READINESS_SCHEMA, READINESS_SYSTEM, buildReadinessPrompt, normalizeReadinessPlan, type ReadinessFacts } from './readinessPlan.ts'
 import { DOC_READ_SCHEMA, DOC_READ_SYSTEM_PROMPT, DOC_READ_USER_PROMPT, documentFlags, normalizeDocReading, statusFor, type FlagJob } from './documentRead.ts'
 
@@ -230,6 +231,7 @@ Deno.serve(async (request) => {
     if (task === 'document_read_now') return await handleDocumentReadNow(db, body, apiKey)
     if (task === 'readiness_plan') return await handleReadinessPlan(db, body, userId, apiKey)
     if (task === 'reply_suggest') return await handleReplySuggest(db, body, userId, apiKey)
+    if (task === 'intake_summary') return await handleIntakeSummary(db, body, userId, apiKey)
     return await handleFollowUp(db, body, userId, apiKey)
   } catch (e) {
     return reply(500, { error: (e as Error).message })
@@ -1324,6 +1326,40 @@ async function handleReadinessPlan(db: SupabaseClient, body: unknown, userId: st
     if ('error' in plan) throw new UserError(plan.error)
     await db.from('ai_runs').update({ status: 'succeeded', output: plan, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
     return reply(200, { plan, runId })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
+  }
+}
+
+// The intake review's paragraph (LO Assistant step 5, Connor 2026-11-17): Sonnet 5.5 reads the
+// submitted answers (as the signed-in person sees them) and the facts the app worked out, and
+// writes a headline and 3–5 sentences for the loan officer. The app saves it with the facts.
+async function handleIntakeSummary(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const { intakeId, facts } = (body ?? {}) as { intakeId?: unknown; facts?: unknown }
+  if (typeof intakeId !== 'string' || !UUID.test(intakeId)) return reply(400, { error: 'Invalid intake.' })
+  const found = await db.from('intake_interviews').select('loan_id, organization_id, status, answers').eq('id', intakeId).maybeSingle()
+  const it = found.data as { loan_id: string; organization_id: string; status: string; answers: unknown } | null
+  if (!it) return reply(404, { error: "That intake wasn't found, or it isn't yours." })
+  if (it.status === 'draft') return reply(422, { error: 'Submit the intake first.' })
+  const runId = await startRun(db, it.organization_id, it.loan_id, 'intake_summary', { intakeId }, INTAKE_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: INTAKE_MODEL }
+  try {
+    const params = {
+      model: INTAKE_MODEL,
+      max_tokens: 2000,
+      system: INTAKE_SYSTEM,
+      messages: [{ role: 'user', content: buildIntakePrompt(it.answers, facts) }],
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: INTAKE_SCHEMA } },
+    }
+    const res = await createForJson(new Anthropic({ apiKey }), params, db, runId)
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to summarize this intake.')
+    const read = res.stop_reason === 'end_turn' ? readIntakeSummary(parseJsonReply(replyText(res))) : { error: res.stop_reason }
+    if ('error' in read) throw new UserError(`The summary came back unusable (${read.error}). The worked-out facts are still shown.`)
+    await db.from('ai_runs').update({ status: 'succeeded', output: read, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+    return reply(200, { ...read, runId })
   } catch (e) {
     return failRun(db, runId, usage, e)
   }

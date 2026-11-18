@@ -7,7 +7,11 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Card, confirmAction, EmptyState, FormGrid, TextArea } from '@/components/shared'
 import { IntakeField } from '@/components/intake/IntakeField'
-import { saveIntakeAnswers, useIntake, useMayRunIntake, useStartIntake, useSubmitIntake, type Intake } from '@/lib/api/intake'
+import { IntakeReview } from '@/components/intake/IntakeReview'
+import { RequestDocumentsHost } from '@/components/documents/RequestDocumentsHost'
+import { useAiStatus } from '@/lib/api/assistant'
+import { useFileRole } from '@/lib/api/fileRole'
+import { saveIntakeAnswers, useIntake, useMayRunIntake, useStartIntake, useSubmitIntake, writeIntakeSummary, type Intake } from '@/lib/api/intake'
 import { useLoan } from '@/lib/api/loans'
 import { useAuth } from '@/lib/auth/context'
 import { formatPhone } from '@/lib/pipeline/helpers'
@@ -36,6 +40,7 @@ function writeHidePrompts(userId: string | null, hide: boolean) {
 /** The interview itself, once it exists. */
 function Interview({ intake, loFirst, borrowerName, meName, meId }: { intake: Intake; loFirst: string; borrowerName: string; meName: string; meId: string | null }) {
   const submit = useSubmitIntake(intake.loanId)
+  const ai = useAiStatus()
   const readOnly = intake.status === 'submitted' || intake.status === 'accepted'
   const [answers, setAnswers] = useState<Answers>(intake.answers)
   const [current, setCurrent] = useState<SectionId>(() => SECTIONS.find((s) => !doneSections(intake.answers).includes(s.id))?.id ?? 'handoff')
@@ -120,6 +125,8 @@ function Interview({ intake, loFirst, borrowerName, meName, meId }: { intake: In
         onSuccess: () => {
           toast.success(`Sent to ${loFirst || 'the loan officer'} for review`)
           setPartialOpen(false)
+          // The review summary (worked out, plus the AI paragraph when it's on) is written now, in the background.
+          void writeIntakeSummary({ id: intake.id, answers: latest.current }, ai.data?.ready === true)
         },
         onError: (e) => toast.error(e.message),
       },
@@ -306,6 +313,8 @@ export function IntakePage() {
   const intake = useIntake(loanId)
   const mayRun = useMayRunIntake(loanId)
   const start = useStartIntake(loanId)
+  const fileRole = useFileRole(loanId)
+  const [showAnswers, setShowAnswers] = useState(false)
   const { state } = useAuth()
   const me = state.status === 'signedIn' ? state.user : null
 
@@ -367,10 +376,27 @@ export function IntakePage() {
     )
   }
 
+  // The file's loan officer (or an admin) reviews a submitted intake (step 5); the interviewer keeps the interview.
+  const it = intake.data
+  const reviewer = fileRole.role === 'lo' || fileRole.role === 'admin'
+  const review = reviewer && it.status !== 'draft' && !(it.status === 'returned' && it.interviewerUserId === me?.id) && !showAnswers
   return (
     <>
       {header}
-      <Interview key={intake.data.id + intake.data.status} intake={intake.data} loFirst={loFirst} borrowerName={borrowerName} meName={me?.fullName || me?.email || ''} meId={me?.id ?? null} />
+      <RequestDocumentsHost loan={l} />
+      {review ? (
+        <IntakeReview intake={it} borrowerName={borrowerName} borrowerId={borrower?.id ?? null} interviewerFirst={firstOf(it.interviewerName)} onOpenAnswers={() => setShowAnswers(true)} />
+      ) : (
+        <>
+          {showAnswers && (
+            <Button size="sm" variant="outline" className="mb-3" onClick={() => setShowAnswers(false)}>
+              <ArrowLeftIcon />
+              Back to the review
+            </Button>
+          )}
+          <Interview key={intake.data.id + intake.data.status} intake={intake.data} loFirst={loFirst} borrowerName={borrowerName} meName={me?.fullName || me?.email || ''} meId={me?.id ?? null} />
+        </>
+      )}
     </>
   )
 }

@@ -26,6 +26,7 @@ import { WebFormsCard } from './WebFormsCard'
 import { ProposedUpdatesCard } from '@/components/pages/ProposedUpdatesCard'
 import { SendFormCard } from '@/components/pages/SendFormCard'
 import { ApplicationCard } from '@/components/applications/ApplicationCard'
+import { IntakeCard } from '@/components/intake/IntakeCard'
 import { SettlementCard } from '@/components/loanfile/SettlementCard'
 import { PortalCard } from '@/components/portal/PortalCard'
 import { LeadTypePicker } from '@/components/pipeline/LeadTypePicker'
@@ -603,6 +604,8 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
           <PortalCard loan={loan} />
 
           <ApplicationCard loan={loan} />
+
+          <IntakeCard loanId={loan.id} />
 
           <SendFormCard loan={loan} />
 
