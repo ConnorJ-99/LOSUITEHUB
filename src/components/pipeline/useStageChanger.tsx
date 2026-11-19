@@ -20,6 +20,8 @@ import { MoveToNurtureDialog, type NurtureTarget } from '@/components/nurture/Mo
 interface Pending {
   loanId: string
   borrowerName: string
+  /** Where the dates came from, shown under the title (e.g. the final Closing Disclosure). */
+  datesNote?: string
 }
 
 /**
@@ -64,7 +66,11 @@ export function useStageChanger() {
     )
   }
 
-  async function requestChange(loan: { id: string; stage: PipelineStage; borrowerName: string; closingDate?: string | null }, stage: PipelineStage, numbersChecked = false): Promise<void> {
+  async function requestChange(
+    loan: { id: string; stage: PipelineStage; borrowerName: string; closingDate?: string | null; fundingDate?: string | null; datesNote?: string },
+    stage: PipelineStage,
+    numbersChecked = false,
+  ): Promise<void> {
     if (stage === loan.stage) return
     const role = await db().rpc('file_role', { loan: loan.id })
     // An LO Assistant only asks the loan officer to move the file (Connor, 2026-11-17); the database refuses a move too.
@@ -104,14 +110,20 @@ export function useStageChanger() {
       return
     }
     if (stage === 'closed') {
-      // Both dates start at the file's closing date if it has one, else today.
+      // Closed on starts at the file's closing date, else today; Funded on at the file's funded date
+      // (e.g. from the final Closing Disclosure), else the closed date.
       let closing = loan.closingDate
-      if (closing === undefined) closing = (unwrap<{ closing_date: string | null } | null>(await db().from('loans').select('closing_date').eq('id', loan.id).maybeSingle()))?.closing_date ?? null
+      let funding = loan.fundingDate
+      if (closing === undefined || funding === undefined) {
+        const row = unwrap<{ closing_date: string | null; funding_date: string | null } | null>(await db().from('loans').select('closing_date, funding_date').eq('id', loan.id).maybeSingle())
+        if (closing === undefined) closing = row?.closing_date ?? null
+        if (funding === undefined) funding = row?.funding_date ?? null
+      }
       const start = closing ?? todayIso()
       setClosedOn(start)
-      setFundedOn(start)
+      setFundedOn(funding ?? start)
       setNote('')
-      setPendingClosed({ loanId: loan.id, borrowerName: loan.borrowerName })
+      setPendingClosed({ loanId: loan.id, borrowerName: loan.borrowerName, datesNote: loan.datesNote })
       return
     }
     save(loan.id, stage)
@@ -188,7 +200,10 @@ export function useStageChanger() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Mark as Closed</DialogTitle>
-            <DialogDescription>When did {pendingClosed?.borrowerName ?? 'this loan'} close and fund? Production counts on the funded date.</DialogDescription>
+            <DialogDescription>
+              When did {pendingClosed?.borrowerName ?? 'this loan'} close and fund? Production counts on the funded date.
+              {pendingClosed?.datesNote && <span className="mt-1 block font-medium text-foreground">{pendingClosed.datesNote}</span>}
+            </DialogDescription>
           </DialogHeader>
           <FormGrid className="lg:grid-cols-2">
             <DateInput label="Closed on" value={closedOn} onChange={setClosedOn} required />

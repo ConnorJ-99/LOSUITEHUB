@@ -28,6 +28,8 @@ import { loanRevenue } from '@/lib/calc'
 import { CD_GROUPS, changesFor, checkQuotes, formatCdSaved, isUsed, reviewRows, undecided, type CdRow, type Decision } from '@/lib/closing/cdReview'
 import { formatIsoDate, relativeTime } from '@/lib/dates'
 import { resolveLender } from '@/lib/loans/numbers'
+import { fullName } from '@/lib/pipeline/helpers'
+import { useStageChanger } from '@/components/pipeline/useStageChanger'
 import { CD_FIELDS, type CdFieldKey } from '../../../supabase/functions/assistant/closingDisclosure'
 import { cdDot } from '@/lib/closing/cdColors'
 import { CdPlayback, type CdAnimItem } from './CdPlayback'
@@ -298,6 +300,14 @@ function Review({ loan, reading, onApplied }: { loan: LoanProfile; reading: CdRe
 
 function Applied({ loan, reading }: { loan: LoanProfile; reading: CdReadingRecord }) {
   const undo = useUndoCd(loan.id)
+  const stages = useStageChanger()
+  const datesFromCd = reading.applied.some((a) => a.target === 'loans.closing_date' || a.target === 'loans.funding_date')
+  // The usual Mark as Closed window (email and phone check, GHL, milestone text), with the dates now on the file.
+  const markClosed = () =>
+    void stages.requestChange(
+      { id: loan.id, stage: loan.stage, borrowerName: fullName(loan.borrower), datesNote: datesFromCd ? 'The dates below are from the final Closing Disclosure.' : undefined },
+      'closed',
+    )
   const lenders = useLenders()
   const lenderName = (v: unknown) => (typeof v === 'string' ? (lenders.data?.find((l) => l.id === v)?.name ?? 'another lender') : '—')
   const shown = (key: string, target: string, v: unknown) => (target === 'loans.lender_id' ? lenderName(v) : formatCdSaved(key, v))
@@ -331,7 +341,14 @@ function Applied({ loan, reading }: { loan: LoanProfile; reading: CdReadingRecor
           <UndoIcon />
           {undo.isPending ? 'Undoing…' : 'Undo'}
         </Button>
+        {loan.stage === 'clear_to_close' && (
+          <Button onClick={markClosed} disabled={stages.isSaving}>
+            <CircleCheckIcon />
+            Mark as Closed
+          </Button>
+        )}
       </div>
+      {stages.dialog}
     </Card>
   )
 }
