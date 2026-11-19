@@ -131,6 +131,17 @@ describe('planning the fill', () => {
     expect(s.fields).toBeGreaterThan(15)
   })
 
+  it('an hourly job with no hours is added with its rate kept, and the hours answer fills its monthly income', () => {
+    const p = planFill([fact('job.employerName', 'Texas Roadhouse', { record: 'job9' }), fact('job.payRate', 16.32, { record: 'job9' }), fact('job.payFrequency', 'hourly', { record: 'job9' })], input)
+    const job = p.changes[0] as NewRow
+    expect(job.values.baseIncome).toBeUndefined()
+    expect(job.hourlyRate).toBe(16.32)
+    // The answer, after the job is saved as row "j9".
+    const saved = { ...app, borrowers: [{ ...app.borrowers[0], employments: [{ id: 'j9', contactId: 'p1', employerName: 'Texas Roadhouse', baseIncome: null } as never] }, app.borrowers[1]] }
+    const answer = planFill([fact('job.payRate', 16.32, { record: 'existing:j9' }), fact('job.payFrequency', 'hourly', { record: 'existing:j9' }), fact('job.hoursPerWeek', 40, { record: 'existing:j9' })], { ...input, app: saved })
+    expect(answer.changes).toEqual([expect.objectContaining({ kind: 'field', target: { kind: 'row', table: 'employments', rowId: 'j9', contactId: 'p1', field: 'baseIncome' }, after: 2828.8, conflict: false })])
+  })
+
   it('sends housing to the notes when there is no current address yet', () => {
     const p = planFill([fact('address.monthlyRent', 1350, { contactId: 'c1' })], input)
     expect(p.changes).toEqual([])

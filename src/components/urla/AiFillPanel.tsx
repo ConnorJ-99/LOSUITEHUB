@@ -24,6 +24,7 @@ import { AiFillPlayback, type AnimItem } from './AiFillPlayback'
 import type { Application } from '@/lib/api/urla'
 import type { LoanProfile } from '@/lib/api/types'
 import { URLA_SECTIONS, type UrlaValidation } from '@/lib/loanfile/urla'
+import { formatCurrency } from '@/lib/format'
 
 const draftKey = (loanId: string) => `mpshq.aifill.draft.${loanId}`
 const readDraft = (loanId: string) => {
@@ -44,6 +45,9 @@ const writeDraft = (loanId: string, text: string) => {
 
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date())
 
+/** A quick question: the reader's, or "hours a week?" for an hourly job added without them. */
+type Question = FillQuestion & { hourlyRate?: number }
+
 /** The last run per file while MPS HQ is open: reopening the panel shows it, with Undo. */
 const lastResults = new Map<string, Result>()
 
@@ -51,7 +55,7 @@ interface Result {
   runId: string | null
   applied: AppliedChange[]
   conflicts: FieldChange[]
-  questions: FillQuestion[]
+  questions: Question[]
   toNotes: string[]
   failed: string[]
   undone: boolean
@@ -173,7 +177,27 @@ export function AiSummaryCard({
         const section = a.section as AnimItem['section']
         return { key: a.key, section, group: NAV_GROUP[section], anchor: anchorFor(a), raw, range: raw ? findQuote(text, raw) : null, label: a.kind === 'field' ? `${a.label} · ${a.display}` : a.display }
       })
-      setResult({ runId, applied, conflicts, questions: r.ambiguous, toNotes: leftovers, failed, undone: false })
+      // An hourly job added without hours a week has no monthly income yet: ask the hours first.
+      // Also a job already on the 1003 with no income, when the notes give its hourly rate but not the hours.
+      const quote = (factIds: string[], fallback: string) => factIds.map((id) => facts.get(id)?.sourceText).find(Boolean) ?? fallback
+      const hoursQuestion = (h: { rowId: string; contactId: string; employer: string; rate: number; factIds: string[] }): Question => ({
+        id: `hours-${h.rowId}`,
+        sourceText: quote(h.factIds, h.employer),
+        question: `Hours a week at ${h.employer} (${formatCurrency(h.rate)}/hr)? The monthly income is figured from them.`,
+        record: `existing:${h.rowId}`,
+        contactId: h.contactId,
+        choices: [40, 35, 30, 25, 20].map((n) => ({ label: `${n} hrs`, fieldPath: 'job.hoursPerWeek', value: n })),
+        hourlyRate: h.rate,
+      })
+      const hoursQuestions: Question[] = [
+        ...applied.flatMap((a) => {
+          const change = plan.changes.find((c) => c.key === a.key)
+          if (a.kind !== 'new_row' || change?.kind !== 'new_row' || change.hourlyRate === undefined) return []
+          return [hoursQuestion({ rowId: a.rowId, contactId: change.contactId, employer: String(change.values.employerName ?? 'this job'), rate: change.hourlyRate, factIds: change.factIds })]
+        }),
+        ...plan.askHours.map(hoursQuestion),
+      ]
+      setResult({ runId, applied, conflicts, questions: [...hoursQuestions, ...r.ambiguous], toNotes: leftovers, failed, undone: false })
       if (items.length) setPlayback({ notes: text, items, before, after })
       else resetAiFillAnim()
       if (!r.facts.length && !r.ambiguous.length) toast.info("The assistant didn't find anything for the 1003 in those notes.")
@@ -207,10 +231,14 @@ export function AiSummaryCard({
     }
   }
 
-  const answer = (q: FillQuestion, i: number) => {
-    const choice = q.choices[i]
-    const fact: FillFact = { id: `${q.id}-a`, section: 'borrower', fieldPath: choice.fieldPath, record: q.record, contactId: q.contactId, value: choice.value, sourceText: q.sourceText, displayLabel: choice.label, confidence: 'high' }
-    const plan = planFill([fact], input())
+  const answer = (q: Question, i: number, typed?: number) => {
+    const choice = q.choices[i] ?? { fieldPath: 'job.hoursPerWeek', value: typed ?? 0, label: `${typed} hrs` }
+    const fact = (fieldPath: string, value: FillFact['value'], n: string): FillFact => ({ id: `${q.id}-${n}`, section: 'income', fieldPath, record: q.record, contactId: q.contactId, value, sourceText: q.sourceText, displayLabel: choice.label, confidence: 'high' })
+    // An hourly job's hours: with the rate, so the monthly income is worked out (Income tab math) and saved on that job.
+    const facts = q.hourlyRate !== undefined
+      ? [fact('job.payRate', q.hourlyRate, 'rate'), fact('job.payFrequency', 'hourly', 'freq'), fact('job.hoursPerWeek', choice.value, 'hours')]
+      : [{ id: `${q.id}-a`, section: 'borrower' as const, fieldPath: choice.fieldPath, record: q.record, contactId: q.contactId, value: choice.value, sourceText: q.sourceText, displayLabel: choice.label, confidence: 'high' as const }]
+    const plan = planFill(facts, input())
     if (!plan.changes.length) {
       setResult(result && { ...result, questions: result.questions.filter((x) => x.id !== q.id), toNotes: [...result.toNotes, ...plan.toNotes.map((t) => t.text)] })
       return
@@ -279,7 +307,12 @@ export function AiSummaryCard({
                   <p className="font-medium">Undone. The 1003 is back to how it was.</p>
                 ) : (
                   <p className="font-medium">
-                    Filled {summary!.fields} field{summary!.fields === 1 ? '' : 's'} across {summary!.sections} section{summary!.sections === 1 ? '' : 's'} · {stillMissing} still missing
+                    {summary!.fields
+                      ? `Filled ${summary!.fields} field${summary!.fields === 1 ? '' : 's'} across ${summary!.sections} section${summary!.sections === 1 ? '' : 's'}`
+                      : result.questions.length || result.conflicts.length
+                        ? 'Nothing filled yet: answer below'
+                        : 'Nothing new to fill'}{' '}
+                    · {stillMissing} still missing
                   </p>
                 )}
               </div>
@@ -322,6 +355,23 @@ export function AiSummaryCard({
                           Skip
                         </Button>
                       </div>
+                      {q.hourlyRate !== undefined && (
+                        <form
+                          className="mt-2 flex items-center gap-2"
+                          onSubmit={(e) => {
+                            e.preventDefault()
+                            const n = Number(new FormData(e.currentTarget).get('hours'))
+                            if (n > 0 && n <= 100) answer(q, -1, n)
+                            else toast.error('Type the hours a week, 1 to 100.')
+                          }}
+                        >
+                          <input name="hours" type="number" min={1} max={100} step="0.5" placeholder="Other" aria-label="Hours a week" className="h-7 w-20 rounded-md border bg-background px-2 text-sm" />
+                          <span className="text-xs text-muted-foreground">hrs a week</span>
+                          <Button type="submit" size="xs" variant="outline" disabled={busy}>
+                            Use
+                          </Button>
+                        </form>
+                      )}
                     </div>
                   ))}
                 </div>

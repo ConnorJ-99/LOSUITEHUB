@@ -66,6 +66,8 @@ export interface NewRow {
   factIds: string[]
   /** Something worth asking about (e.g. "Payment not given"). */
   note: string | null
+  /** An hourly job with no hours a week: the rate, so the panel can ask the hours and fill the monthly income. */
+  hourlyRate?: number
 }
 
 export type Change = FieldChange | NewRow
@@ -74,6 +76,8 @@ export interface FillPlan {
   changes: Change[]
   /** Facts with no 1003 place yet, or rows missing what their table needs: saved to the file's notes. */
   toNotes: { factIds: string[]; text: string }[]
+  /** Hourly jobs already on the 1003 with no monthly income and no hours given: ask the hours (new jobs carry hourlyRate instead). */
+  askHours: { rowId: string; contactId: string; employer: string; rate: number; factIds: string[] }[]
 }
 
 export interface FillInput {
@@ -132,6 +136,7 @@ export function planFill(facts: FillFact[], input: FillInput): FillPlan {
   const { app, loan } = input
   const changes: Change[] = []
   const toNotes: FillPlan['toNotes'] = []
+  const askHours: FillPlan['askHours'] = []
   const borrower = (contactId: string) => app.borrowers.find((b) => b.contactId === contactId)
 
   const field = (target: FieldTarget, path: string, label: string, before: unknown, after: unknown, factIds: string[], display?: string) => {
@@ -227,15 +232,15 @@ export function planFill(facts: FillFact[], input: FillInput): FillPlan {
   for (const list of rows.values()) {
     const kind = FILL_FIELDS[list[0].fieldPath].row!
     if (kind === 'home') continue
-    planRow(kind, list, input, field, changes, toNotes)
+    planRow(kind, list, input, field, changes, toNotes, askHours)
   }
 
-  return { changes, toNotes }
+  return { changes, toNotes, askHours }
 }
 
 type FieldFn = (target: FieldTarget, path: string, label: string, before: unknown, after: unknown, factIds: string[], display?: string) => void
 
-function planRow(kind: Exclude<NonNullable<(typeof FILL_FIELDS)[string]['row']>, 'home'>, list: FillFact[], input: FillInput, field: FieldFn, changes: Change[], toNotes: FillPlan['toNotes']) {
+function planRow(kind: Exclude<NonNullable<(typeof FILL_FIELDS)[string]['row']>, 'home'>, list: FillFact[], input: FillInput, field: FieldFn, changes: Change[], toNotes: FillPlan['toNotes'], askHours: FillPlan['askHours']) {
   const contactId = list[0].contactId
   const record = list[0].record
   const v = (name: string) => list.find((f) => f.fieldPath.endsWith(`.${name}`))?.value ?? null
@@ -249,6 +254,7 @@ function planRow(kind: Exclude<NonNullable<(typeof FILL_FIELDS)[string]['row']>,
   const values: Record<string, unknown> = {}
   let display = ''
   let note: string | null = null
+  let hourlyRate: number | undefined
   if (kind === 'job') {
     const rate = v('payRate') as number | null
     const freq = v('payFrequency') as PayFrequency | null
@@ -274,7 +280,10 @@ function planRow(kind: Exclude<NonNullable<(typeof FILL_FIELDS)[string]['row']>,
           ? `${money(monthly)}/mo`
           : ''
     display = [values.employerName ?? 'Job', values.positionTitle, years !== null ? tenure(years) : start ? `since ${start.slice(0, 7)}` : '', pay].filter(Boolean).join(' · ')
-    if (rate !== null && freq === 'hourly' && !hours) note = 'Hours a week not given, so no monthly pay yet'
+    if (rate !== null && freq === 'hourly' && !hours) {
+      note = 'Hours a week not given, so no monthly pay yet'
+      hourlyRate = rate
+    }
   } else if (kind === 'other_income') {
     values.incomeType = v('incomeType') ?? 'other'
     if (v('monthlyAmount') !== null) values.monthlyAmount = v('monthlyAmount')
@@ -308,6 +317,8 @@ function planRow(kind: Exclude<NonNullable<(typeof FILL_FIELDS)[string]['row']>,
       const path = pathFor(kind, name)
       field({ kind: 'row', table, rowId: existingId, contactId: current.contactId as string, field: name }, path, rowFieldLabel(kind, name), current[name], after, ids, path ? undefined : money(after as number))
     }
+    // An hourly job on file with no monthly income, and no hours in the notes: ask them.
+    if (hourlyRate !== undefined && current.baseIncome == null) askHours.push({ rowId: existingId, contactId: current.contactId as string, employer: String(current.employerName ?? 'this job'), rate: hourlyRate, factIds: ids })
     return
   }
 
@@ -330,7 +341,7 @@ function planRow(kind: Exclude<NonNullable<(typeof FILL_FIELDS)[string]['row']>,
     }
   }
   if (kind === 'job' && !values.status) values.status = 'current'
-  changes.push({ kind: 'new_row', key: `new:${table}:${contactId}:${record}`, table, contactId, values: { contactId, ...values }, section, display, fieldCount: Object.keys(values).length, factIds: ids, note })
+  changes.push({ kind: 'new_row', key: `new:${table}:${contactId}:${record}`, table, contactId, values: { contactId, ...values }, section, display, fieldCount: Object.keys(values).length, factIds: ids, note, ...(hourlyRate !== undefined ? { hourlyRate } : {}) })
 }
 
 const groupBy = <T,>(xs: T[], key: (x: T) => string) => {
