@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
 import { DownloadIcon, FileUpIcon, PlusIcon, SparklesIcon, UserMinusIcon } from 'lucide-react'
 import { useAiStatus } from '@/lib/api/assistant'
-import { AiFillPanel } from './AiFillPanel'
+import { AiSummaryCard } from './AiFillPanel'
+import { useAuth } from '@/lib/auth/context'
 import { AiBadgeProvider } from '@/components/shared/AiBadge'
 import { useAiFillRuns, useConfirmAiFill } from '@/lib/api/aifill'
-import { activeAiKeys } from '@/lib/aifill/badges'
+import { activeAiKeys, askKeys } from '@/lib/aifill/badges'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { SummaryBar, ToggleChip } from '@/components/shared'
@@ -44,8 +45,29 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
   const organization = useOrganization()
   const originator = useProfile(loan.assignedLo?.id)
   const [exporting, setExporting] = useState(false)
-  // AI Fill (Connor, 2026-11-19): closed until the red button is pressed.
-  const [aiFill, setAiFill] = useState(false)
+  // AI Summary card (Connor, 2026-11-19): collapsed by default; open or closed is remembered per person on this device.
+  const { state: auth } = useAuth()
+  const openKey = `mpshq.aisummary.open.${auth.status === 'signedIn' ? auth.user.id : 'anon'}`
+  const [aiOpen, setAiOpenState] = useState(() => {
+    try {
+      return localStorage.getItem(openKey) === '1'
+    } catch {
+      return false
+    }
+  })
+  const setAiOpen = (open: boolean) => {
+    setAiOpenState(open)
+    try {
+      localStorage.setItem(openKey, open ? '1' : '0')
+    } catch {
+      // Blocked storage: it just isn't remembered.
+    }
+  }
+  /** The toolbar's red AI Fill button: open the card and bring it into view. */
+  const openAiSummary = () => {
+    setAiOpen(true)
+    setTimeout(() => document.getElementById('ai-summary')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50)
+  }
   const ai = useAiStatus()
   // AI tags on fields AI Fill filled, until edited or confirmed.
   const fillRuns = useAiFillRuns(loan.id)
@@ -94,14 +116,23 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
   const withPrequal = loan.stage !== 'closed'
   const page = (parts: PrequalParts | null) => (
     <>
-      <div className={cn('grid gap-x-6 gap-y-4 lg:grid-cols-[12.5rem_minmax(0,1fr)]', parts && '2xl:grid-cols-[12.5rem_minmax(0,1fr)_21rem]')}>
-        <UrlaSectionNav validation={validation} onFirstMissing={goToIssue} onCompleteFields={onCompleteFields} className={parts ? 'lg:row-span-3 lg:row-start-1' : undefined} />
-        {parts && <div className="min-w-0 lg:col-start-2 lg:row-start-1">{parts.top}</div>}
+      {/* Layout (Connor, 2026-11-19): section list | the 1003 form | a 380px side column (Max approval, then credit) that stays in view with
+          its own scroll. When the tab is narrower than about 1024px the side column drops above the form as full-width cards. */}
+      <div className="@container">
+      <div className={cn('grid gap-x-6 gap-y-4 lg:grid-cols-[12.5rem_minmax(0,1fr)]', parts && '@5xl:grid-cols-[12.5rem_minmax(0,1fr)_23.75rem]')}>
+        <UrlaSectionNav validation={validation} onFirstMissing={goToIssue} onCompleteFields={onCompleteFields} className={parts ? 'lg:row-span-2 lg:row-start-1' : undefined} />
         {parts && (
-          <div className="grid min-w-0 content-start gap-4 md:grid-cols-2 lg:col-start-2 lg:row-start-2 2xl:sticky 2xl:top-14 2xl:col-start-3 2xl:row-span-3 2xl:row-start-1 2xl:grid-cols-1 2xl:self-start">{parts.panel}</div>
+          <aside
+            aria-label="Max approval, AI Summary and credit"
+            className="min-w-0 space-y-4 lg:col-start-2 lg:row-start-1 @5xl:sticky @5xl:top-14 @5xl:col-start-3 @5xl:row-span-2 @5xl:row-start-1 @5xl:max-h-[calc(100svh-4.5rem)] @5xl:self-start @5xl:overflow-y-auto @5xl:pb-4"
+          >
+            {parts.first}
+            {ai.data?.ready && <AiSummaryCard loan={loan} app={app.data!} isPurchase={isPurchase} validation={validation} open={aiOpen} onOpenChange={setAiOpen} />}
+            {parts.credit}
+          </aside>
         )}
 
-        <div className={cn('min-w-0 space-y-4', parts && 'lg:col-start-2 lg:row-start-3 2xl:row-start-2')}>
+        <div className={cn('min-w-0 space-y-4', parts && 'lg:col-start-2 lg:row-start-2 @5xl:row-start-1')}>
           <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3">
             <span className="mr-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Borrower</span>
             {borrowers.map((b) => (
@@ -176,6 +207,7 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
           </div>
         </div>
       </div>
+      </div>
 
       <SummaryBar
         items={parts ? parts.figures : [
@@ -189,7 +221,7 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
         action={
           <div className="flex gap-2">
             {withPrequal && ai.data?.ready && (
-              <Button className="bg-red-600 text-white hover:bg-red-700" onClick={() => setAiFill(true)} title="Fill the 1003 from your call notes">
+              <Button className="bg-red-600 text-white hover:bg-red-700" onClick={openAiSummary} title="Fill the 1003 from your call notes (AI Summary)">
                 <SparklesIcon />
                 AI Fill
               </Button>
@@ -241,18 +273,16 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
       )}
     </>
   )
-  // The AI Fill panel sits outside the prequal workspace, so refreshing the 1003 after a fill never resets it.
-  const panel = aiFill && <AiFillPanel loan={loan} app={app.data!} isPurchase={isPurchase} validation={validation} onClose={() => setAiFill(false)} />
   const runs = fillRuns.data ?? []
   const badges = {
     keys: activeAiKeys(runs, app.data!, loan.details),
+    ask: askKeys(validation?.issues ?? [], runs),
     confirm: (keys: string[]) => confirmFill.mutate({ runs, keys }, { onError: (e) => toast.error(e.message) }),
   }
   if (!withPrequal || !properties.data)
     return (
       <AiBadgeProvider value={badges}>
         {page(null)}
-        {panel}
       </AiBadgeProvider>
     )
   return (
@@ -260,7 +290,6 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
       <PrequalWorkspace loan={loan} app={app.data!} properties={properties.data}>
         {page}
       </PrequalWorkspace>
-      {panel}
     </AiBadgeProvider>
   )
 }

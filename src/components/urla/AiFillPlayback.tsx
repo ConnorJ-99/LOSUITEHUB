@@ -11,6 +11,8 @@ export interface AnimItem {
   section: FillSection
   /** The nav group it lands on ("section-1"…). */
   group: string
+  /** The 1003 section card it fills (its anchor id), outlined while the card is on its way. */
+  anchor: string
   /** The words from the notes, shown first on the card. */
   raw: string
   /** Where those words are in the notes, for the highlight. */
@@ -87,7 +89,10 @@ export function AiFillPlayback({
     const set = (i: number, s: Stage) => setStages((prev) => prev.map((x, k) => (k === i ? s : x)))
     items.forEach((it, i) => {
       const base = 250 + i * STEP
-      at(base, () => set(i, 'raw'))
+      at(base, () => {
+        set(i, 'raw')
+        setAiFillAnim({ incoming: it.anchor })
+      })
       at(base + FORMAT_AT, () => set(i, 'formatted'))
       at(base + FLY_AT, () => set(i, 'flying'))
       at(base + LAND_AT, () => {
@@ -95,7 +100,7 @@ export function AiFillPlayback({
         landed[it.group] = (landed[it.group] ?? 0) + 1
         const counts: Record<string, number> = {}
         for (const g of Object.keys(before)) counts[g] = landed[g] ? tickCount(before[g] ?? 0, after[g] ?? 0, landed[g], perGroup[g]) : (before[g] ?? 0)
-        setAiFillAnim({ counts, pulse: { id: it.group, tick: i + 1 } })
+        setAiFillAnim({ counts, pulse: { id: it.group, tick: i + 1 }, incoming: null })
       })
     })
     at(250 + items.length * STEP + 250, finish)
@@ -110,7 +115,7 @@ export function AiFillPlayback({
   // The highlights grow as each card is read.
   const marks = items.flatMap((it, i) => (it.range && stages[i] !== 'waiting' ? [{ range: it.range, section: it.section }] : []))
   const pieces = highlightPieces(notes, marks)
-  const reading = stages.filter((s) => s !== 'waiting').length
+  const landedCount = stages.filter((s) => s === 'landed').length
 
   return (
     <div className="space-y-3">
@@ -127,11 +132,16 @@ export function AiFillPlayback({
           )}
         </div>
       </div>
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-muted-foreground" aria-live="polite">
-          Found {reading} of {items.length}…
-        </span>
-        <button type="button" className="text-sm font-medium text-primary hover:underline" onClick={finish}>
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-muted-foreground" aria-live="polite">
+            Filling {landedCount} of {items.length}…
+          </p>
+          <div className="mt-1.5 h-1.5 rounded-full bg-muted">
+            <div className="h-1.5 rounded-full bg-red-600 transition-[width] duration-500" style={{ width: `${Math.round((landedCount / Math.max(1, items.length)) * 100)}%` }} />
+          </div>
+        </div>
+        <button type="button" className="shrink-0 text-sm font-medium text-primary hover:underline" onClick={finish}>
           Skip animation
         </button>
       </div>

@@ -8,6 +8,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Field, readOnlyClass, type FieldSpan } from './Field'
+import { STILL_NEED_TO_ASK, useAiFieldState } from './AiBadge'
 
 export interface SelectOption<T extends string = string> {
   value: T
@@ -51,6 +52,7 @@ export function Select<T extends string = string>({
   onClear,
 }: SelectProps<T>) {
   const autoId = useId()
+  const ai = useAiFieldState(aiKey)
   const triggerId = id ?? autoId
   return (
     <Field aiKey={aiKey} label={label} htmlFor={triggerId} required={required} hint={hint} error={error} span={span}>
@@ -65,7 +67,7 @@ export function Select<T extends string = string>({
           aria-invalid={error ? true : undefined}
           className={cn('w-full', readOnly && cn(readOnlyClass, 'disabled:opacity-100'))}
         >
-          <SelectValue placeholder={placeholder} />
+          <SelectValue placeholder={ai === 'ask' ? STILL_NEED_TO_ASK : placeholder} />
         </SelectTrigger>
         <SelectContent position="popper">
           {onClear && value !== null && (

@@ -10,9 +10,11 @@ export interface AiFillAnim {
   counts: Record<string, number> | null
   /** The nav group that just got a card, and a tick so the same group can pulse twice. */
   pulse: { id: string; tick: number } | null
+  /** The 1003 section card (its anchor id) a card is on its way to, for its dashed "Incoming" outline. */
+  incoming?: string | null
 }
 
-let state: AiFillAnim = { counts: null, pulse: null }
+let state: AiFillAnim = { counts: null, pulse: null, incoming: null }
 const listeners = new Set<() => void>()
 
 export function setAiFillAnim(next: Partial<AiFillAnim>) {
@@ -20,7 +22,7 @@ export function setAiFillAnim(next: Partial<AiFillAnim>) {
   for (const l of listeners) l()
 }
 
-export const resetAiFillAnim = () => setAiFillAnim({ counts: null, pulse: null })
+export const resetAiFillAnim = () => setAiFillAnim({ counts: null, pulse: null, incoming: null })
 
 export function useAiFillAnim(): AiFillAnim {
   return useSyncExternalStore(

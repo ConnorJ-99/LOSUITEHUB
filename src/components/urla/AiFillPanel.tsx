@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2Icon, SparklesIcon, Undo2Icon, XIcon } from 'lucide-react'
+import { ChevronDownIcon, Loader2Icon, SparklesIcon, Undo2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -23,7 +23,7 @@ import { groupCounts } from './UrlaSectionNav'
 import { AiFillPlayback, type AnimItem } from './AiFillPlayback'
 import type { Application } from '@/lib/api/urla'
 import type { LoanProfile } from '@/lib/api/types'
-import type { UrlaValidation } from '@/lib/loanfile/urla'
+import { URLA_SECTIONS, type UrlaValidation } from '@/lib/loanfile/urla'
 
 const draftKey = (loanId: string) => `mpshq.aifill.draft.${loanId}`
 const readDraft = (loanId: string) => {
@@ -66,27 +66,38 @@ function SectionTag({ section }: { section: FieldChange['section'] }) {
   )
 }
 
+/** The 1003 section card a change lands in (addresses and other income have their own cards). */
+function anchorFor(a: AppliedChange): string {
+  if (a.kind === 'field' && a.target.kind === 'address') return 'section-1-addresses'
+  if ((a.kind === 'new_row' && a.table === 'other_incomes') || (a.kind === 'field' && a.target.kind === 'row' && a.target.table === 'other_incomes')) return 'section-1-other-income'
+  return URLA_SECTIONS.find((x) => x.id === a.section)?.anchor ?? 'section-1'
+}
+
 const AiTag = () => <span className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[0.625rem] font-bold text-white">AI</span>
 
 /**
- * AI Fill (Connor, 2026-11-19): type or paste call notes, press the red
- * button, and the assistant fills the matching 1003 fields. Empty fields are
- * filled; different values wait for Replace / Keep; unclear items are quick
- * questions; anything with no 1003 place goes to the file's notes. Closed by
- * default; a right-side drawer on a computer, a bottom sheet on a phone.
+ * AI Summary (Connor, 2026-11-19): type or paste call notes, press the red
+ * AI Fill button, and the assistant fills the matching 1003 fields. Empty
+ * fields are filled; different values wait for Replace / Keep; unclear items
+ * are quick questions; anything with no 1003 place goes to the file's notes.
+ * A card in the 1003's side column under Max approval, collapsed to its header
+ * by default; the cards fly from here to the section list on the left.
  */
-export function AiFillPanel({
+export function AiSummaryCard({
   loan,
   app,
   isPurchase,
   validation,
-  onClose,
+  open,
+  onOpenChange,
 }: {
   loan: LoanProfile
   app: Application
   isPurchase: boolean
   validation: UrlaValidation | null
-  onClose: () => void
+  /** Collapsed (just the header) or open; remembered per person by the 1003 tab. */
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }) {
   const [notes, setNotes] = useState(() => readDraft(loan.id))
   const [reading, setReading] = useState(false)
@@ -110,13 +121,10 @@ export function AiFillPanel({
     if (!result) writeDraft(loan.id, notes)
   }, [notes, loan.id, result])
 
+  // Opening it (the header, or the red AI Fill button in the toolbar) puts the cursor in the notes.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !reading && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, reading])
-
-  useEffect(() => area.current?.focus(), [])
+    if (open) area.current?.focus({ preventScroll: true })
+  }, [open])
 
   const input = (): FillInput => ({ app, loan: loan.details, isPurchase, today: today() })
 
@@ -163,7 +171,7 @@ export function AiFillPanel({
         const change = plan.changes.find((c) => c.key === a.key)
         const raw = change?.factIds.map((id) => facts.get(id)?.sourceText).find(Boolean) ?? ''
         const section = a.section as AnimItem['section']
-        return { key: a.key, section, group: NAV_GROUP[section], raw, range: raw ? findQuote(text, raw) : null, label: a.kind === 'field' ? `${a.label} · ${a.display}` : a.display }
+        return { key: a.key, section, group: NAV_GROUP[section], anchor: anchorFor(a), raw, range: raw ? findQuote(text, raw) : null, label: a.kind === 'field' ? `${a.label} · ${a.display}` : a.display }
       })
       setResult({ runId, applied, conflicts, questions: r.ambiguous, toNotes: leftovers, failed, undone: false })
       if (items.length) setPlayback({ notes: text, items, before, after })
@@ -230,30 +238,22 @@ export function AiFillPanel({
   const missing = validation?.issues ?? []
   const stillMissing = validation?.totalMissing ?? 0
 
-  return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="AI Fill">
-      <button type="button" aria-label="Close AI Fill" className={cn('absolute inset-0 transition-colors duration-300', playback ? 'bg-transparent' : 'bg-black/20')} onClick={() => !reading && onClose()} />
-      <div
-        className={cn(
-          'absolute flex flex-col bg-card shadow-2xl transition-[max-height] duration-300',
-          // While cards fly, a phone's sheet drops to 40% so the section nav stays in view.
-          'inset-x-0 bottom-0 rounded-t-2xl',
-          playback ? 'max-h-[40svh]' : 'max-h-[85svh]',
-          'md:inset-x-auto md:top-0 md:right-0 md:bottom-0 md:max-h-none md:w-[440px] md:rounded-none md:rounded-l-2xl',
-        )}
-      >
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="flex items-center gap-2">
-            <SparklesIcon className="size-4 text-red-600" />
-            <h2 className="font-semibold">AI Fill</h2>
-            <span className="text-xs text-muted-foreground">from call notes</span>
-          </div>
-          <Button size="icon" variant="ghost" aria-label="Close" disabled={reading} onClick={onClose}>
-            <XIcon />
-          </Button>
-        </div>
+  const status = reading ? 'Reading…' : playback ? 'Filling…' : result && !result.undone && summary?.fields ? `Filled ${summary.fields}` : null
 
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+  return (
+    <section id="ai-summary" aria-label="AI Summary" className={cn('scroll-mt-16 rounded-xl border bg-card text-card-foreground shadow-sm', open && 'border-red-200 shadow-[0_8px_24px_rgba(217,45,32,0.08)]')}>
+      <button type="button" aria-expanded={open} onClick={() => onOpenChange(!open)} disabled={reading || !!playback} className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left">
+        <span className="flex items-center gap-2">
+          <SparklesIcon className="size-4 text-red-600" />
+          <span className="font-semibold">AI Summary</span>
+          {status && <span className="text-xs text-muted-foreground">{status}</span>}
+        </span>
+        <ChevronDownIcon className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+      <div className="flex flex-col border-t">
+        <div className="space-y-4 p-4">
           {!result ? (
             <>
               <textarea
@@ -261,7 +261,7 @@ export function AiFillPanel({
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 disabled={reading}
-                rows={10}
+                rows={6}
                 placeholder="Type or paste call notes…"
                 aria-label="Call notes"
                 className="w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
@@ -408,18 +408,14 @@ export function AiFillPanel({
               ) : (
                 <span />
               )}
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => { setResult(null); setNotes('') }}>
-                  Add more notes
-                </Button>
-                <Button size="sm" onClick={onClose}>
-                  Done
-                </Button>
-              </div>
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => { setResult(null); setNotes('') }}>
+                Add more notes
+              </Button>
             </>
           )}
         </div>
       </div>
-    </div>
+      )}
+    </section>
   )
 }

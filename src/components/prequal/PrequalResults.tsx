@@ -103,7 +103,8 @@ export function PrequalResults({
         </Card>
       )}
 
-      <Card title="Quick checks" description="Typical guidelines; Product Search and the AUS make the call.">
+      {/* The 1003 page no longer shows Quick checks (Connor, 2026-11-19): it passes no checks. */}
+      {(checks.length > 0 || canMarkPrequalified) && <Card title="Quick checks" description="Typical guidelines; Product Search and the AUS make the call.">
         <ul className="space-y-2 text-sm">
           {checks.map((c) => {
             const { icon: Icon, className } = STATUS[c.status]
@@ -122,7 +123,7 @@ export function PrequalResults({
             Mark Pre-Qualified
           </Button>
         )}
-      </Card>
+      </Card>}
     </div>
   )
 }

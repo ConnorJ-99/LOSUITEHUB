@@ -1,7 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import { emptyDeclarations, type Application } from '@/lib/api/urla'
 import type { AppliedChange } from '@/lib/api/aifill'
-import { activeAiKeys, newRowKey, rowPrefixes, runsWithKey, type FillRun } from './badges'
+import { activeAiKeys, askKeys, issueKey, newRowKey, rowPrefixes, runsWithKey, type FillRun } from './badges'
+
+describe('Still need to ask', () => {
+  const issues = [
+    { section: 'borrower' as const, field: 'Date of birth', fix: { kind: 'person' as const, contactId: 'p1', field: 'dateOfBirth' as const } },
+    { section: 'declarations' as const, field: 'Bankruptcy (7 years)', fix: { kind: 'declaration' as const, contactId: 'p1', field: 'bankruptcyPast7Years' as const } },
+    { section: 'borrower' as const, field: 'Current address' },
+  ]
+  const run = { id: 'r1', applied: [], confirmed: [], undone: false }
+
+  it('uses the same keys as the form fields', () => {
+    expect(issueKey(issues[0].fix)).toBe('person:p1:dateOfBirth')
+    expect(issueKey({ kind: 'loan', field: 'purchasePrice' })).toBe('loan:purchasePrice')
+    expect(issueKey({ kind: 'job', employmentId: 'j1', field: 'startDate' })).toBe('row:employments:j1:startDate')
+    expect(issueKey(undefined)).toBeNull()
+  })
+
+  it('shows only after an AI fill that was not undone', () => {
+    expect([...askKeys(issues, [run])]).toEqual(['person:p1:dateOfBirth', 'declaration:p1:bankruptcyPast7Years'])
+    expect(askKeys(issues, []).size).toBe(0)
+    expect(askKeys(issues, [{ ...run, undone: true }]).size).toBe(0)
+  })
+})
 
 const app = (marital: string | null, rows: string[] = ['j1']): Application => ({
   borrowers: [

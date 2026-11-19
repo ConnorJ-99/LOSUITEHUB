@@ -1,7 +1,7 @@
 import type * as React from 'react'
 import { cn } from 'cn'
 import { Label } from '@/components/ui/label'
-import { AiBadge } from './AiBadge'
+import { AI_FIELD_TINT, AiBadge, useAiFieldState } from './AiBadge'
 
 /** Column span inside a FormGrid (the grid is up to 6 columns wide). */
 export type FieldSpan = 1 | 2 | 3 | 4 | 5 | 6
@@ -37,6 +37,8 @@ export interface FieldProps {
 
 /** Label + control + hint/error. Required fields get a red asterisk. */
 export function Field({ label, htmlFor, required, hint, error, span = 1, hideLabel, className, aiKey, children }: FieldProps) {
+  // AI Fill: light blue while AI-filled, light orange when still to ask after a fill.
+  const ai = useAiFieldState(aiKey)
   const labelEl = (
     <Label htmlFor={htmlFor} className={cn('text-xs font-medium text-muted-foreground', hideLabel && 'sr-only')}>
       {label}
@@ -44,7 +46,7 @@ export function Field({ label, htmlFor, required, hint, error, span = 1, hideLab
     </Label>
   )
   return (
-    <div className={cn('flex min-w-0 flex-col gap-1.5', spanClass[span], className)}>
+    <div className={cn('flex min-w-0 flex-col gap-1.5', spanClass[span], ai && AI_FIELD_TINT[ai], className)}>
       {aiKey ? (
         <div className="flex items-center gap-1.5">
           {labelEl}

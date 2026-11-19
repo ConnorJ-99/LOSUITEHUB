@@ -7,6 +7,7 @@
 import type { AppliedChange } from '@/lib/api/aifill'
 import type { Application } from '@/lib/api/urla'
 import type { LoanDetails } from '@/lib/api/types'
+import type { FieldFix, UrlaIssue } from '@/lib/loanfile/urla'
 import type { FieldTarget, RowTable } from './plan'
 
 export interface FillRun {
@@ -74,6 +75,35 @@ export function activeAiKeys(runs: FillRun[], app: Application, loan: Partial<Lo
     }
   }
   return keys
+}
+
+/** The tag key a missing-field fix points at (the same keys the form's fields use), or null when it has none. */
+export function issueKey(fix: FieldFix | undefined): string | null {
+  if (!fix) return null
+  switch (fix.kind) {
+    case 'person':
+      return `person:${fix.contactId}:${fix.field}`
+    case 'loan':
+      return `loan:${fix.field}`
+    case 'score':
+      return `credit:${fix.contactId}`
+    case 'job':
+      return `row:employments:${fix.employmentId}:${fix.field}`
+    case 'declaration':
+      return `declaration:${fix.contactId}:${fix.field}`
+    default:
+      return null
+  }
+}
+
+/**
+ * The required fields still empty, as tag keys, to show "Still need to ask"
+ * (light orange). Only once the file has an AI fill that wasn't undone:
+ * before that, the form looks as it always did.
+ */
+export function askKeys(issues: UrlaIssue[], runs: FillRun[]): Set<string> {
+  if (!runs.some((r) => !r.undone)) return new Set()
+  return new Set(issues.flatMap((i) => issueKey(i.fix) ?? []))
 }
 
 /** The runs that hold each key, so confirming writes to the right ones. */

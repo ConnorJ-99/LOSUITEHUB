@@ -20,7 +20,7 @@ import type { PrequalDraft, PrequalSummary } from '@/lib/prequal/draft'
  * Prequal Results PDF to Documents, then opens the email for Connor to
  * proofread. Sending it drafts the follow-up text in the Action Queue.
  */
-export function SendPrequalResults({ loan, app, subject, draft, summary, dirty, atMax }: { loan: LoanProfile; app: Application; subject: Property | null; draft: PrequalDraft; summary: PrequalSummary; dirty: boolean; /** Purchases: the Max Approval figures, which the PDF shows. */ atMax?: ApprovalAt | null }) {
+export function SendPrequalResults({ loan, app, subject, draft, summary, dirty, atMax, compact }: { loan: LoanProfile; app: Application; subject: Property | null; draft: PrequalDraft; summary: PrequalSummary; dirty: boolean; /** Purchases: the Max Approval figures, which the PDF shows. */ atMax?: ApprovalAt | null; /** Just the Send button and a Download link, for inside the Max approval card. */ compact?: boolean }) {
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const pdf = useSavePdf(loan, setSendingId)
@@ -107,6 +107,22 @@ export function SendPrequalResults({ loan, app, subject, draft, summary, dirty, 
     } finally {
       setBusy(false)
     }
+  }
+
+  if (compact) {
+    const why = dirty ? 'Save first, so the results match the file.' : problems[0]
+    return (
+      <div className="flex flex-col gap-1">
+        <Button variant="outline" onClick={start} disabled={dirty || busy || pdf.saving || !pdf.ready} title={why ?? 'A one-page PDF for the borrower: buying power, payment, cash needed and next steps. No rates.'}>
+          <MailIcon />
+          {busy || pdf.saving ? 'Preparing…' : 'Send prequal results'}
+        </Button>
+        <button type="button" className="text-left text-xs text-primary hover:underline disabled:text-muted-foreground disabled:no-underline" onClick={download} disabled={dirty || busy || pdf.saving || !pdf.ready}>
+          Download PDF
+        </button>
+        <SendSavedPdf loan={loan} docId={sendingId} onClose={() => setSendingId(null)} />
+      </div>
+    )
   }
 
   return (

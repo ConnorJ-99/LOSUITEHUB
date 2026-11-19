@@ -3,6 +3,7 @@ import { cn } from 'cn'
 import { Input as BaseInput } from '@/components/ui/input'
 import { formatNumber, parseNumber } from '@/lib/format'
 import { Field, readOnlyClass, type FieldSpan } from './Field'
+import { STILL_NEED_TO_ASK, useAiFieldState } from './AiBadge'
 
 interface AffixedNumberInputProps {
   /** AI Fill: the 1003 key this field saves to (shows the AI tag while AI-filled). */
@@ -46,6 +47,7 @@ function AffixedNumberInput({
 }: AffixedNumberInputProps) {
   const autoId = useId()
   const inputId = id ?? autoId
+  const ai = useAiFieldState(aiKey)
   const [draft, setDraft] = useState<string | null>(null)
   const shown = draft ?? formatNumber(value, maxDecimals)
 
@@ -61,7 +63,7 @@ function AffixedNumberInput({
           id={inputId}
           inputMode="decimal"
           value={shown}
-          placeholder={placeholder}
+          placeholder={ai === 'ask' ? STILL_NEED_TO_ASK : placeholder}
           required={required}
           readOnly={readOnly}
           tabIndex={readOnly ? -1 : undefined}

@@ -3,6 +3,7 @@ import type * as React from 'react'
 import { cn } from 'cn'
 import { Input as BaseInput } from '@/components/ui/input'
 import { Field, readOnlyClass, type FieldSpan } from './Field'
+import { STILL_NEED_TO_ASK, useAiFieldState } from './AiBadge'
 
 export interface InputProps extends Omit<React.ComponentProps<'input'>, 'onChange' | 'value'> {
   /** AI Fill: the 1003 key this field saves to (shows the AI tag while AI-filled). */
@@ -21,6 +22,7 @@ export interface InputProps extends Omit<React.ComponentProps<'input'>, 'onChang
 export function Input({ label, aiKey, value, onChange, hint, error, span, hideLabel, required, readOnly, className, id, ...props }: InputProps) {
   const autoId = useId()
   const inputId = id ?? autoId
+  const ai = useAiFieldState(aiKey)
   return (
     <Field aiKey={aiKey} label={label} htmlFor={inputId} required={required} hint={hint} error={error} span={span} hideLabel={hideLabel}>
       <BaseInput
@@ -33,6 +35,7 @@ export function Input({ label, aiKey, value, onChange, hint, error, span, hideLa
         aria-invalid={error ? true : undefined}
         className={cn(readOnly && readOnlyClass, className)}
         {...props}
+        placeholder={ai === 'ask' ? STILL_NEED_TO_ASK : props.placeholder}
       />
     </Field>
   )

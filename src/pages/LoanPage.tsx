@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useAiFillAnim } from '@/lib/aifill/animStore'
 import { cn } from 'cn'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
@@ -176,6 +177,8 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const selectedCash = useSelectedCashToClose(loan.details.pricingScenarioId)
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [completing, setCompleting] = useState(false)
+  // AI Fill (Connor, 2026-11-19): while its cards land, the 1003 count here ticks down with the section list.
+  const fillAnim = useAiFillAnim()
   const [teamEdit, setTeamEdit] = useState<{ role: TeamRole; label: string; withCompany: boolean } | null>(null)
 
   const isPurchase = loan.purpose === 'purchase'
@@ -200,6 +203,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const ready = app.data && properties.data
   const summary = ready ? applicationSummary(loan, app.data!, properties.data) : null
   const validation = ready ? validateApplication({ loan, app: app.data!, properties: properties.data!, organization: organization.data ?? null, originator: originator.data ?? null }) : null
+  const missing1003 = fillAnim.counts ? Object.values(fillAnim.counts).reduce((a, b) => a + b, 0) : (validation?.totalMissing ?? 0)
   const creditScore = app.data ? qualifyingScore(app.data.borrowers.map((b) => b.estimatedCreditScore)) : null
   const stageSince = loan.stageChangedAt.slice(0, 10)
   const workflow =
@@ -263,7 +267,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
 
   const allNav: FileNavItem[] = [
     { id: 'overview', label: 'Overview', icon: WorkflowIcon },
-    { id: '1003', label: '1003', icon: FileTextIcon, marker: validation ? (validation.totalMissing ? { type: 'count', value: validation.totalMissing } : { type: 'complete' }) : undefined },
+    { id: '1003', label: '1003', icon: FileTextIcon, marker: validation ? (missing1003 ? { type: 'count', value: missing1003 } : { type: 'complete' }) : undefined },
     // The Income tab is put away for now (FEATURES.incomeReview); ?tab=income still opens it.
     ...(FEATURES.incomeReview ? [{ id: 'income', label: 'Income', icon: CalculatorIcon }] : []),
     ...(isPurchase ? [{ id: 'contract', label: 'Contract', icon: FileSignatureIcon }] : []),

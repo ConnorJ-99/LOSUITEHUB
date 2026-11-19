@@ -5,7 +5,8 @@ import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Card, ToggleChip } from '@/components/shared'
-import { AiBadge, AiRowBadge } from '@/components/shared/AiBadge'
+import { AiBadge, AiRowBadge, STILL_NEED_TO_ASK, useAiFieldState, useAiRowKeys } from '@/components/shared/AiBadge'
+import { useAiFillAnim } from '@/lib/aifill/animStore'
 
 /** A 1003 section card with an anchor id and Save/Discard buttons that appear after edits. */
 export function SectionCard({
@@ -29,12 +30,14 @@ export function SectionCard({
   action?: React.ReactNode
   children: React.ReactNode
 }) {
+  // AI Fill: while a card is flying here, a dashed outline and a note.
+  const incoming = useAiFillAnim().incoming === id
   return (
     <section id={id} className="scroll-mt-28">
       <Card
         title={title}
         description={description}
-        className={cn(dirty && 'ring-2 ring-primary/30')}
+        className={cn(dirty && 'ring-2 ring-primary/30', incoming && 'outline-2 outline-offset-2 outline-blue-400/80 outline-dashed')}
         action={
           dirty && onSave ? (
             <div className="flex gap-2">
@@ -50,6 +53,7 @@ export function SectionCard({
           )
         }
       >
+        {incoming && <p className="mb-3 rounded-md border border-dashed border-blue-400/80 px-3 py-2 text-center text-sm font-semibold text-blue-700">Incoming from AI Summary…</p>}
         {children}
       </Card>
     </section>
@@ -77,8 +81,9 @@ export function YesNo({
   /** Follow-up fields shown when the answer is Yes. */
   children?: React.ReactNode
 }) {
+  const ai = useAiFieldState(aiKey)
   return (
-    <div className="space-y-2 rounded-md py-2.5" data-urla-field={field}>
+    <div className={cn('space-y-2 rounded-md py-2.5', ai && '-mx-2 px-2 ring-1', ai === 'filled' && 'bg-blue-500/10 ring-blue-400/50', ai === 'ask' && 'bg-amber-500/10 ring-amber-500/60')} data-urla-field={field}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
         <p className="text-sm">
           {prefix && <span className="mr-1.5 font-semibold text-muted-foreground">{prefix}.</span>}
@@ -88,6 +93,7 @@ export function YesNo({
               <AiBadge k={aiKey} />
             </span>
           )}
+          {ai === 'ask' && <span className="ml-1.5 text-xs font-medium text-amber-700">{STILL_NEED_TO_ASK}</span>}
         </p>
         <div className="flex shrink-0 gap-2" role="group" aria-label={label}>
           <ToggleChip label="Yes" pressed={value === true} onChange={(p) => onChange(p ? true : null)} />
@@ -169,8 +175,9 @@ export function ListRow({
   aiPrefixes?: string[]
 }) {
   const [confirming, setConfirming] = useState(false)
+  const aiRow = useAiRowKeys(aiPrefixes).length > 0
   return (
-    <li className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+    <li className={cn('flex flex-wrap items-center justify-between gap-2 py-2.5', aiRow && 'my-1 rounded-lg border border-blue-400/50 bg-blue-500/10 px-3')}>
       {aiPrefixes && <AiRowBadge prefixes={aiPrefixes} />}
       <button type="button" onClick={onEdit} className="min-w-0 flex-1 text-left">
         <p className="text-sm font-medium">{title}</p>

@@ -2,6 +2,7 @@ import { useId } from 'react'
 import { cn } from 'cn'
 import { Input as BaseInput } from '@/components/ui/input'
 import { Field, readOnlyClass, type FieldSpan } from './Field'
+import { STILL_NEED_TO_ASK, useAiFieldState } from './AiBadge'
 
 export interface DateInputProps {
   /** AI Fill: the 1003 key this field saves to (shows the AI tag while AI-filled). */
@@ -20,9 +21,10 @@ export interface DateInputProps {
 
 /** Calendar date field using the device's native date picker (works well on phones). */
 export function DateInput({ label, aiKey, value, onChange, required, readOnly, hint, error, span, className }: DateInputProps) {
+  const ai = useAiFieldState(aiKey)
   const id = useId()
   return (
-    <Field aiKey={aiKey} label={label} htmlFor={id} required={required} hint={hint} error={error} span={span} className={className}>
+    <Field aiKey={aiKey} label={label} htmlFor={id} required={required} hint={ai === 'ask' && !hint ? STILL_NEED_TO_ASK : hint} error={error} span={span} className={className}>
       <BaseInput
         id={id}
         type="date"

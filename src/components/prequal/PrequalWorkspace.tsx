@@ -8,7 +8,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card, FormGrid, NumberInput } from '@/components/shared'
+import { NumberInput } from '@/components/shared'
 import { useUpdateStage } from '@/lib/api/loans'
 import { useSavePrequal } from '@/lib/api/prequal'
 import { useFeeTemplates } from '@/lib/api/pricing'
@@ -16,14 +16,14 @@ import { prequalFeeEstimate } from '@/lib/estimates/prequal'
 import { useOrganization } from '@/lib/api/settings'
 import type { LoanProfile, Property } from '@/lib/api/types'
 import type { Application } from '@/lib/api/urla'
-import { APPROVAL_LIMIT_LABELS, approvalTypeFor, maxApproval, prequalChecks } from '@/lib/calc'
+import { maxApproval } from '@/lib/calc'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { approvalFacts, approvalFormFrom, approvalInput, type ApprovalForm } from '@/lib/prequal/maxApproval'
 import { draftFrom, hasChanges, prequalChanges, prequalSummary, type PrequalDraft, type QuickBorrower } from '@/lib/prequal/draft'
-import { MaxApprovalInputs, MaxApprovalResults } from './MaxApproval'
+import { MaxApprovalCard } from './MaxApproval'
+import { CollapsibleCard, Fold } from './Fold'
 import { CreditHistorySection } from './CreditHistorySection'
 import { PrequalResults } from './PrequalResults'
-import { ReadinessCard, useLiveReadiness } from './Readiness'
 import { SendPrequalResults } from './SendPrequalResults'
 
 export interface SummaryFigure {
@@ -33,11 +33,11 @@ export interface SummaryFigure {
 }
 
 export interface PrequalParts {
-  /** Above the 1003: Max Approval what-ifs and credit. */
-  top: ReactNode
-  /** The side column: Max Approval, readiness, results, the PDF. */
-  panel: ReactNode
-  /** The summary bar's figures. */
+  /** The side column's first card: Max approval (purchases), or the payment and prequal results (refinances). */
+  first: ReactNode
+  /** The side column's credit card: estimated scores and credit history. */
+  credit: ReactNode
+  /** The summary bar's figures (none on purchases: the Max approval card shows them). */
   figures: SummaryFigure[]
   /** Save for the phone prequal while it has changes; null when saved. */
   saveButton: ReactNode | null
@@ -47,12 +47,21 @@ export interface PrequalParts {
 export function PrequalWorkspace({ loan, app, properties, children }: { loan: LoanProfile; app: Application; properties: Property[]; children: (parts: PrequalParts) => ReactNode }) {
   const subject = properties.find((p) => p.id === loan.details.subjectPropertyId) ?? null
   const saved = draftFrom(loan, app, properties, false)
-  // Start fresh from the saved records whenever they change (after Save, or a 1003 section saving).
-  return <PrequalForm key={JSON.stringify(saved)} loan={loan} app={app} subject={subject} properties={properties} saved={saved} render={children} />
+  return <PrequalForm loan={loan} app={app} subject={subject} properties={properties} saved={saved} render={children} />
 }
 
 function PrequalForm({ loan, app, subject, properties, saved, render }: { loan: LoanProfile; app: Application; subject: Property | null; properties: Property[]; saved: PrequalDraft; render: (parts: PrequalParts) => ReactNode }) {
   const [draft, setDraft] = useState<PrequalDraft>(() => draftFrom(loan, app, properties))
+  const [approvalForm, setApprovalForm] = useState<ApprovalForm>(() => approvalFormFrom(loan.details))
+  // Start fresh from the saved records whenever they change (after Save, or a 1003 section or AI Fill saving).
+  // Done here instead of remounting, so the page below (and the AI Summary card mid-fill) keeps its state.
+  const savedKey = JSON.stringify(saved)
+  const [seenKey, setSeenKey] = useState(savedKey)
+  if (seenKey !== savedKey) {
+    setSeenKey(savedKey)
+    setDraft(draftFrom(loan, app, properties))
+    setApprovalForm(approvalFormFrom(loan.details))
+  }
   const save = useSavePrequal(loan.id, loan.organizationId)
   const updateStage = useUpdateStage()
 
@@ -62,10 +71,8 @@ function PrequalForm({ loan, app, subject, properties, saved, render }: { loan: 
   const summary = prequalSummary(loan, draft, properties, feeEstimate)
   const changes = prequalChanges(isPurchase, saved, draft)
   const dirty = hasChanges(changes)
-  const live = useLiveReadiness(loan, app, summary, draft)
   // Max Approval (purchase files): the highest price where every limit passes. No specific home needed.
   const org = useOrganization()
-  const [approvalForm, setApprovalForm] = useState<ApprovalForm>(() => approvalFormFrom(loan.details))
   const facts = approvalFacts(draft, summary, org.data)
   const approvalIn = approvalInput(draft.loan, approvalForm, facts)
   const approvalKey = JSON.stringify(approvalIn)
@@ -82,9 +89,6 @@ function PrequalForm({ loan, app, subject, properties, saved, render }: { loan: 
     [approvalKey, templates.dataUpdatedAt, isPurchase],
   )
   const max = approval?.max ?? null
-  const approvalChecks = isPurchase
-    ? prequalChecks({ mortgageType: draft.loan.mortgageType, creditScore: summary.creditScore, ltvPct: max?.ltv ?? null, backDtiPct: max?.dti.back ?? null, maxDtiPct: approvalIn.maxDtiPct, cashNeeded: max?.cashNeeded ?? null, funds: max?.funds ?? null, isPurchase: true })
-    : summary.checks
   const setBorrower = (next: QuickBorrower) => setDraft((d) => ({ ...d, borrowers: d.borrowers.map((b) => (b.contactId === next.contactId ? next : b)) }))
 
   const onSave = () =>
@@ -99,69 +103,71 @@ function PrequalForm({ loan, app, subject, properties, saved, render }: { loan: 
     )
 
 
-  const results = isPurchase && approval ? <MaxApprovalResults loan={loan} loanType={approvalTypeFor(draft.loan.mortgageType)} result={approval} /> : null
   const saveButton = (
     <Button onClick={onSave} disabled={!dirty || save.isPending}>
       {save.isPending ? 'Saving…' : dirty ? 'Save to 1003' : 'Saved'}
     </Button>
   )
 
-  // Above the 1003: the Max Approval what-ifs (purchase) and the credit the 1003 itself has no place for.
-  const top = (
-    <div className="space-y-4">
-      {isPurchase && approval && <MaxApprovalInputs loan={draft.loan} onLoanChange={(l) => setDraft((d) => ({ ...d, loan: l }))} form={approvalForm} onChange={setApprovalForm} facts={facts} />}
-      <Card title="Credit" description="Estimated scores until credit is pulled, and credit history. Everything else is figured from the 1003 below.">
-        <FormGrid>
-          {draft.borrowers.map((b) => (
-            <NumberInput
-              key={b.contactId}
-              label={`${b.firstName || 'Borrower'}${b.role === 'co_borrower' ? ' (co)' : ''}: credit score (estimate)`}
-              value={b.creditScore}
-              onChange={(creditScore) => setBorrower({ ...b, creditScore })}
-              maxDecimals={0}
-              span={2}
-            />
-          ))}
-        </FormGrid>
-        {dirty && (
-          <div className="mt-3 flex items-center justify-end gap-2">
-            <span className="text-xs text-muted-foreground">Not saved yet</span>
-            {saveButton}
-          </div>
-        )}
-      </Card>
-      <CreditHistorySection loan={loan} app={app} />
-    </div>
-  )
-
-  const panel = (
-    <>
-      {results}
-      <ReadinessCard loan={loan} view={live} />
-      <PrequalResults
-        isPurchase={isPurchase}
-        loan={draft.loan}
-        summary={summary}
-        checks={approvalChecks}
-        canMarkPrequalified={(loan.stage === 'lead' || loan.stage === 'contacted') && !dirty}
-        onMarkPrequalified={onMarkPrequalified}
+  // The side column's first card (Connor, 2026-11-19 layout): Max approval on purchases; the payment and the results PDF otherwise.
+  // The Readiness and Quick checks cards are no longer on this page (Readiness stays on the Nurture view).
+  const first =
+    isPurchase && approval ? (
+      <MaxApprovalCard
+        loan={loan}
+        draftLoan={draft.loan}
+        onLoanChange={(l) => setDraft((d) => ({ ...d, loan: l }))}
+        form={approvalForm}
+        onChange={setApprovalForm}
+        facts={facts}
+        result={approval}
+        saveButton={saveButton}
+        sendResults={<SendPrequalResults loan={loan} app={app} subject={subject} draft={draft} summary={summary} dirty={dirty} atMax={max} compact />}
       />
-      <SendPrequalResults loan={loan} app={app} subject={subject} draft={draft} summary={summary} dirty={dirty} atMax={isPurchase ? max : undefined} />
-    </>
+    ) : (
+      <>
+        <PrequalResults isPurchase={isPurchase} loan={draft.loan} summary={summary} checks={[]} canMarkPrequalified={false} onMarkPrequalified={onMarkPrequalified} />
+        <SendPrequalResults loan={loan} app={app} subject={subject} draft={draft} summary={summary} dirty={dirty} />
+      </>
+    )
+
+  // The credit the 1003 itself has no place for: estimated scores, then credit history (opens on a click).
+  const credit = (
+    <CollapsibleCard title="Credit" summary="Estimated scores and credit history">
+      <p className="mb-2 text-sm text-muted-foreground">Estimated scores until credit is pulled.</p>
+      <div className="grid grid-cols-2 gap-2">
+        {draft.borrowers.map((b) => (
+          <NumberInput
+            key={b.contactId}
+            label={`${b.firstName || 'Borrower'}${b.role === 'co_borrower' ? ' (co)' : ''}: score (est.)`}
+            value={b.creditScore}
+            onChange={(creditScore) => setBorrower({ ...b, creditScore })}
+            maxDecimals={0}
+          />
+        ))}
+      </div>
+      {dirty && !isPurchase && (
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <span className="text-xs text-muted-foreground">Not saved yet</span>
+          {saveButton}
+        </div>
+      )}
+      <div className="mt-3 border-t">
+        <Fold title="Credit history">
+          <CreditHistorySection loan={loan} app={app} />
+        </Fold>
+      </div>
+    </CollapsibleCard>
   )
 
+  // Purchases: none, since the Max approval card shows the same figures.
   const figures: SummaryFigure[] = isPurchase
-    ? [
-        { label: 'Max approval', value: formatCurrency(max?.price) },
-        { label: 'Limited by', value: approval?.limitedBy ? APPROVAL_LIMIT_LABELS[approval.limitedBy] : '—' },
-        { label: 'Payment', value: formatCurrency(max?.payment.total) },
-        { label: 'DTI', value: max ? `${formatPercent(max.dti.front, 1)} / ${formatPercent(max.dti.back, 1)}` : '—' },
-      ]
+    ? []
     : [
         { label: 'Payment', value: formatCurrency(summary.scenario.payment?.total) },
         { label: 'DTI', value: summary.dti.back === null ? '—' : `${formatPercent(summary.dti.front, 1)} / ${formatPercent(summary.dti.back, 1)}`, warning: summary.dti.back !== null && summary.dti.back > draft.loan.maxDtiPct },
         { label: 'LTV', value: formatPercent(summary.scenario.ltv, 2) },
       ]
 
-  return render({ top, panel, figures, saveButton: dirty ? saveButton : null })
+  return render({ first, credit, figures, saveButton: dirty ? saveButton : null })
 }
