@@ -37,6 +37,7 @@ import { LEAD_MODEL, LEAD_SCHEMA, LEAD_SYSTEM, buildLeadPrompt, leadDraftIssues,
 import { NURTURE_MODEL, NURTURE_READ_SCHEMA, NURTURE_READ_SYSTEM, NURTURE_WORD_SCHEMA, NURTURE_WORD_SYSTEM, buildNurtureReadPrompt, buildNurtureWordPrompt, isNurtureKind, nurtureDraftIssues, nurtureReworded, readNurtureDraft, readNurtureReading, type NurtureThreadMessage, type ReadMilestone } from './nurture.ts'
 import { REPLY_MODEL, REPLY_SCHEMA, REPLY_SYSTEM, THREAD_SENT, buildReplyPrompt, latestBurst, readReply, replyChannel, replySubject, type ThreadMessage } from './replyDraft.ts'
 import { INTAKE_MODEL, INTAKE_SCHEMA, INTAKE_SYSTEM, buildIntakePrompt, readIntakeSummary } from './intakeSummary.ts'
+import { MAX_TRANSLATE_CHARS, TRANSLATE_MODEL, TRANSLATE_SCHEMA, TRANSLATE_SYSTEM, buildTranslatePrompt, readTranslation, type TranslateDirection } from './translate.ts'
 import { READINESS_MODEL, READINESS_SCHEMA, READINESS_SYSTEM, buildReadinessPrompt, normalizeReadinessPlan, type ReadinessFacts } from './readinessPlan.ts'
 import { DOC_READ_SCHEMA, DOC_READ_SYSTEM_PROMPT, DOC_READ_USER_PROMPT, documentFlags, normalizeDocReading, statusFor, type FlagJob } from './documentRead.ts'
 
@@ -232,6 +233,7 @@ Deno.serve(async (request) => {
     if (task === 'readiness_plan') return await handleReadinessPlan(db, body, userId, apiKey)
     if (task === 'reply_suggest') return await handleReplySuggest(db, body, userId, apiKey)
     if (task === 'intake_summary') return await handleIntakeSummary(db, body, userId, apiKey)
+    if (task === 'translate') return await handleTranslate(db, body, userId, apiKey)
     return await handleFollowUp(db, body, userId, apiKey)
   } catch (e) {
     return reply(500, { error: (e as Error).message })
@@ -1293,6 +1295,65 @@ async function handleReplySuggest(db: SupabaseClient, body: unknown, userId: str
     const text = channel === 'email' ? finalBody('email', read.body, signer) : read.body
     await db.from('ai_runs').update({ status: 'succeeded', output: { body: text, confidence: read.confidence }, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
     return reply(200, { channel, subject, body: text, confidence: read.confidence, runId })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
+  }
+}
+
+/**
+ * Translation in the message thread (Connor, 2026-11-18), only when pressed.
+ * A client's message (messageId, read as the signed-in person) → English, shown
+ * under the original; or the loan officer's typed words (text + loanId) →
+ * Spanish, put back in the message box. Nothing is saved or sent.
+ */
+async function handleTranslate(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const { messageId, text: typed, loanId, direction: wanted } = (body ?? {}) as { messageId?: unknown; text?: unknown; loanId?: unknown; direction?: unknown }
+  const direction: TranslateDirection = wanted === 'to_es' ? 'to_es' : 'to_en'
+  let text: string
+  let organizationId: string
+  let fileId: string | null
+  if (typeof messageId === 'string') {
+    if (!UUID.test(messageId)) return reply(400, { error: 'Invalid message.' })
+    const m = await db.from('messages').select('organization_id, loan_id, body').eq('id', messageId).maybeSingle()
+    const row = m.data as { organization_id: string; loan_id: string | null; body: string | null } | null
+    if (!row) return reply(404, { error: "That message wasn't found, or it isn't yours." })
+    text = (row.body ?? '').trim()
+    organizationId = row.organization_id
+    fileId = row.loan_id
+  } else {
+    if (typeof loanId !== 'string' || !UUID.test(loanId)) return reply(400, { error: 'Invalid file.' })
+    text = typeof typed === 'string' ? typed.trim() : ''
+    try {
+      organizationId = await organizationFor(db, loanId)
+    } catch (e) {
+      return reply(404, { error: (e as Error).message })
+    }
+    fileId = loanId
+  }
+  if (!text) return reply(400, { error: direction === 'to_es' ? 'Write the message first.' : 'That message has no text.' })
+  if (text.length > MAX_TRANSLATE_CHARS) return reply(400, { error: `That's too long to translate here (over ${MAX_TRANSLATE_CHARS} characters).` })
+
+  const runId = await startRun(db, organizationId, fileId, 'translate', { direction, messageId: typeof messageId === 'string' ? messageId : null, chars: text.length }, TRANSLATE_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: TRANSLATE_MODEL }
+  try {
+    const params = {
+      model: TRANSLATE_MODEL,
+      max_tokens: 4000,
+      system: TRANSLATE_SYSTEM,
+      messages: [{ role: 'user', content: buildTranslatePrompt(direction, text) }],
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: TRANSLATE_SCHEMA } },
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    }
+    const res = await createForJson(new Anthropic({ apiKey }), params, db, runId)
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError("The assistant couldn't translate this one.")
+    const read = res.stop_reason === 'end_turn' ? readTranslation(parseJsonReply(replyText(res)), text) : { error: res.stop_reason }
+    if ('error' in read) throw new UserError(read.error === 'changed a link or field' ? 'The translation changed a link or field, so it was not used. Try again.' : 'The translation came back unusable. Try again.')
+    await db.from('ai_runs').update({ status: 'succeeded', output: { chars: read.translation.length }, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+    return reply(200, { translation: read.translation, direction })
   } catch (e) {
     return failRun(db, runId, usage, e)
   }

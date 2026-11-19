@@ -296,6 +296,21 @@ export async function suggestReply(v: { loanId: string; contactId: string; chann
   return data
 }
 
+/**
+ * Translation (Connor, 2026-11-18), only when pressed: a client's message into
+ * English (messageId), or what you typed into Spanish (text + loanId). Nothing
+ * is saved or sent.
+ */
+export async function translateText(v: { messageId: string } | { loanId: string; text: string }): Promise<string> {
+  const direction = 'messageId' in v ? 'to_en' : 'to_es'
+  const { data, error } = await db().functions.invoke<{ translation: string }>('assistant', { body: { task: 'translate', direction, ...v } })
+  if (error || !data?.translation) {
+    const detail = error instanceof FunctionsHttpError ? await error.context.json().catch(() => null) : null
+    throw new Error(detail?.error ?? "Couldn't translate this time. Try again.")
+  }
+  return data.translation
+}
+
 /** Whether you are this file's processor (file_role), who drafts for the loan officer; false before the file roles script has run. An LO Assistant sends from their own number. */
 export async function isFileProcessor(loanId: string): Promise<boolean> {
   const r = await db().rpc('file_role', { loan: loanId })

@@ -14,6 +14,7 @@ const ghlKeys = {
   lastCheck: ['ghl', 'lastCheck'] as const,
   settings: ['ghl', 'settings'] as const,
   pipelines: ['ghl', 'pipelines'] as const,
+  calendars: ['ghl', 'calendars'] as const,
 }
 
 export interface GhlStatus {
@@ -138,9 +139,12 @@ export interface GhlLink {
   /** When GHL last showed ghlNumber assigned to this user; null = not confirmed, nothing texts from it. */
   numberConfirmedAt: string | null
   checkedAt: string
+  /** The GHL calendar their appointments are booked on (Settings); undefined before the calendars script has run. */
+  calendarId?: string | null
+  calendarName?: string | null
 }
 
-/** Team members' GHL users. Everyone in the company can see them. */
+/** Team members' GHL users. Everyone in the company can see them. Read with * so the calendar fields appear once the script has run. */
 export function useGhlLinks() {
   const orgId = useOrgId()
   return useQuery({
@@ -148,8 +152,19 @@ export function useGhlLinks() {
     enabled: !!orgId,
     queryFn: async () => {
       const rows = unwrap<
-        { id: string; profile_id: string; ghl_user_id: string; ghl_name: string | null; ghl_email: string | null; ghl_number: string | null; number_confirmed_at: string | null; checked_at: string }[]
-      >(await db().from('ghl_user_links').select('id, profile_id, ghl_user_id, ghl_name, ghl_email, ghl_number, number_confirmed_at, checked_at').eq('organization_id', orgId!))
+        {
+          id: string
+          profile_id: string
+          ghl_user_id: string
+          ghl_name: string | null
+          ghl_email: string | null
+          ghl_number: string | null
+          number_confirmed_at: string | null
+          checked_at: string
+          ghl_calendar_id?: string | null
+          ghl_calendar_name?: string | null
+        }[]
+      >(await db().from('ghl_user_links').select('*').eq('organization_id', orgId!))
       return rows.map(
         (r): GhlLink => ({
           id: r.id,
@@ -160,6 +175,8 @@ export function useGhlLinks() {
           ghlNumber: r.ghl_number,
           numberConfirmedAt: r.number_confirmed_at,
           checkedAt: r.checked_at,
+          calendarId: r.ghl_calendar_id,
+          calendarName: r.ghl_calendar_name,
         }),
       )
     },
@@ -328,6 +345,47 @@ export function useSetTestMode() {
   })
 }
 
+export interface GhlCalendar {
+  id: string
+  name: string
+  active: boolean
+  type: string | null
+  userIds: string[]
+  slotMinutes: number | null
+}
+
+/** GHL's calendars for the Settings picker (owners and admins), with a suggested calendar per team member (profile id → calendar id). */
+export function useGhlCalendars(enabled: boolean) {
+  const orgId = useOrgId()
+  return useQuery({
+    queryKey: ghlKeys.calendars,
+    enabled: enabled && !!orgId,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    queryFn: () =>
+      invokeGhl<{ calendars: GhlCalendar[]; suggested: Record<string, string>; logError: string | null }>({ task: 'calendars', organizationId: orgId }, "GHL's calendars could not be loaded."),
+  })
+}
+
+/** Picks (or clears) the GHL calendar a team member's appointments go on. Owners and admins (the GHL links rule). */
+export function useSetGhlCalendar() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (v: { linkId: string; calendar: { id: string; name: string } | null }) => {
+      const rows = unwrap<{ id: string }[]>(
+        await db()
+          .from('ghl_user_links')
+          .update({ ghl_calendar_id: v.calendar?.id ?? null, ghl_calendar_name: v.calendar?.name ?? null })
+          .eq('id', v.linkId)
+          .select('id'),
+      )
+      if (rows.length === 0) throw new Error('Only an owner or admin can pick calendars.')
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ghlKeys.links }),
+  })
+}
+
 export interface GhlPipeline {
   id: string
   name: string
@@ -406,4 +464,55 @@ export function transferSummary(r: TransferResult | { error: string }): string {
 /** Matches or creates a partner's GHL contact by email and phone (never by name), assigned to the person clicking. */
 export function linkGhlPartner(organizationId: string, partnerId: string) {
   return invokeGhl<ContactLinkResult>({ task: 'contact', organizationId, partnerId }, 'The GHL contact was not matched or added.')
+}
+
+// ---------------------------------------------------------------------------
+// Booking appointments (Connor, 2026-11-18): from a client's text thread, the
+// file's loan officer or an admin books an open time on the loan officer's
+// GHL calendar (Settings → GHL calendars). Checked again by the ghl function.
+// ---------------------------------------------------------------------------
+
+export interface CalendarSlots {
+  calendar: { id: string; name: string; minutes: number }
+  /** Open start times (ISO), oldest first. */
+  slots: string[]
+}
+
+/** The file's loan officer's open times for the next `days` days, loaded when the booking window opens. */
+export function useCalendarSlots(loanId: string, enabled: boolean, days = 14) {
+  const orgId = useOrgId()
+  return useQuery({
+    queryKey: ['ghl', 'slots', loanId, days],
+    enabled: enabled && !!orgId,
+    staleTime: 60 * 1000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    queryFn: () => invokeGhl<CalendarSlots>({ task: 'calendar_slots', organizationId: orgId, loanId, days }, "The loan officer's open times could not be loaded."),
+  })
+}
+
+export interface BookingResult {
+  booked: true
+  appointmentId: string | null
+  start: string
+  end: string
+  calendar: string
+  name: string
+  /** Booked in GHL but not saved in MPS HQ (shown, never hidden). */
+  saveError: string | null
+}
+
+/** Books one open time for a borrower on the file. Only on a click; GHL sends nothing itself. */
+export function useBookAppointment() {
+  const orgId = useOrgId()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { loanId: string; contactId: string; start: string; title: string; notes: string }) =>
+      invokeGhl<BookingResult>({ task: 'book_appointment', organizationId: orgId, ...v }, 'The appointment was not booked.'),
+    onSuccess: (_r, v) => {
+      queryClient.invalidateQueries({ queryKey: ['ghl', 'slots', v.loanId] })
+      queryClient.invalidateQueries({ queryKey: ['appointments'] })
+      queryClient.invalidateQueries({ queryKey: ['notes'] })
+    },
+  })
 }

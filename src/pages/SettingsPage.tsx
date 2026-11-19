@@ -7,7 +7,7 @@ import { QuoteProfileFields } from '@/components/quickquote/QuoteProfileFields'
 import { BRAND_TYPES, useBrandImage, useRemoveBrandImage, useUploadBrandImage } from '@/lib/api/brandFiles'
 import { DocumentRulesCard } from '@/components/documents/DocumentRulesCard'
 import { DocumentCatalogCard } from '@/components/documents/DocumentCatalogCard'
-import { GhlCard, GhlPipelinesCard, SendingCard } from '@/components/messaging/GhlSettingsCards'
+import { GhlCalendarsCard, GhlCard, GhlPipelinesCard, SendingCard } from '@/components/messaging/GhlSettingsCards'
 import { NotificationSettingsCard } from '@/components/notifications/NotificationSettingsCard'
 import { FeeListCard } from '@/components/pricing/FeeListCard'
 import { MessageTemplatesCard } from '@/components/queue/MessageTemplatesCard'
@@ -231,6 +231,7 @@ export function SettingsPage() {
         <SendingCard canEdit={canEditCompany} />
         <NotificationSettingsCard />
         <GhlPipelinesCard canEdit={canEditCompany} />
+        {canEditCompany && <GhlCalendarsCard members={members.data ?? []} canEdit={canEditCompany} />}
       </div>
     </>
   )

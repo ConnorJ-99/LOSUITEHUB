@@ -61,6 +61,7 @@ import { chooseOpportunity, newContactBody, pickOpportunities, pickOpportunity, 
 import { pickContact, secretMatches } from '../ghl-inbound/sync.ts'
 import { pickGhlMatch, sharedDetails, splitName } from './link.ts'
 import { planTransfer, transferRefusal } from './transfer.ts'
+import { BOOKING_TIMEZONE, DEFAULT_MINUTES, MAX_DAYS_AHEAD, appointmentBody, endFor, isOpenSlot, pickAppointmentId, pickCalendars, pickSlots, suggestCalendar } from './calendar.ts'
 
 const TIMEOUT_MS = 10_000
 const UPLOAD_TIMEOUT_MS = 30_000
@@ -215,6 +216,12 @@ async function otherChecks(g: Ghl): Promise<CheckOutcome[]> {
 
   // PUT /opportunities/{id} (opportunities.write): a blank update to an opportunity that doesn't exist.
   record('opportunities_write', await g.call(plan('opportunities_write'), `/opportunities/${NO_SUCH_ID}`, {}))
+
+  // GET /calendars/?locationId (calendars.readonly): calendar names only.
+  record('calendars_read', await g.call(plan('calendars_read'), `/calendars/?locationId=${loc}`))
+
+  // PUT /calendars/events/appointments/{id} (calendars/events.write): a blank update to an appointment that doesn't exist.
+  record('appointments_write', await g.call(plan('appointments_write'), `/calendars/events/appointments/${NO_SUCH_ID}`, {}))
   return outcomes
 }
 
@@ -730,6 +737,142 @@ async function sendMessage(db: SupabaseClient, admin: SupabaseClient, g: Ghl, or
     await admin.from('messages').update({ sent_by: userId, idempotency_key: req.idempotencyKey, approval_id: req.approvalId, read_at: now }).eq('organization_id', organizationId).eq('ghl_message_id', result.messageId)
   } else if (done.error) throw new Error(done.error.message)
   return { sent: true, status, from: sendPlan.fromNumber ?? sendPlan.fromEmail, to: sendPlan.to }
+}
+
+/** GHL's calendars for the Settings picker, with a suggestion per linked GHL user: GET /calendars/?locationId (calendars.readonly, Version 2021-04-15). */
+async function listCalendars(db: SupabaseClient, g: Ghl, organizationId: string) {
+  const a = await g.call(plan('calendars_read'), `/calendars/?locationId=${encodeURIComponent(g.locationId)}`)
+  if (a.outcome.result !== 'works') {
+    throw new UserError(a.outcome.result === 'missing_scope' ? 'GHL calendars need the "calendars.readonly" scope. Add it in GHL → Settings → Private Integrations, then try again.' : `GHL's calendars couldn't be read: ${a.outcome.detail}`)
+  }
+  const calendars = pickCalendars(a.body)
+  const links = await db.from('ghl_user_links').select('profile_id, ghl_user_id').eq('organization_id', organizationId)
+  if (links.error) throw new Error(links.error.message)
+  const suggested: Record<string, string> = {}
+  for (const l of (links.data ?? []) as { profile_id: string; ghl_user_id: string }[]) {
+    const c = suggestCalendar(calendars, l.ghl_user_id)
+    if (c) suggested[l.profile_id] = c.id
+  }
+  return { calendars, suggested }
+}
+
+/**
+ * Who books on a file, and on which calendar (Connor, 2026-11-18): the file's
+ * loan officer or an admin (file_role, as the caller), on the file's loan
+ * officer's GHL calendar picked in Settings. LO Assistants and processors don't book.
+ */
+async function bookingSetup(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, loanId: unknown) {
+  if (typeof loanId !== 'string' || !/^[0-9a-f-]{36}$/i.test(loanId)) throw new UserError('Which file?')
+  const role = await db.rpc('file_role', { loan: loanId })
+  if (role.error) throw new Error(role.error.message)
+  if (role.data !== 'lo' && role.data !== 'admin') throw new UserError("Only the file's loan officer or an admin can book appointments on this file.")
+  const loan = await db.from('loans').select('assigned_lo_id').eq('id', loanId).eq('organization_id', organizationId).maybeSingle()
+  if (loan.error) throw new Error(loan.error.message)
+  const loId = (loan.data as { assigned_lo_id: string | null } | null)?.assigned_lo_id ?? null
+  if (!loId) throw new UserError('This file has no loan officer, so there is no calendar to book on.')
+  const link = await admin.from('ghl_user_links').select('ghl_user_id, ghl_calendar_id, ghl_calendar_name').eq('organization_id', organizationId).eq('profile_id', loId).maybeSingle()
+  if (link.error) throw new Error(link.error.message)
+  const l = link.data as { ghl_user_id: string; ghl_calendar_id: string | null; ghl_calendar_name: string | null } | null
+  if (!l) throw new UserError("The file's loan officer isn't linked to a GHL user yet (Settings → GoHighLevel).")
+  if (!l.ghl_calendar_id) throw new UserError("Pick the loan officer's calendar first (Settings → GHL calendars).")
+  // The calendar's appointment length, from GHL's calendar list.
+  const cals = await g.call(plan('calendars_read'), `/calendars/?locationId=${encodeURIComponent(g.locationId)}`)
+  if (cals.outcome.result !== 'works') throw new UserError(`GHL's calendars couldn't be read: ${cals.outcome.detail}`)
+  const calendar = pickCalendars(cals.body).find((c) => c.id === l.ghl_calendar_id)
+  if (!calendar) throw new UserError(`The calendar picked for this loan officer (${l.ghl_calendar_name ?? 'unknown'}) is no longer in GHL. Pick it again in Settings → GHL calendars.`)
+  if (!calendar.active) throw new UserError(`${calendar.name} is turned off in GHL.`)
+  return { loanId, loId, ghlUserId: l.ghl_user_id, calendar }
+}
+
+/** GET /calendars/{id}/free-slots (calendars.readonly, Version 2021-04-15) between two moments, in Central time. */
+async function freeSlots(g: Ghl, calendarId: string, from: number, to: number): Promise<string[]> {
+  const q = `startDate=${from}&endDate=${to}&timezone=${encodeURIComponent(BOOKING_TIMEZONE)}`
+  const a = await g.call(plan('calendars_read'), `/calendars/${encodeURIComponent(calendarId)}/free-slots?${q}`)
+  if (a.outcome.result !== 'works') throw new UserError(`GHL's open times couldn't be read: ${a.outcome.detail}`)
+  return pickSlots(a.body)
+}
+
+/** The loan officer's open times for the next `days` days (up to a month). Reads only. */
+async function calendarSlots(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, body: Record<string, unknown>) {
+  const setup = await bookingSetup(db, admin, g, organizationId, body.loanId)
+  const days = Math.min(MAX_DAYS_AHEAD, Math.max(1, Number(body.days) || 14))
+  const from = Date.now()
+  const slots = (await freeSlots(g, setup.calendar.id, from, from + days * 86_400_000)).filter((s) => Date.parse(s) > from)
+  return { calendar: { id: setup.calendar.id, name: setup.calendar.name, minutes: setup.calendar.slotMinutes ?? DEFAULT_MINUTES }, slots }
+}
+
+/**
+ * Books one open time on the file's loan officer's calendar for a borrower on
+ * the file (only on a click). The time is checked against GHL's open times
+ * again first; the borrower's GHL contact is found or made (assigned to the
+ * loan officer); GHL sends nothing on its own. Saved in `appointments` with a
+ * note on the file. Test mode only books for people named TEST.
+ */
+async function bookAppointment(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, userId: string, body: Record<string, unknown>) {
+  const setup = await bookingSetup(db, admin, g, organizationId, body.loanId)
+  const contactId = typeof body.contactId === 'string' ? body.contactId : ''
+  const start = typeof body.start === 'string' ? body.start : ''
+  const title = typeof body.title === 'string' ? body.title.trim().slice(0, 120) : ''
+  const notes = typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim().slice(0, 2000) : null
+  if (!title) throw new UserError('Give the appointment a title.')
+  const startMs = Date.parse(start)
+  if (Number.isNaN(startMs) || startMs <= Date.now()) throw new UserError('Pick a time that is still ahead.')
+
+  // The borrower, on this file, as the caller sees them (Row Level Security).
+  const onFile = await db
+    .from('loan_borrowers')
+    .select('contact:contacts ( id, first_name, last_name, email, phone, ghl_contact_id )')
+    .eq('loan_id', setup.loanId)
+    .eq('contact_id', contactId)
+    .maybeSingle()
+  if (onFile.error) throw new Error(onFile.error.message)
+  const person = (onFile.data as unknown as { contact: (GhlPerson & { id: string }) | null } | null)?.contact
+  if (!person) throw new UserError('That person is not on this file.')
+  const name = [person.first_name, person.last_name].filter(Boolean).join(' ') || 'Borrower'
+
+  const settings = await admin.from('messaging_settings').select('inbound_mode').eq('organization_id', organizationId).maybeSingle()
+  if (settings.error) throw new Error(settings.error.message)
+  if (((settings.data as { inbound_mode: string } | null)?.inbound_mode ?? 'test_only') === 'test_only' && !hasTestName(person.first_name, person.last_name)) {
+    throw new UserError('Test mode: MPS HQ only books for people with TEST in their name. Nothing was booked.')
+  }
+
+  // Still open? GHL's open times around that moment.
+  const open = await freeSlots(g, setup.calendar.id, startMs - 12 * 3_600_000, startMs + 12 * 3_600_000)
+  if (!isOpenSlot(open, start)) throw new UserError('That time was just taken or is no longer open. Pick another one.')
+
+  const contact = await ensureGhlContact(admin, g, organizationId, person.id, person, setup.ghlUserId)
+  const startIso = new Date(startMs).toISOString()
+  const endIso = endFor(startIso, setup.calendar.slotMinutes)
+  const made = await g.call(
+    { ...plan('appointments_write'), method: 'POST', dryRun: false },
+    '/calendars/events/appointments',
+    appointmentBody({ calendarId: setup.calendar.id, locationId: g.locationId, ghlContactId: contact.id, ghlUserId: setup.ghlUserId, start: startIso, end: endIso, title }),
+  )
+  const appointmentId = pickAppointmentId(made.body)
+  if (made.outcome.result !== 'works' || !appointmentId) throw new UserError(`GHL didn't book it: ${made.outcome.detail || 'no appointment came back'}. Nothing was booked.`)
+
+  const saved = await admin
+    .from('appointments')
+    .insert({
+      organization_id: organizationId,
+      loan_id: setup.loanId,
+      contact_id: person.id,
+      lo_user_id: setup.loId,
+      booked_by: userId,
+      ghl_calendar_id: setup.calendar.id,
+      ghl_appointment_id: appointmentId,
+      title,
+      notes,
+      starts_at: startIso,
+      ends_at: endIso,
+    })
+    .select('id')
+    .single()
+  // GHL has it booked either way; say so rather than hide it.
+  const saveError = saved.error ? `Booked in GHL, but MPS HQ couldn't save it: ${saved.error.message}` : null
+  const when = new Intl.DateTimeFormat('en-US', { timeZone: BOOKING_TIMEZONE, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(startMs))
+  await db.from('notes').insert({ organization_id: organizationId, contact_id: person.id, loan_id: setup.loanId, kind: 'note', body: `Appointment booked: ${title}, ${when} Central, on ${setup.calendar.name}.${notes ? ` ${notes}` : ''}` })
+  return { booked: true, appointmentId: (saved.data as { id: string } | null)?.id ?? null, start: startIso, end: endIso, calendar: setup.calendar.name, name, saveError }
 }
 
 /** GHL's pipelines for the Settings picker: GET /opportunities/pipelines (opportunities.readonly, Version 2021-07-28). */
@@ -1319,10 +1462,24 @@ Deno.serve(async (request) => {
         if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'processor_followers', ...c })))
       }
     }
+    if (task === 'calendar_slots' || task === 'book_appointment') {
+      // The file's loan officer or an admin (checked inside, as the caller).
+      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+      try {
+        return reply(200, task === 'calendar_slots' ? await calendarSlots(db, admin, g, organizationId, body) : await bookAppointment(db, admin, g, organizationId, userId, body))
+      } finally {
+        if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task, ...c })))
+      }
+    }
     if (!['owner', 'admin'].includes((role.data as { role: string }).role)) return reply(403, { error: 'Only an owner or admin can manage the GHL connection.' })
     if (task === 'pipelines') {
       const result = await listPipelines(g)
       const logError = await saveLog(db, organizationId, userId, 'pipelines', g)
+      return reply(200, { ...result, logError })
+    }
+    if (task === 'calendars') {
+      const result = await listCalendars(db, g, organizationId)
+      const logError = await saveLog(db, organizationId, userId, 'calendars', g)
       return reply(200, { ...result, logError })
     }
     if (task === 'token_check') return reply(200, await tokenCheck(db, g, organizationId, userId))

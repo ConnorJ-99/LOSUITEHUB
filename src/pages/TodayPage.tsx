@@ -9,6 +9,7 @@ import { ActionEntry } from '@/components/queue/ActionEntry'
 import { useLeadFollowupMeta } from '@/lib/api/leadFollowups'
 import { isSnoozed } from '@/lib/leads/followups'
 import { LeadFollowupsBox } from '@/components/leads/LeadFollowupsBox'
+import { TodayAppointmentsCard } from '@/components/messages/AppointmentCards'
 import { usePipeline } from '@/lib/api/loans'
 import { useTodayData, type FileInfo } from '@/lib/api/queue'
 import { useReminderDrafts } from '@/lib/api/drafts'
@@ -262,6 +263,7 @@ export function TodayPage() {
           <SectionTitle eyebrow="Today" title="Your day," highlight="at a glance" />
           {tasks.isSuccess && <PriorityListCard tasks={tasks.data} />}
           <NewMessagesCard />
+          <TodayAppointmentsCard />
           <ScheduledCard />
           <ProcessingFilesCard />
           <PortalRequestsCard />

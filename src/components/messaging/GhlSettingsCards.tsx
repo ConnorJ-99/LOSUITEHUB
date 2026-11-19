@@ -4,8 +4,10 @@ import { Button } from '@/components/ui/button'
 import { Select as BaseSelect, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, confirmAction, Input, ToggleChip } from '@/components/shared'
 import {
+  useGhlCalendars,
   useGhlCheck,
   useGhlLinks,
+  useSetGhlCalendar,
   useGhlPipelines,
   useGhlStatus,
   useLastGhlCheck,
@@ -415,6 +417,8 @@ function TestModeSwitch({ testMode, canEdit }: { testMode: boolean; canEdit: boo
 }
 
 const PAIR = '::'
+/** The calendar picker's "none" choice (a Select item can't have an empty value). */
+const NONE = '__none__'
 const pairValue = (c: { pipelineId: string; stageId: string } | null) => (c ? `${c.pipelineId}${PAIR}${c.stageId}` : '')
 
 /** Every stage of every pipeline, as "Pipeline · Stage". */
@@ -519,6 +523,110 @@ export function GhlPipelinesCard({ canEdit }: { canEdit: boolean }) {
           <p className="border-t pt-2 text-xs text-muted-foreground">
             New messages: MPS HQ checks GHL every 10 minutes{s.lastSyncedAt ? `; last checked ${relativeTime(s.lastSyncedAt)}` : '; not checked yet'}.
           </p>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/**
+ * GHL calendars (Connor, 2026-11-18): each loan officer's own GHL calendar,
+ * picked once. Appointments booked from a client's text thread go on the
+ * file's loan officer's calendar; with none picked, booking is off for their
+ * files. Owners and admins pick; only people linked to a GHL user are listed.
+ */
+export function GhlCalendarsCard({ members, canEdit }: { members: OrgMember[]; canEdit: boolean }) {
+  const status = useGhlStatus()
+  const ready = status.data?.ready === true
+  const links = useGhlLinks()
+  const [load, setLoad] = useState(false)
+  const calendars = useGhlCalendars(ready && canEdit && load)
+  const setCalendar = useSetGhlCalendar()
+  const list = calendars.data?.calendars ?? []
+  const linked = members.flatMap((m) => {
+    const link = links.data?.find((l) => l.profileId === m.id)
+    return link ? [{ member: m, link }] : []
+  })
+  // Before the calendars script has run, the link has no calendar fields at all.
+  const installed = !links.data?.length || links.data.some((l) => l.calendarId !== undefined)
+
+  const pick = (linkId: string, who: string) => (calendarId: string) => {
+    const c = calendarId === NONE ? null : list.find((x) => x.id === calendarId)
+    if (c === undefined) return
+    setCalendar.mutate(
+      { linkId, calendar: c ? { id: c.id, name: c.name } : null },
+      { onSuccess: () => toast.success(c ? `${who} books on ${c.name}` : `Booking turned off for ${who}`), onError: (e) => toast.error(e.message) },
+    )
+  }
+
+  return (
+    <Card
+      title="GHL calendars"
+      description="Appointments booked from a client's text thread go on the file's loan officer's own GHL calendar."
+      action={
+        ready &&
+        canEdit &&
+        installed && (
+          <Button size="sm" variant="outline" disabled={calendars.isFetching} onClick={() => (load ? calendars.refetch() : setLoad(true))}>
+            {calendars.isFetching ? 'Loading…' : load ? 'Reload from GHL' : 'Change…'}
+          </Button>
+        )
+      }
+    >
+      {!ready ? (
+        <p className="text-sm text-muted-foreground">Turns on once GHL is connected.</p>
+      ) : !installed ? (
+        <Note tone="warn">Run the GHL calendars script (20270219000000_ghl_calendars.sql) in the Supabase SQL Editor first.</Note>
+      ) : (
+        <div className="space-y-2">
+          {calendars.error && <Note tone="bad">{calendars.error.message}</Note>}
+          {calendars.data?.logError && <Note tone="warn">{calendars.data.logError}</Note>}
+          {load && calendars.data && !list.length && <Note tone="warn">GHL has no calendars in this sub-account. Make one for each loan officer in GHL → Calendars first.</Note>}
+          {!linked.length ? (
+            <p className="text-sm text-muted-foreground">Link team members to their GHL users above first.</p>
+          ) : (
+            <ul className="divide-y">
+              {linked.map(({ member, link }) => {
+                const suggestedId = calendars.data?.suggested[member.id]
+                const suggestion = !link.calendarId && suggestedId ? list.find((c) => c.id === suggestedId) : undefined
+                return (
+                  <li key={member.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                    <span className="min-w-0">
+                      {member.name}
+                      <span className="ml-2 text-xs text-muted-foreground">GHL user: {link.ghlName ?? 'linked'}</span>
+                    </span>
+                    <span className="flex flex-wrap items-center gap-2">
+                      {suggestion && canEdit && (
+                        <Button size="sm" variant="outline" disabled={setCalendar.isPending} onClick={() => pick(link.id, member.name)(suggestion.id)}>
+                          Use {suggestion.name}
+                        </Button>
+                      )}
+                      {load && list.length ? (
+                        <BaseSelect value={link.calendarId ?? NONE} onValueChange={pick(link.id, member.name)} disabled={setCalendar.isPending}>
+                          <SelectTrigger size="sm" className="w-64" aria-label={`GHL calendar for ${member.name}`}>
+                            <SelectValue placeholder="Pick their calendar">{link.calendarId ? link.calendarName ?? 'Picked' : 'No calendar (booking off)'}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NONE}>No calendar (booking off)</SelectItem>
+                            {list.map((c) => (
+                              <SelectItem key={c.id} value={c.id} disabled={!c.active}>
+                                {c.name}
+                                {c.userIds.includes(link.ghlUserId) ? ' · theirs' : ''}
+                                {!c.active ? ' (inactive)' : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </BaseSelect>
+                      ) : (
+                        <span className={link.calendarId ? 'text-sm' : chip.warn}>{link.calendarId ? link.calendarName ?? 'Picked' : 'No calendar yet'}</span>
+                      )}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          <p className="text-xs text-muted-foreground">Only the file's loan officer or an admin books. A loan officer with no calendar picked can't be booked from MPS HQ.</p>
         </div>
       )}
     </Card>

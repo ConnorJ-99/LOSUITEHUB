@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FileTextIcon, MailIcon, MessageSquareIcon, PaperclipIcon, RefreshCwIcon } from 'lucide-react'
+import { FileTextIcon, LanguagesIcon, MailIcon, MessageSquareIcon, PaperclipIcon, RefreshCwIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import { useGhlLinks, useGhlStatus } from '@/lib/api/ghl'
 import {
   isOpenFailure,
   MATCHED_BY_LABEL,
+  translateText,
   useCheckNewMessages,
   useConsentHistory,
   useFilePeople,
@@ -23,6 +24,8 @@ import type { LoanProfile } from '@/lib/api/types'
 import { useAuth } from '@/lib/auth/context'
 import { relativeTime } from '@/lib/dates'
 import { consentChip, dayLabel, groupByDay, sharedPhoneIds, timeOfDay } from '@/lib/messaging/thread'
+import { looksSpanish } from '@/lib/messaging/language'
+import { useAiStatus } from '@/lib/api/assistant'
 import { formatPhone } from '@/lib/pipeline/helpers'
 import { AddToGhl } from '@/components/messaging/AddToGhl'
 import { offerApplicationLink } from '@/components/messaging/fileTextRequests'
@@ -58,7 +61,44 @@ export function CheckNewMessagesButton({ size = 'sm' }: { size?: 'sm' | 'default
   )
 }
 
-function Bubble({ m, who, isNew }: { m: Message; who: string | null; isNew: boolean }) {
+/**
+ * A client's message that reads as Spanish gets "Reveal translation" (Connor,
+ * 2026-11-18): the original stays as it came in; the English shows under it
+ * on a click. Nothing is saved, so it's asked again after the page is left.
+ */
+function RevealTranslation({ messageId }: { messageId: string }) {
+  const [english, setEnglish] = useState<string | null>(null)
+  const [shown, setShown] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const reveal = async () => {
+    if (english) return setShown((s) => !s)
+    setBusy(true)
+    try {
+      setEnglish(await translateText({ messageId }))
+      setShown(true)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      {shown && english && (
+        <div className="mt-2 border-t border-foreground/10 pt-2">
+          <p className="text-[0.7rem] font-medium tracking-wide text-muted-foreground uppercase">English translation</p>
+          <p className="mt-0.5">{english}</p>
+        </div>
+      )}
+      <button type="button" onClick={() => void reveal()} disabled={busy} className="mt-1.5 flex items-center gap-1 text-xs font-medium text-primary hover:underline disabled:opacity-60">
+        <LanguagesIcon className="size-3" />
+        {busy ? 'Translating…' : shown ? 'Hide translation' : 'Reveal translation'}
+      </button>
+    </>
+  )
+}
+
+function Bubble({ m, who, isNew, canTranslate }: { m: Message; who: string | null; isNew: boolean; canTranslate: boolean }) {
   const inbound = m.direction === 'inbound'
   const meta = [m.channel === 'text' ? 'Text' : 'Email', timeOfDay(m.sentAt), who && (inbound ? `from ${who}` : `to ${who}`), !inbound && m.status ? m.status : null].filter(Boolean).join(' · ')
   return (
@@ -77,6 +117,7 @@ function Bubble({ m, who, isNew }: { m: Message; who: string | null; isNew: bool
           </>
         )}
         <p className={m.channel === 'email' ? 'mt-1.5 text-muted-foreground' : undefined}>{m.body || <span className="italic text-muted-foreground">(no text)</span>}</p>
+        {inbound && canTranslate && looksSpanish(m.body) && <RevealTranslation messageId={m.id} />}
         {m.attachments.length > 0 && (
           <ul className="mt-2 space-y-0.5 text-xs">
             {m.attachments.map((a) => (
@@ -296,6 +337,7 @@ export function MessagesTab({ loan }: { loan: LoanProfile }) {
   const role = state.status === 'signedIn' ? state.user.role : null
   const canCheck = role === 'owner' || role === 'admin'
   const status = useGhlStatus()
+  const ai = useAiStatus()
   const people = useFilePeople(loan.id)
   const ids = (people.data ?? []).map((p) => p.id)
   const thread = useThread(ids)
@@ -353,7 +395,7 @@ export function MessagesTab({ loan }: { loan: LoanProfile }) {
               <section key={g.label} className="space-y-3">
                 <p className="mx-auto w-fit rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">{g.label}</p>
                 {g.messages.map((m) => (
-                  <Bubble key={m.id} m={m} who={nameOf(m.contactId)} isNew={newIds.has(m.id) || (m.direction === 'inbound' && !m.readAt)} />
+                  <Bubble key={m.id} m={m} who={nameOf(m.contactId)} isNew={newIds.has(m.id) || (m.direction === 'inbound' && !m.readAt)} canTranslate={!!ai.data?.ready} />
                 ))}
               </section>
             ))}

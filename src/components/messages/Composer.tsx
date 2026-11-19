@@ -1,14 +1,16 @@
 import { useRef, useState } from 'react'
-import { CalendarClockIcon, FileTextIcon, LinkIcon, MailIcon, MessageSquareIcon, SendIcon, SparklesIcon } from 'lucide-react'
+import { CalendarClockIcon, CalendarPlusIcon, FileTextIcon, LanguagesIcon, LinkIcon, MailIcon, MessageSquareIcon, SendIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { confirmAction, Input } from '@/components/shared'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { sentOrDrafted, suggestReply, useScheduleMessage, useSendMessage, type FilePerson } from '@/lib/api/messages'
+import { sentOrDrafted, suggestReply, translateText, useScheduleMessage, useSendMessage, type FilePerson } from '@/lib/api/messages'
 import { useAiStatus } from '@/lib/api/assistant'
 import { scheduleLabel } from '@/lib/messaging/schedule'
 import { ScheduleDialog } from './ScheduleDialog'
+import { BookAppointmentDialog } from './BookAppointmentDialog'
+import { confirmationText } from '@/lib/messaging/appointments'
 import { TemplatesDialog } from './TemplatesDialog'
 import type { LoanProfile } from '@/lib/api/types'
 import { formatPhone } from '@/lib/pipeline/helpers'
@@ -48,9 +50,15 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
   // "Suggest a reply" (Connor, 2026-11-16): the AI writes only when asked, into this box.
   const ai = useAiStatus()
   const [suggesting, setSuggesting] = useState(false)
+  // Translate (Connor, 2026-11-18): swaps the typed text for Spanish in the box; sending is still the click below.
+  const [translating, setTranslating] = useState(false)
+  const [beforeTranslation, setBeforeTranslation] = useState<{ english: string; spanish: string } | null>(null)
   const send = useSendMessage()
   const schedule = useScheduleMessage()
   const [scheduling, setScheduling] = useState(false)
+  // Book appointment (Connor, 2026-11-18): the file's LO or an admin, on the LO's GHL calendar.
+  const canBook = fileRole.role === 'lo' || fileRole.role === 'admin'
+  const [booking, setBooking] = useState(false)
   // Templates (Connor, 2026-11-17): they fill the box only; sending is still the click below.
   const [templating, setTemplating] = useState(false)
   const [channel, setChannel] = useState<'text' | 'email'>('text')
@@ -108,6 +116,7 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
           else toast.success(sentOrDrafted(r, `${channel === 'text' ? 'Text' : 'Email'} sent to ${person.firstName}`))
           setBody('')
           setSubject('')
+          setBeforeTranslation(null)
           setKey(newKey())
         },
         // A failed send keeps the text and its key: GHL refused it, so sending again needs a new key.
@@ -133,6 +142,28 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
     } finally {
       setSuggesting(false)
     }
+  }
+
+  const translate = async () => {
+    if (!body.trim()) return toast.error('Write the message first.')
+    setTranslating(true)
+    try {
+      const spanish = await translateText({ loanId: loan.id, text: body })
+      setBeforeTranslation({ english: body, spanish })
+      setBody(spanish)
+      toast.success('Translated to Spanish. Read it over before you send it.')
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setTranslating(false)
+    }
+  }
+
+  const undoTranslation = async () => {
+    if (!beforeTranslation) return
+    if (body !== beforeTranslation.spanish && !(await confirmAction('Go back to your English? Changes you made to the Spanish will be lost.', { confirmLabel: 'Back to English' }))) return
+    setBody(beforeTranslation.english)
+    setBeforeTranslation(null)
   }
 
   const applyTemplate = async (t: { body: string; subject: string }) => {
@@ -174,6 +205,12 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
           {from}
         </span>
         <span className={cn('ml-auto', window.open ? TONE_CLASS.ok : TONE_CLASS.warn)}>{window.label}</span>
+        {canBook && (
+          <Button size="xs" variant="outline" onClick={() => setBooking(true)} title={`Book a time on ${loFirst}'s GHL calendar for ${person.firstName}. A confirmation text is put in the box for you to send.`}>
+            <CalendarPlusIcon />
+            Book appointment
+          </Button>
+        )}
         <Button size="xs" variant="outline" onClick={() => setTemplating(true)} title="Fill the box with a ready-made message to edit. Nothing is sent.">
           <FileTextIcon />
           Templates
@@ -184,12 +221,27 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
             {suggesting ? 'Writing…' : 'Suggest a reply'}
           </Button>
         )}
+        {ai.data?.ready && channel === 'text' && (
+          <Button size="xs" variant="outline" onClick={() => void translate()} disabled={translating || !body.trim()} title="Replace what you wrote with Spanish, to read over before you send. Nothing is sent.">
+            <LanguagesIcon />
+            {translating ? 'Translating…' : 'Translate to Spanish'}
+          </Button>
+        )}
       </div>
       {channel === 'email' && <Input label="Subject" hideLabel placeholder="Subject" value={subject} onChange={setSubject} />}
       <div className="@container">
         <div className={cn('gap-4', body.trim() && '@3xl:grid @3xl:grid-cols-[minmax(0,1fr)_18rem]')}>
           <div className="space-y-2">
             <TagEditor ref={editor} label="Message" value={body} onChange={setBody} placeholder={`Write a ${channel === 'text' ? 'text' : 'email'} to ${person.firstName}…`} rows={channel === 'text' ? 3 : 6} />
+            {beforeTranslation && body.trim() && (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <LanguagesIcon className="size-3" />
+                Translated to Spanish.
+                <button type="button" className="font-medium text-primary hover:underline" onClick={() => void undoTranslation()}>
+                  Back to my English
+                </button>
+              </p>
+            )}
             {/* Insert link bar (Connor, 2026-11-17): chips that fill from the file's loan officer at send time. */}
             <div>
               <p className="text-[0.7rem] font-medium tracking-wide text-muted-foreground uppercase">Insert link · resolves to the file's loan officer ({rules.loName ?? 'none yet'}){asLoa ? ', not you' : ''}</p>
@@ -258,6 +310,31 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
           </Button>
         </div>
       </div>
+      {booking && (
+        <BookAppointmentDialog
+          loanId={loan.id}
+          person={{ id: person.id, firstName: person.firstName }}
+          loName={rules.loName ?? 'the loan officer'}
+          onClose={() => setBooking(false)}
+          onBooked={(r, minutes) => {
+            setBooking(false)
+            const text = confirmationText({ borrowerFirst: person.firstName, loFirst, start: r.start, minutes, bookedByLo: meId === loan.assignedLo?.id })
+            // The confirmation goes in the box as a text; it's sent only with the usual click.
+            if (!body.trim()) {
+              setChannel('text')
+              setBody(text)
+              setBeforeTranslation(null)
+            } else {
+              void confirmAction('Replace what you wrote with the booking confirmation text?', { confirmLabel: 'Replace' }).then((ok) => {
+                if (!ok) return
+                setChannel('text')
+                setBody(text)
+                setBeforeTranslation(null)
+              })
+            }
+          }}
+        />
+      )}
       {templating && (
         <TemplatesDialog
           channel={channel}
@@ -281,6 +358,7 @@ export function Composer({ loan, people }: { loan: LoanProfile; people: FilePers
                 onSuccess: () => {
                   toast.success(`Scheduled for ${scheduleLabel(sendAt)}`)
                   setScheduling(false)
+                  setBeforeTranslation(null)
                   setBody('')
                   setSubject('')
                   setKey(newKey())
