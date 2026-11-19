@@ -1,13 +1,14 @@
 // A loan's numbers (lender loan #, Arive #, title GF #), its picked lender and
-// its mortgagee clause override. Read with `*` on their own, so the loan page
-// works before the loan numbers script has run (then `ready` is false and
-// nothing is required).
+// its mortgagee clause override. Read by name: `*` is refused since revenue and
+// comp columns stopped being readable (20270208000000_file_roles.sql), which
+// quietly skipped the lender / loan number check on stage moves.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { cleanNumber, type LoanNumbers } from '@/lib/loans/numbers'
 import { db, keys, unwrap } from './client'
 
 export const loanNumbersKey = (loanId: string) => ['loan-numbers', loanId] as const
 export const loanNumberIndexKey = ['loan-number-index'] as const
+const NUMBER_COLUMNS = 'arive_loan_number, lender_name, lender_id, lender_loan_number, title_file_number, mortgagee_clause_override'
 
 interface Row {
   arive_loan_number: string | null
@@ -31,7 +32,7 @@ const toNumbers = (r: Row): LoanNumbers => ({
 })
 
 export async function fetchLoanNumbers(loanId: string): Promise<LoanNumbers> {
-  const r = unwrap<Row | null>(await db().from('loans').select('*, program:programs!loans_program_id_fkey ( lender_id )').eq('id', loanId).maybeSingle())
+  const r = unwrap<Row | null>(await db().from('loans').select(`${NUMBER_COLUMNS}, program:programs!loans_program_id_fkey ( lender_id )`).eq('id', loanId).maybeSingle())
   if (!r) throw new Error('Loan not found')
   return toNumbers(r)
 }
@@ -71,7 +72,7 @@ export function useLoanNumberIndex() {
   return useQuery({
     queryKey: loanNumberIndexKey,
     queryFn: async () => {
-      const rows = unwrap<(Row & { id: string; borrowers: { contact_id: string }[] })[]>(await db().from('loans').select('*, borrowers:loan_borrowers ( contact_id )'))
+      const rows = unwrap<(Row & { id: string; borrowers: { contact_id: string }[] })[]>(await db().from('loans').select(`id, ${NUMBER_COLUMNS}, borrowers:loan_borrowers ( contact_id )`))
       const byLoan = new Map<string, string[]>()
       const byContact = new Map<string, string[]>()
       for (const r of rows) {

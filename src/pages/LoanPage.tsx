@@ -52,6 +52,7 @@ import { useStageChanger } from '@/components/pipeline/useStageChanger'
 import { MessagesTab } from '@/components/messages/MessagesTab'
 import { NotesTab } from '@/components/profile/NotesTab'
 import { OverviewTab } from '@/components/profile/OverviewTab'
+import { ClosingDisclosureCard } from '@/components/closing/ClosingDisclosureCard'
 import { TasksCard } from '@/components/profile/TasksCard'
 import { PropertiesTab } from '@/components/profile/PropertiesTab'
 import { FEATURES } from '@/lib/features'
@@ -466,6 +467,8 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
         <div className="min-w-0 flex-1 space-y-4">
           {section === 'overview' && (
             <>
+              {/* The final CD at Approved / CTC, and on a closed file for a corrected one (outside OverviewTab, which remounts when the loan changes). */}
+              {(loan.stage === 'clear_to_close' || closedFile) && <ClosingDisclosureCard loan={loan} />}
               {closedFile && (
                 <>
                   <ClosedLoanCard loan={loan} />

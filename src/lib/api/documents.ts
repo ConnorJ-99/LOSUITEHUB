@@ -12,7 +12,7 @@ export const DOCUMENT_KIND_GROUPS = [
   { label: 'Money', kinds: [['bank_statement', 'Bank statement'], ['investment_statement', 'Investment or retirement statement'], ['gift_letter', 'Gift letter']] },
   { label: 'Credit and ID', kinds: [['photo_id', 'Photo ID'], ['bankruptcy_papers', 'Bankruptcy papers'], ['explanation_letter', 'Letter of explanation']] },
   { label: 'Made in MPS HQ', kinds: [['income_analysis', 'Income analysis'], ['mismo_file', 'MISMO file (application)'], ['readiness_roadmap', 'Roadmap to Homeownership']] },
-  { label: 'Property', kinds: [['purchase_contract', 'Purchase contract'], ['contract_addendum', 'Addendum'], ['mortgage_statement', 'Mortgage statement'], ['insurance_declarations', 'Insurance declarations'], ['lease', 'Lease'], ['appraisal', 'Appraisal'], ['title_commitment', 'Title commitment']] },
+  { label: 'Property', kinds: [['purchase_contract', 'Purchase contract'], ['contract_addendum', 'Addendum'], ['mortgage_statement', 'Mortgage statement'], ['insurance_declarations', 'Insurance declarations'], ['lease', 'Lease'], ['appraisal', 'Appraisal'], ['title_commitment', 'Title commitment'], ['closing_disclosure', 'Closing Disclosure']] },
   { label: 'Made in LOSuite', kinds: [['fee_worksheet', 'Fee Worksheet'], ['loan_comparison', 'Loan comparison'], ['preapproval_letter', 'Pre-approval letter'], ['prequal_results', 'Prequal results'], ['quick_quote', 'Loan options quote']] },
   { label: 'Other', kinds: [['other', 'Other']] },
 ] as const

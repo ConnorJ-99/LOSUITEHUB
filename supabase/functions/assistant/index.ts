@@ -29,6 +29,7 @@ import {
 } from './followUp.ts'
 import { NOTES_SCHEMA, NOTES_SYSTEM_PROMPT, normalizeNotes } from './callNotes.ts'
 import { CONTRACT_FIELDS, CONTRACT_SCHEMA, CONTRACT_SYSTEM_PROMPT, CONTRACT_USER_PROMPT, MAX_READ_BYTES, normalizeReading } from './contract.ts'
+import { CD_SCHEMA, CD_SYSTEM_PROMPT, CD_USER_PROMPT, MAX_CD_BYTES, normalizeCdReading } from './closingDisclosure.ts'
 import { MATRIX_FORMAT_PROMPT, MATRIX_SYSTEM_PROMPT, MATRIX_USER_PROMPT, MAX_MATRIX_BYTES, normalizeMatrixReading, parseJsonReply } from './matrix.ts'
 import { SCENARIO_SCHEMA, SCENARIO_SYSTEM_PROMPT, normalizeScenarioRead } from './scenarioRead.ts'
 import { ANSWER_SCHEMA, ANSWER_SYSTEM_PROMPT, MAX_PASSAGES, answerPrompt, normalizeAnswer, type AnswerPassage } from './guidelineAnswer.ts'
@@ -223,6 +224,7 @@ Deno.serve(async (request) => {
     // The app asks this once to know whether AI features can run (the key check above answers "not set up" first).
     if (task === 'status') return reply(200, { ready: true })
     if (task === 'contract_read') return await handleContractRead(db, body, userId, apiKey)
+    if (task === 'closing_disclosure_read') return await handleClosingDisclosureRead(db, body, userId, apiKey)
     if (task === 'call_notes_read') return await handleNotesRead(db, body, userId, apiKey)
     if (task === 'matrix_read') return await handleMatrixRead(db, body, userId, apiKey)
     if (task === 'matrix_batch_submit') return await handleMatrixBatchSubmit(db, body, userId, apiKey)
@@ -447,6 +449,78 @@ async function handleContractRead(db: SupabaseClient, body: unknown, userId: str
     if (item.error) throw new Error(`Could not add the review to the queue: ${item.error.message}`)
     await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
     return reply(200, { extractionId, actionId: item.data.id, runId })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Read the final Closing Disclosure
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads one uploaded Closing Disclosure with Opus (Connor, 2026-11-19: money
+ * figures) and saves the reading for review in closing_disclosure_readings.
+ * Nothing on the file changes here; the app applies what Connor accepts.
+ */
+async function handleClosingDisclosureRead(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const { loanId, documentId } = (body ?? {}) as { loanId?: unknown; documentId?: unknown }
+  if (typeof loanId !== 'string' || !UUID.test(loanId)) return reply(400, { error: 'Missing or invalid loan.' })
+  if (typeof documentId !== 'string' || !UUID.test(documentId)) return reply(400, { error: 'Missing or invalid document.' })
+
+  const loan = await db.from('loans').select('id, organization_id').eq('id', loanId).maybeSingle()
+  if (loan.error || !loan.data) return reply(400, { error: "Loan not found, or you don't have access." })
+  const organizationId = loan.data.organization_id as string
+  const doc = await db.from('loan_documents').select('id, kind, file_name, storage_path, content_type, size_bytes').eq('id', documentId).eq('loan_id', loanId).maybeSingle()
+  if (doc.error || !doc.data) return reply(400, { error: 'That Closing Disclosure is not on this file.' })
+  const f = doc.data as DocRow
+  if (f.kind !== 'closing_disclosure') return reply(400, { error: 'Upload the file as a Closing Disclosure first.' })
+  if (!f.content_type || !READABLE[f.content_type]) return reply(400, { error: `The assistant reads PDFs, JPGs and PNGs. Re-upload ${f.file_name} in one of those formats.` })
+  if ((f.size_bytes ?? 0) > MAX_CD_BYTES) return reply(400, { error: `${f.file_name} is ${Math.round((f.size_bytes ?? 0) / 1024 / 1024)} MB; the assistant can read 20 MB at a time.` })
+
+  const runId = await startRun(db, organizationId, loanId, 'closing_disclosure_read', { loanId, documentId }, READ_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: READ_MODEL }
+  try {
+    const blob = await db.storage.from('loan-files').download(f.storage_path)
+    if (blob.error || !blob.data) throw new Error(`Could not open ${f.file_name}: ${blob.error?.message ?? 'missing file'}`)
+    const data = base64(new Uint8Array(await blob.data.arrayBuffer()))
+    const content: unknown[] = [
+      READABLE[f.content_type] === 'document'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data }, title: f.file_name }
+        : { type: 'image', source: { type: 'base64', media_type: f.content_type, data } },
+      { type: 'text', text: CD_USER_PROMPT },
+    ]
+    const params = {
+      model: READ_MODEL,
+      max_tokens: 12000,
+      system: CD_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content }],
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: CD_SCHEMA } },
+      // If Opus declines on a safety check, the API retries on a suitable model itself.
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    }
+    const res = await createForJson(new Anthropic({ apiKey }), params, db, runId)
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to read this document.')
+    if (res.stop_reason === 'max_tokens') throw new UserError('The reading came back cut off. Try again.')
+    const raw = parseJsonReply(replyText(res))
+    if (raw == null) throw new UserError('The assistant returned something unreadable. Try again.')
+    const reading = normalizeCdReading(raw)
+    if ('error' in reading) throw new UserError(reading.error)
+
+    // A new reading replaces any earlier one still waiting for review.
+    await db.from('closing_disclosure_readings').update({ status: 'discarded' }).eq('loan_id', loanId).eq('status', 'pending_review')
+    const saved = await db
+      .from('closing_disclosure_readings')
+      .insert({ organization_id: organizationId, loan_id: loanId, document_id: documentId, ai_run_id: runId, reading, created_by: userId })
+      .select('id')
+      .single()
+    if (saved.error) throw new Error(`Could not save the reading: ${saved.error.message}`)
+    await db.from('ai_runs').update({ status: 'succeeded', output: reading, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+    return reply(200, { readingId: saved.data.id, runId })
   } catch (e) {
     return failRun(db, runId, usage, e)
   }
