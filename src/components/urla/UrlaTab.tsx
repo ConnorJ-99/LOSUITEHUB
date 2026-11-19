@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react'
-import { DownloadIcon, FileUpIcon, PlusIcon, UserMinusIcon } from 'lucide-react'
+import { DownloadIcon, FileUpIcon, PlusIcon, SparklesIcon, UserMinusIcon } from 'lucide-react'
+import { useAiStatus } from '@/lib/api/assistant'
+import { AiFillPanel } from './AiFillPanel'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { SummaryBar, ToggleChip } from '@/components/shared'
@@ -39,6 +41,9 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
   const organization = useOrganization()
   const originator = useProfile(loan.assignedLo?.id)
   const [exporting, setExporting] = useState(false)
+  // AI Fill (Connor, 2026-11-19): closed until the red button is pressed.
+  const [aiFill, setAiFill] = useState(false)
+  const ai = useAiStatus()
   const [importing, setImporting] = useState<{ fileName: string; result: ImportResult } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -177,6 +182,12 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
         ]}
         action={
           <div className="flex gap-2">
+            {withPrequal && ai.data?.ready && (
+              <Button className="bg-red-600 text-white hover:bg-red-700" onClick={() => setAiFill(true)} title="Fill the 1003 from your call notes">
+                <SparklesIcon />
+                AI Fill
+              </Button>
+            )}
             {parts?.saveButton}
             <Button variant="outline" onClick={() => fileInput.current?.click()}>
               <FileUpIcon />
@@ -224,10 +235,21 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
       )}
     </>
   )
-  if (!withPrequal || !properties.data) return page(null)
+  // The AI Fill panel sits outside the prequal workspace, so refreshing the 1003 after a fill never resets it.
+  const panel = aiFill && <AiFillPanel loan={loan} app={app.data!} isPurchase={isPurchase} validation={validation} onClose={() => setAiFill(false)} />
+  if (!withPrequal || !properties.data)
+    return (
+      <>
+        {page(null)}
+        {panel}
+      </>
+    )
   return (
-    <PrequalWorkspace loan={loan} app={app.data!} properties={properties.data}>
-      {page}
-    </PrequalWorkspace>
+    <>
+      <PrequalWorkspace loan={loan} app={app.data!} properties={properties.data}>
+        {page}
+      </PrequalWorkspace>
+      {panel}
+    </>
   )
 }

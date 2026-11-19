@@ -37,6 +37,7 @@ import { LEAD_MODEL, LEAD_SCHEMA, LEAD_SYSTEM, buildLeadPrompt, leadDraftIssues,
 import { NURTURE_MODEL, NURTURE_READ_SCHEMA, NURTURE_READ_SYSTEM, NURTURE_WORD_SCHEMA, NURTURE_WORD_SYSTEM, buildNurtureReadPrompt, buildNurtureWordPrompt, isNurtureKind, nurtureDraftIssues, nurtureReworded, readNurtureDraft, readNurtureReading, type NurtureThreadMessage, type ReadMilestone } from './nurture.ts'
 import { REPLY_MODEL, REPLY_SCHEMA, REPLY_SYSTEM, THREAD_SENT, buildReplyPrompt, latestBurst, readReply, replyChannel, replySubject, type ThreadMessage } from './replyDraft.ts'
 import { INTAKE_MODEL, INTAKE_SCHEMA, INTAKE_SYSTEM, buildIntakePrompt, readIntakeSummary } from './intakeSummary.ts'
+import { FILL_SCHEMA, FILL_SYSTEM, buildFillPrompt, readFill } from './summaryFill.ts'
 import { MAX_TRANSLATE_CHARS, TRANSLATE_MODEL, TRANSLATE_SCHEMA, TRANSLATE_SYSTEM, buildTranslatePrompt, readTranslation, type TranslateDirection } from './translate.ts'
 import { READINESS_MODEL, READINESS_SCHEMA, READINESS_SYSTEM, buildReadinessPrompt, normalizeReadinessPlan, type ReadinessFacts } from './readinessPlan.ts'
 import { DOC_READ_SCHEMA, DOC_READ_SYSTEM_PROMPT, DOC_READ_USER_PROMPT, documentFlags, normalizeDocReading, statusFor, type FlagJob } from './documentRead.ts'
@@ -234,6 +235,7 @@ Deno.serve(async (request) => {
     if (task === 'reply_suggest') return await handleReplySuggest(db, body, userId, apiKey)
     if (task === 'intake_summary') return await handleIntakeSummary(db, body, userId, apiKey)
     if (task === 'translate') return await handleTranslate(db, body, userId, apiKey)
+    if (task === 'summary_fill') return await handleSummaryFill(db, body, userId, apiKey)
     return await handleFollowUp(db, body, userId, apiKey)
   } catch (e) {
     return reply(500, { error: (e as Error).message })
@@ -1354,6 +1356,66 @@ async function handleTranslate(db: SupabaseClient, body: unknown, userId: string
     if ('error' in read) throw new UserError(read.error === 'changed a link or field' ? 'The translation changed a link or field, so it was not used. Try again.' : 'The translation came back unusable. Try again.')
     await db.from('ai_runs').update({ status: 'succeeded', output: { chars: read.translation.length }, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
     return reply(200, { translation: read.translation, direction })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
+  }
+}
+
+const FILL_MODEL = 'claude-sonnet-5-5'
+const MAX_FILL_NOTES = 8000
+
+/**
+ * AI Summary Fill (Connor, 2026-11-19): reads call notes into facts for the
+ * file's 1003 fields (summaryFill.ts). Reads only: nothing on the file changes
+ * here; the app shows what was found and fills the form on screen. The
+ * borrowers come from the file as the caller sees it; `current` (the 1003's
+ * values now) and `existingRowIds` are context from the app.
+ */
+async function handleSummaryFill(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const { loanId, notes: rawNotes, current, existingRowIds } = (body ?? {}) as { loanId?: unknown; notes?: unknown; current?: unknown; existingRowIds?: unknown }
+  if (typeof loanId !== 'string' || !UUID.test(loanId)) return reply(400, { error: 'Invalid file.' })
+  const notes = typeof rawNotes === 'string' ? rawNotes.trim() : ''
+  if (!notes) return reply(400, { error: 'Type or paste the call notes first.' })
+  if (notes.length > MAX_FILL_NOTES) return reply(400, { error: `Keep the notes under ${MAX_FILL_NOTES.toLocaleString('en-US')} characters.` })
+
+  const onFile = await db.from('loan_borrowers').select('contact_id, role, loan:loans ( organization_id ), contact:contacts ( first_name )').eq('loan_id', loanId)
+  if (onFile.error) return reply(500, { error: onFile.error.message })
+  const rows = (onFile.data ?? []) as unknown as { contact_id: string; role: string; loan: { organization_id: string } | null; contact: { first_name: string | null } | null }[]
+  if (!rows.length || !rows[0].loan) return reply(404, { error: "That file wasn't found, or it isn't yours." })
+  const borrowers = rows.map((r) => ({ contactId: r.contact_id, firstName: (r.contact?.first_name ?? '').trim(), role: r.role === 'primary' ? ('primary' as const) : ('co_borrower' as const) }))
+  const rowIds = Array.isArray(existingRowIds) ? existingRowIds.filter((x): x is string => typeof x === 'string' && UUID.test(x)) : []
+
+  const runId = await startRun(db, rows[0].loan.organization_id, loanId, 'summary_fill', { loanId, chars: notes.length }, FILL_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: FILL_MODEL }
+  try {
+    const params = {
+      model: FILL_MODEL,
+      max_tokens: 8000,
+      system: FILL_SYSTEM,
+      messages: [{ role: 'user', content: buildFillPrompt(notes, borrowers, current) }],
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: FILL_SCHEMA } },
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+    }
+    const res = await createForJson(new Anthropic({ apiKey }), params, db, runId)
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError("The assistant couldn't read these notes. Fill the 1003 by hand.")
+    if (res.stop_reason === 'max_tokens') throw new UserError('The notes gave too much to read at once. Try them in two parts.')
+    const read = readFill(parseJsonReply(replyText(res)), notes, borrowers, rowIds)
+    if ('error' in read) throw new UserError('The reading came back unusable. Try again.')
+    await db
+      .from('ai_runs')
+      .update({
+        status: 'succeeded',
+        output: { facts: read.facts.length, ambiguous: read.ambiguous.length, unmapped: read.unmapped.length, dropped: read.dropped },
+        model: usage.model,
+        input_tokens: usage.input,
+        output_tokens: usage.output,
+      })
+      .eq('id', runId)
+    return reply(200, { ...read, runId })
   } catch (e) {
     return failRun(db, runId, usage, e)
   }

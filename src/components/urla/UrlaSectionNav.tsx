@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { motion } from 'framer-motion'
+import { useAiFillAnim } from '@/lib/aifill/animStore'
 import { CheckCircle2Icon, CheckIcon } from 'lucide-react'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
@@ -31,6 +33,14 @@ export function navStatus(v: UrlaValidation, sections: UrlaSectionId[]): NavStat
   // The counts always add up to the sidebar badge; "not started" is only for an empty section with nothing required.
   if (missing > 0) return { kind: 'missing', count: missing }
   return rows.some((s) => s.started) || rows.length === 0 ? { kind: 'complete' } : { kind: 'not_started' }
+}
+
+/** Missing fields per nav group (0 when complete or not started), for AI Fill's count tick-down. */
+export function groupCounts(v: UrlaValidation | null): Record<string, number> {
+  return Object.fromEntries(URLA_NAV.map((n) => {
+    const s = v ? navStatus(v, n.sections) : null
+    return [n.id, s?.kind === 'missing' ? s.count : 0]
+  }))
 }
 
 const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -111,9 +121,18 @@ function StatusMark({ status, onCount }: { status: NavStatus; onCount: () => voi
  */
 export function UrlaSectionNav({ validation, onFirstMissing, onCompleteFields, className }: { validation: UrlaValidation | null; onFirstMissing: (issue: UrlaIssue) => void; onCompleteFields?: () => void; /** Grid placement for the computer column. */ className?: string }) {
   const [validating, setValidating] = useState(false)
-  const items = URLA_NAV.map((n, i) => ({ ...n, n: i + 1, status: validation ? navStatus(validation, n.sections) : null }))
+  // AI Fill (step 3): while its cards land here, the counts tick down from these and the landing group pulses.
+  const anim = useAiFillAnim()
+  const shown = (id: string, real: NavStatus | null): NavStatus | null => {
+    const c = anim.counts?.[id]
+    if (c === undefined || !real) return real
+    return c > 0 ? { kind: 'missing', count: c } : real.kind === 'not_started' ? real : { kind: 'complete' }
+  }
+  const items = URLA_NAV.map((n, i) => ({ ...n, n: i + 1, status: shown(n.id, validation ? navStatus(validation, n.sections) : null) }))
   const firstIssue = (sections: UrlaSectionId[]) => validation?.issues.find((x) => sections.includes(x.section))
-  const total = validation?.totalMissing ?? 0
+  const total = anim.counts ? Object.values(anim.counts).reduce((a, b) => a + b, 0) : (validation?.totalMissing ?? 0)
+  const pulseKey = (id: string) => (anim.pulse?.id === id ? anim.pulse.tick : 0)
+  const pulsing = (id: string) => anim.pulse?.id === id
 
   const validate = validation && (
     <Button size="xs" variant={total ? 'default' : 'outline'} className={cn(!total && 'text-emerald-700')} onClick={() => setValidating(true)}>
@@ -134,14 +153,19 @@ export function UrlaSectionNav({ validation, onFirstMissing, onCompleteFields, c
           {validate}
           <ul className="space-y-0.5 text-sm">
             {items.map((it) => (
-              <li key={it.id}>
-                <button type="button" onClick={() => scrollTo(it.id)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
+              <motion.li key={`${it.id}-${pulseKey(it.id)}`} initial={pulsing(it.id) ? { scale: 1.06 } : false} animate={{ scale: 1 }} transition={{ duration: 0.5, ease: 'easeOut' }}>
+                <button
+                  type="button"
+                  data-aifill-nav={it.id}
+                  onClick={() => scrollTo(it.id)}
+                  className={cn('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-muted-foreground transition-colors duration-500 hover:bg-muted hover:text-foreground', pulsing(it.id) && 'bg-red-50 text-foreground')}
+                >
                   <span className="min-w-0 flex-1 truncate">
                     {it.n}. {it.label}
                   </span>
                   {it.status && <StatusMark status={it.status} onCount={() => firstIssue(it.sections) && onFirstMissing(firstIssue(it.sections)!)} />}
                 </button>
-              </li>
+              </motion.li>
             ))}
           </ul>
         </div>
@@ -151,12 +175,17 @@ export function UrlaSectionNav({ validation, onFirstMissing, onCompleteFields, c
         <ul className="flex min-w-max items-center gap-1 text-sm">
           <li>{validate}</li>
           {items.map((it) => (
-            <li key={it.id}>
-              <button type="button" onClick={() => scrollTo(it.id)} className="flex items-center gap-1.5 rounded-md px-2 py-1 whitespace-nowrap text-muted-foreground hover:bg-muted">
+            <motion.li key={`${it.id}-${pulseKey(it.id)}`} initial={pulsing(it.id) ? { scale: 1.08 } : false} animate={{ scale: 1 }} transition={{ duration: 0.5, ease: 'easeOut' }}>
+              <button
+                type="button"
+                data-aifill-nav={it.id}
+                onClick={() => scrollTo(it.id)}
+                className={cn('flex items-center gap-1.5 rounded-md px-2 py-1 whitespace-nowrap text-muted-foreground transition-colors duration-500 hover:bg-muted', pulsing(it.id) && 'bg-red-50 text-foreground')}
+              >
                 {it.n}. {it.label}
                 {it.status && <StatusMark status={it.status} onCount={() => firstIssue(it.sections) && onFirstMissing(firstIssue(it.sections)!)} />}
               </button>
-            </li>
+            </motion.li>
           ))}
         </ul>
       </nav>
