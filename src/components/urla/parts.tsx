@@ -5,6 +5,7 @@ import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Card, ToggleChip } from '@/components/shared'
+import { AiBadge, AiRowBadge } from '@/components/shared/AiBadge'
 
 /** A 1003 section card with an anchor id and Save/Discard buttons that appear after edits. */
 export function SectionCard({
@@ -63,11 +64,14 @@ export function YesNo({
   onChange,
   children,
   field,
+  aiKey,
 }: {
   label: string
   prefix?: string
   /** The 1003 field it answers, so the section list can jump to it. */
   field?: string
+  /** AI Fill: shows the AI tag while this answer is AI-filled. */
+  aiKey?: string
   value: boolean | null
   onChange: (value: boolean | null) => void
   /** Follow-up fields shown when the answer is Yes. */
@@ -79,6 +83,11 @@ export function YesNo({
         <p className="text-sm">
           {prefix && <span className="mr-1.5 font-semibold text-muted-foreground">{prefix}.</span>}
           {label}
+          {aiKey && (
+            <span className="ml-1.5 inline-block align-middle">
+              <AiBadge k={aiKey} />
+            </span>
+          )}
         </p>
         <div className="flex shrink-0 gap-2" role="group" aria-label={label}>
           <ToggleChip label="Yes" pressed={value === true} onChange={(p) => onChange(p ? true : null)} />
@@ -149,16 +158,20 @@ export function ListRow({
   amount,
   onEdit,
   onDelete,
+  aiPrefixes,
 }: {
   title: React.ReactNode
   detail?: React.ReactNode
   amount?: React.ReactNode
   onEdit: () => void
   onDelete: () => void
+  /** AI Fill: this row's keys (rowPrefixes), so it shows the AI tag while AI-filled. */
+  aiPrefixes?: string[]
 }) {
   const [confirming, setConfirming] = useState(false)
   return (
     <li className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+      {aiPrefixes && <AiRowBadge prefixes={aiPrefixes} />}
       <button type="button" onClick={onEdit} className="min-w-0 flex-1 text-left">
         <p className="text-sm font-medium">{title}</p>
         {detail && <p className="text-xs text-muted-foreground">{detail}</p>}

@@ -1,4 +1,5 @@
-import { useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { runsWithKey, type FillRun } from '@/lib/aifill/badges'
 import { FunctionsHttpError } from '@supabase/supabase-js'
 import type { FillFact, FillQuestion } from '../../../supabase/functions/assistant/summaryFill'
 import type { Change, FieldTarget, RowTable } from '@/lib/aifill/plan'
@@ -134,6 +135,42 @@ export async function saveFillNotes(v: { organizationId: string; contactId: stri
   unwrap(await db().from('notes').insert(rows).select('id'))
 }
 
+const runsKey = (loanId: string) => ['aifill-runs', loanId] as const
+
+/** The file's AI Fill runs (for the AI tags). Empty before the AI fill runs script has run. */
+export function useAiFillRuns(loanId: string) {
+  return useQuery({
+    queryKey: runsKey(loanId),
+    queryFn: async (): Promise<FillRun[]> => {
+      const { data, error } = await db().from('ai_fill_runs').select('id, applied, confirmed, undone_at').eq('loan_id', loanId).order('created_at')
+      if (error) return []
+      return ((data ?? []) as { id: string; applied: AppliedChange[] | null; confirmed: string[] | null; undone_at: string | null }[]).map((r) => ({
+        id: r.id,
+        applied: r.applied ?? [],
+        confirmed: r.confirmed ?? [],
+        undone: !!r.undone_at,
+      }))
+    },
+  })
+}
+
+/** Confirms AI-filled values: their tags go away. Saved on each run that filled them. */
+export function useConfirmAiFill(loanId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ runs, keys }: { runs: FillRun[]; keys: string[] }) => {
+      for (const run of runs) {
+        const mine = keys.filter((k) => runsWithKey([run], k).length)
+        if (!mine.length) continue
+        const confirmed = [...new Set([...run.confirmed, ...mine])]
+        const rows = unwrap<{ id: string }[]>(await db().from('ai_fill_runs').update({ confirmed }).eq('id', run.id).select('id'))
+        if (!rows.length) throw new Error('Only the person who ran this AI fill (or an admin) can confirm it.')
+      }
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: runsKey(loanId) }),
+  })
+}
+
 /** Refreshes every screen that shows 1003 and loan values after a fill or undo. */
 export function useRefreshAfterFill(loanId: string, contactIds: string[]) {
   const queryClient = useQueryClient()
@@ -144,5 +181,6 @@ export function useRefreshAfterFill(loanId: string, contactIds: string[]) {
       queryClient.invalidateQueries({ queryKey: keys.loan(loanId) }),
       queryClient.invalidateQueries({ queryKey: keys.pipeline }),
       ...contactIds.map((id) => queryClient.invalidateQueries({ queryKey: keys.notes(id) })),
+      queryClient.invalidateQueries({ queryKey: runsKey(loanId) }),
     ])
 }

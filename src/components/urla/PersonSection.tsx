@@ -38,30 +38,32 @@ export function PersonSection({ loanId, borrower }: { loanId: string; borrower: 
         <Input label="Middle name" value={form.middleName ?? ''} onChange={text('middleName')} />
         <Input label="Last name" value={form.lastName} onChange={(v) => set('lastName')(v)} required span={2} />
         <Input label="Suffix" value={form.suffix ?? ''} onChange={text('suffix')} placeholder="Jr., Sr., III" />
-        <DateInput label="Date of birth" value={form.dateOfBirth} onChange={set('dateOfBirth')} span={2} />
-        <Select label="Citizenship" value={form.citizenship} onChange={set('citizenship')} options={CITIZENSHIP_OPTIONS} span={2} />
-        <Select label="Marital status" value={form.maritalStatus} onChange={set('maritalStatus')} options={MARITAL_STATUS_OPTIONS} span={2} />
+        <DateInput aiKey={`person:${borrower.contactId}:dateOfBirth`} label="Date of birth" value={form.dateOfBirth} onChange={set('dateOfBirth')} span={2} />
+        <Select aiKey={`person:${borrower.contactId}:citizenship`} label="Citizenship" value={form.citizenship} onChange={set('citizenship')} options={CITIZENSHIP_OPTIONS} span={2} />
+        <Select aiKey={`person:${borrower.contactId}:maritalStatus`} label="Marital status" value={form.maritalStatus} onChange={set('maritalStatus')} options={MARITAL_STATUS_OPTIONS} span={2} />
         <Input
+          aiKey={`person:${borrower.contactId}:dependentsCount`}
           label="Dependents"
           inputMode="numeric"
           value={form.dependentsCount?.toString() ?? ''}
           onChange={(v) => set('dependentsCount')(v.trim() === '' ? null : Math.max(0, Math.floor(Number(v.replace(/\D/g, '')) || 0)))}
         />
-        <Input label="Dependents' ages" value={form.dependentsAges ?? ''} onChange={text('dependentsAges')} placeholder="e.g. 4, 7" span={2} />
+        <Input aiKey={`person:${borrower.contactId}:dependentsAges`} label="Dependents' ages" value={form.dependentsAges ?? ''} onChange={text('dependentsAges')} placeholder="e.g. 4, 7" span={2} />
       </FormGrid>
 
       <SubHeading>Contact information</SubHeading>
       <FormGrid>
-        <Input label="Cell phone" type="tel" value={form.phone ?? ''} onChange={text('phone')} span={2} />
+        <Input aiKey={`person:${borrower.contactId}:phone`} label="Cell phone" type="tel" value={form.phone ?? ''} onChange={text('phone')} span={2} />
         <Input label="Home phone" type="tel" value={form.homePhone ?? ''} onChange={text('homePhone')} span={2} />
         <Input label="Work phone" type="tel" value={form.workPhone ?? ''} onChange={text('workPhone')} />
         <Input label="Ext." value={form.workPhoneExt ?? ''} onChange={text('workPhoneExt')} />
-        <Input label="Email" type="email" value={form.email ?? ''} onChange={text('email')} span={6} />
+        <Input aiKey={`person:${borrower.contactId}:email`} label="Email" type="email" value={form.email ?? ''} onChange={text('email')} span={6} />
       </FormGrid>
 
       <SubHeading>7. Military service</SubHeading>
       <YesNo
         label="Did you (or your deceased spouse) ever serve, or are you currently serving, in the United States Armed Forces?"
+        aiKey={`person:${borrower.contactId}:militaryService`}
         value={form.militaryService}
         onChange={set('militaryService')}
       >

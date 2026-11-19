@@ -7,6 +7,7 @@ import { formatIsoDate, joinMonths, splitMonths } from '@/lib/dates'
 import { formatCurrency } from '@/lib/format'
 import { labelFor, OTHER_INCOME_OPTIONS, type EmploymentStatus, type OtherIncomeType } from '@/lib/urla/options'
 import { AddButton, EditDialog, ListRow, SectionCard, SubHeading } from './parts'
+import { rowPrefixes } from '@/lib/aifill/badges'
 
 const STATUS_OPTIONS = [
   { value: 'current', label: 'Current job' },
@@ -66,11 +67,11 @@ function EmploymentDialog({
   return (
     <EditDialog wide title={employment ? 'Edit employment' : 'Add employment'} open onOpenChange={(o) => !o && onClose()} onSubmit={submit} saving={save.isPending}>
       <FormGrid>
-        <Select label="Status" value={form.status} onChange={set('status')} options={STATUS_OPTIONS} required span={2} />
-        <Input label="Employer or business name" value={form.employerName} onChange={(v) => set('employerName')(v)} required span={4} />
-        <Input label="Position or title" value={form.positionTitle ?? ''} onChange={text('positionTitle')} span={2} />
+        <Select aiKey={employment ? `row:employments:${employment.id}:status` : undefined} label="Status" value={form.status} onChange={set('status')} options={STATUS_OPTIONS} required span={2} />
+        <Input aiKey={employment ? `row:employments:${employment.id}:employerName` : undefined} label="Employer or business name" value={form.employerName} onChange={(v) => set('employerName')(v)} required span={4} />
+        <Input aiKey={employment ? `row:employments:${employment.id}:positionTitle` : undefined} label="Position or title" value={form.positionTitle ?? ''} onChange={text('positionTitle')} span={2} />
         <Input label="Employer phone" type="tel" value={form.employerPhone ?? ''} onChange={text('employerPhone')} span={2} />
-        <DateInput label="Start date" value={form.startDate} onChange={set('startDate')} />
+        <DateInput aiKey={employment ? `row:employments:${employment.id}:startDate` : undefined} label="Start date" value={form.startDate} onChange={set('startDate')} />
         {isPrevious ? <DateInput label="End date" value={form.endDate} onChange={set('endDate')} /> : <div className="hidden lg:block" />}
         <Input label="Street address" value={form.addressLine ?? ''} onChange={text('addressLine')} span={3} />
         <Input label="City" value={form.city ?? ''} onChange={text('city')} />
@@ -100,13 +101,13 @@ function EmploymentDialog({
         {isPrevious ? (
           <CurrencyInput label="Previous gross monthly income" value={form.baseIncome} onChange={set('baseIncome')} span={2} />
         ) : form.isSelfEmployed ? (
-          <CurrencyInput label="Monthly income (or loss)" value={form.selfEmployedIncome} onChange={set('selfEmployedIncome')} hint="Use a minus sign for a loss" span={2} />
+          <CurrencyInput aiKey={employment ? `row:employments:${employment.id}:selfEmployedIncome` : undefined} label="Monthly income (or loss)" value={form.selfEmployedIncome} onChange={set('selfEmployedIncome')} hint="Use a minus sign for a loss" span={2} />
         ) : (
           <>
-            <CurrencyInput label="Base" value={form.baseIncome} onChange={set('baseIncome')} span={2} />
-            <CurrencyInput label="Overtime" value={form.overtimeIncome} onChange={set('overtimeIncome')} span={2} />
-            <CurrencyInput label="Bonus" value={form.bonusIncome} onChange={set('bonusIncome')} span={2} />
-            <CurrencyInput label="Commission" value={form.commissionIncome} onChange={set('commissionIncome')} span={2} />
+            <CurrencyInput aiKey={employment ? `row:employments:${employment.id}:baseIncome` : undefined} label="Base" value={form.baseIncome} onChange={set('baseIncome')} span={2} />
+            <CurrencyInput aiKey={employment ? `row:employments:${employment.id}:overtimeIncome` : undefined} label="Overtime" value={form.overtimeIncome} onChange={set('overtimeIncome')} span={2} />
+            <CurrencyInput aiKey={employment ? `row:employments:${employment.id}:bonusIncome` : undefined} label="Bonus" value={form.bonusIncome} onChange={set('bonusIncome')} span={2} />
+            <CurrencyInput aiKey={employment ? `row:employments:${employment.id}:commissionIncome` : undefined} label="Commission" value={form.commissionIncome} onChange={set('commissionIncome')} span={2} />
             <CurrencyInput label="Military entitlements" value={form.militaryEntitlements} onChange={set('militaryEntitlements')} span={2} />
             <CurrencyInput label="Other" value={form.otherEmploymentIncome} onChange={set('otherEmploymentIncome')} span={2} />
           </>
@@ -129,6 +130,7 @@ export function EmploymentSection({ loanId, organizationId, borrower }: { loanId
   const row = (e: Employment, label: string) => (
     <ListRow
       key={e.id}
+      aiPrefixes={rowPrefixes('employments', e.id)}
       title={
         <>
           <span className="mr-2 text-xs font-semibold text-muted-foreground uppercase">{label}</span>
@@ -194,9 +196,9 @@ function OtherIncomeDialog({ loanId, organizationId, contactId, income, onClose 
   return (
     <EditDialog title={income ? 'Edit other income' : 'Add other income'} open onOpenChange={(o) => !o && onClose()} onSubmit={submit} saving={save.isPending}>
       <FormGrid className="lg:grid-cols-4">
-        <Select label="Income type" value={incomeType} onChange={setIncomeType} options={OTHER_INCOME_OPTIONS} required span={2} />
-        <CurrencyInput label="Monthly amount" value={amount} onChange={setAmount} required span={2} />
-        <Input label="Description" value={description} onChange={setDescription} span={4} />
+        <Select aiKey={income ? `row:other_incomes:${income.id}:incomeType` : undefined} label="Income type" value={incomeType} onChange={setIncomeType} options={OTHER_INCOME_OPTIONS} required span={2} />
+        <CurrencyInput aiKey={income ? `row:other_incomes:${income.id}:monthlyAmount` : undefined} label="Monthly amount" value={amount} onChange={setAmount} required span={2} />
+        <Input aiKey={income ? `row:other_incomes:${income.id}:description` : undefined} label="Description" value={description} onChange={setDescription} span={4} />
       </FormGrid>
     </EditDialog>
   )
@@ -215,6 +217,7 @@ export function OtherIncomeSection({ loanId, organizationId, borrower }: { loanI
           {borrower.otherIncomes.map((i) => (
             <ListRow
               key={i.id}
+              aiPrefixes={rowPrefixes('other_incomes', i.id)}
               title={labelFor(OTHER_INCOME_OPTIONS, i.incomeType)}
               detail={i.description}
               amount={`${formatCurrency(i.monthlyAmount)}/mo`}

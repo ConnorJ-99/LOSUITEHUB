@@ -5,6 +5,8 @@ import { formatNumber, parseNumber } from '@/lib/format'
 import { Field, readOnlyClass, type FieldSpan } from './Field'
 
 interface AffixedNumberInputProps {
+  /** AI Fill: the 1003 key this field saves to (shows the AI tag while AI-filled). */
+  aiKey?: string
   label: string
   value: number | null
   onChange?: (value: number | null) => void
@@ -40,6 +42,7 @@ function AffixedNumberInput({
   prefix,
   suffix,
   maxDecimals,
+  aiKey,
 }: AffixedNumberInputProps) {
   const autoId = useId()
   const inputId = id ?? autoId
@@ -47,7 +50,7 @@ function AffixedNumberInput({
   const shown = draft ?? formatNumber(value, maxDecimals)
 
   return (
-    <Field label={label} htmlFor={inputId} required={required} hint={hint} error={error} span={span} hideLabel={hideLabel}>
+    <Field aiKey={aiKey} label={label} htmlFor={inputId} required={required} hint={hint} error={error} span={span} hideLabel={hideLabel}>
       <div className="relative">
         {prefix && (
           <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-sm text-muted-foreground">

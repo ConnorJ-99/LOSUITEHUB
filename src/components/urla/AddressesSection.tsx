@@ -7,6 +7,7 @@ import { joinMonths, splitMonths } from '@/lib/dates'
 import { formatCurrency } from '@/lib/format'
 import { ADDRESS_KIND_OPTIONS, HOUSING_OPTIONS, labelFor, type AddressKind } from '@/lib/urla/options'
 import { AddButton, EditDialog, ListRow, SectionCard } from './parts'
+import { rowPrefixes } from '@/lib/aifill/badges'
 
 type AddressForm = Omit<Address, 'id' | 'contactId'> & { years: string; months: string }
 
@@ -66,17 +67,17 @@ function AddressDialog({
     <EditDialog title={address ? 'Edit address' : 'Add address'} open onOpenChange={(o) => !o && onClose()} onSubmit={submit} saving={save.isPending}>
       <FormGrid>
         <Select label="Type" value={form.kind} onChange={set('kind')} options={kindOptions} required span={2} />
-        <Input label="Street address" value={form.addressLine} onChange={set('addressLine')} required span={4} />
+        <Input aiKey={address ? `address:${address.id}:addressLine` : undefined} label="Street address" value={form.addressLine} onChange={set('addressLine')} required span={4} />
         <Input label="Unit" value={form.unit ?? ''} onChange={(v) => set('unit')(v || null)} />
-        <Input label="City" value={form.city ?? ''} onChange={(v) => set('city')(v || null)} span={2} />
-        <Input label="State" value={form.state ?? ''} onChange={(v) => set('state')(v.toUpperCase().slice(0, 2) || null)} />
-        <Input label="ZIP" value={form.zip ?? ''} onChange={(v) => set('zip')(v || null)} inputMode="numeric" span={2} />
+        <Input aiKey={address ? `address:${address.id}:city` : undefined} label="City" value={form.city ?? ''} onChange={(v) => set('city')(v || null)} span={2} />
+        <Input aiKey={address ? `address:${address.id}:state` : undefined} label="State" value={form.state ?? ''} onChange={(v) => set('state')(v.toUpperCase().slice(0, 2) || null)} />
+        <Input aiKey={address ? `address:${address.id}:zip` : undefined} label="ZIP" value={form.zip ?? ''} onChange={(v) => set('zip')(v || null)} inputMode="numeric" span={2} />
         {form.kind !== 'mailing' && (
           <>
-            <Input label="Years there" inputMode="numeric" value={form.years} onChange={set('years')} />
+            <Input aiKey={address ? `address:${address.id}:monthsAtAddress` : undefined} label="Years there" inputMode="numeric" value={form.years} onChange={set('years')} />
             <Input label="Months" inputMode="numeric" value={form.months} onChange={set('months')} />
-            <Select label="Housing" value={form.housing} onChange={set('housing')} options={HOUSING_OPTIONS} span={2} />
-            {form.housing === 'rent' && <CurrencyInput label="Monthly rent" value={form.monthlyRent} onChange={set('monthlyRent')} span={2} />}
+            <Select aiKey={address ? `address:${address.id}:housing` : undefined} label="Housing" value={form.housing} onChange={set('housing')} options={HOUSING_OPTIONS} span={2} />
+            {form.housing === 'rent' && <CurrencyInput aiKey={address ? `address:${address.id}:monthlyRent` : undefined} label="Monthly rent" value={form.monthlyRent} onChange={set('monthlyRent')} span={2} />}
           </>
         )}
       </FormGrid>
@@ -106,6 +107,7 @@ export function AddressesSection({ loanId, organizationId, borrower }: { loanId:
           {borrower.addresses.map((a) => (
             <ListRow
               key={a.id}
+              aiPrefixes={rowPrefixes('contact_addresses', a.id)}
               title={
                 <>
                   <span className="mr-2 text-xs font-semibold text-muted-foreground uppercase">{labelFor(ADDRESS_KIND_OPTIONS, a.kind).replace(' address', '')}</span>

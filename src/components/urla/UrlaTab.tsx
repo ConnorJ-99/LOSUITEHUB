@@ -2,6 +2,9 @@ import { useRef, useState } from 'react'
 import { DownloadIcon, FileUpIcon, PlusIcon, SparklesIcon, UserMinusIcon } from 'lucide-react'
 import { useAiStatus } from '@/lib/api/assistant'
 import { AiFillPanel } from './AiFillPanel'
+import { AiBadgeProvider } from '@/components/shared/AiBadge'
+import { useAiFillRuns, useConfirmAiFill } from '@/lib/api/aifill'
+import { activeAiKeys } from '@/lib/aifill/badges'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { SummaryBar, ToggleChip } from '@/components/shared'
@@ -44,6 +47,9 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
   // AI Fill (Connor, 2026-11-19): closed until the red button is pressed.
   const [aiFill, setAiFill] = useState(false)
   const ai = useAiStatus()
+  // AI tags on fields AI Fill filled, until edited or confirmed.
+  const fillRuns = useAiFillRuns(loan.id)
+  const confirmFill = useConfirmAiFill(loan.id)
   const [importing, setImporting] = useState<{ fileName: string; result: ImportResult } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -237,19 +243,24 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
   )
   // The AI Fill panel sits outside the prequal workspace, so refreshing the 1003 after a fill never resets it.
   const panel = aiFill && <AiFillPanel loan={loan} app={app.data!} isPurchase={isPurchase} validation={validation} onClose={() => setAiFill(false)} />
+  const runs = fillRuns.data ?? []
+  const badges = {
+    keys: activeAiKeys(runs, app.data!, loan.details),
+    confirm: (keys: string[]) => confirmFill.mutate({ runs, keys }, { onError: (e) => toast.error(e.message) }),
+  }
   if (!withPrequal || !properties.data)
     return (
-      <>
+      <AiBadgeProvider value={badges}>
         {page(null)}
         {panel}
-      </>
+      </AiBadgeProvider>
     )
   return (
-    <>
+    <AiBadgeProvider value={badges}>
       <PrequalWorkspace loan={loan} app={app.data!} properties={properties.data}>
         {page}
       </PrequalWorkspace>
       {panel}
-    </>
+    </AiBadgeProvider>
   )
 }

@@ -1,6 +1,7 @@
 import type * as React from 'react'
 import { cn } from 'cn'
 import { Label } from '@/components/ui/label'
+import { AiBadge } from './AiBadge'
 
 /** Column span inside a FormGrid (the grid is up to 6 columns wide). */
 export type FieldSpan = 1 | 2 | 3 | 4 | 5 | 6
@@ -29,17 +30,29 @@ export interface FieldProps {
   /** Keep the label for screen readers only (e.g. inside a table with its own headings). */
   hideLabel?: boolean
   className?: string
+  /** AI Fill: the 1003 key this field saves to, so it can show the AI tag while AI-filled. */
+  aiKey?: string
   children: React.ReactNode
 }
 
 /** Label + control + hint/error. Required fields get a red asterisk. */
-export function Field({ label, htmlFor, required, hint, error, span = 1, hideLabel, className, children }: FieldProps) {
+export function Field({ label, htmlFor, required, hint, error, span = 1, hideLabel, className, aiKey, children }: FieldProps) {
+  const labelEl = (
+    <Label htmlFor={htmlFor} className={cn('text-xs font-medium text-muted-foreground', hideLabel && 'sr-only')}>
+      {label}
+      {required && <span className="text-destructive">*</span>}
+    </Label>
+  )
   return (
     <div className={cn('flex min-w-0 flex-col gap-1.5', spanClass[span], className)}>
-      <Label htmlFor={htmlFor} className={cn('text-xs font-medium text-muted-foreground', hideLabel && 'sr-only')}>
-        {label}
-        {required && <span className="text-destructive">*</span>}
-      </Label>
+      {aiKey ? (
+        <div className="flex items-center gap-1.5">
+          {labelEl}
+          <AiBadge k={aiKey} />
+        </div>
+      ) : (
+        labelEl
+      )}
       {children}
       {error ? (
         <p className="text-xs text-destructive">{error}</p>

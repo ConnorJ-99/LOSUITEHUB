@@ -15,6 +15,8 @@ export interface SelectOption<T extends string = string> {
 }
 
 export interface SelectProps<T extends string = string> {
+  /** AI Fill: the 1003 key this field saves to (shows the AI tag while AI-filled). */
+  aiKey?: string
   label: string
   value: T | null
   onChange?: (value: T) => void
@@ -35,6 +37,7 @@ const NOT_SET = '__not_set__'
 /** Labelled dropdown built from an options list. */
 export function Select<T extends string = string>({
   label,
+  aiKey,
   value,
   onChange,
   options,
@@ -50,7 +53,7 @@ export function Select<T extends string = string>({
   const autoId = useId()
   const triggerId = id ?? autoId
   return (
-    <Field label={label} htmlFor={triggerId} required={required} hint={hint} error={error} span={span}>
+    <Field aiKey={aiKey} label={label} htmlFor={triggerId} required={required} hint={hint} error={error} span={span}>
       <BaseSelect
         // A clearable field stays controlled with '' so clearing shows the placeholder again.
         value={value ?? (onClear ? '' : undefined)}

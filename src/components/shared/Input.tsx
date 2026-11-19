@@ -5,6 +5,8 @@ import { Input as BaseInput } from '@/components/ui/input'
 import { Field, readOnlyClass, type FieldSpan } from './Field'
 
 export interface InputProps extends Omit<React.ComponentProps<'input'>, 'onChange' | 'value'> {
+  /** AI Fill: the 1003 key this field saves to (shows the AI tag while AI-filled). */
+  aiKey?: string
   label: string
   value: string
   onChange?: (value: string) => void
@@ -16,11 +18,11 @@ export interface InputProps extends Omit<React.ComponentProps<'input'>, 'onChang
 }
 
 /** Labelled text input. Pass `readOnly` for calculated values. */
-export function Input({ label, value, onChange, hint, error, span, hideLabel, required, readOnly, className, id, ...props }: InputProps) {
+export function Input({ label, aiKey, value, onChange, hint, error, span, hideLabel, required, readOnly, className, id, ...props }: InputProps) {
   const autoId = useId()
   const inputId = id ?? autoId
   return (
-    <Field label={label} htmlFor={inputId} required={required} hint={hint} error={error} span={span} hideLabel={hideLabel}>
+    <Field aiKey={aiKey} label={label} htmlFor={inputId} required={required} hint={hint} error={error} span={span} hideLabel={hideLabel}>
       <BaseInput
         id={inputId}
         value={value}

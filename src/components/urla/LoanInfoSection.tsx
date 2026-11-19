@@ -86,11 +86,11 @@ export function LoanInfoSection({
       onDiscard={reset}
     >
       <FormGrid>
-        <CurrencyInput label="Loan amount" value={form.loanAmount} onChange={set('loanAmount')} required span={2} />
-        {isPurchase && <CurrencyInput label="Sales contract price" value={form.purchasePrice} onChange={set('purchasePrice')} required span={2} />}
+        <CurrencyInput aiKey="loan:loanAmount" label="Loan amount" value={form.loanAmount} onChange={set('loanAmount')} required span={2} />
+        {isPurchase && <CurrencyInput aiKey="loan:purchasePrice" label="Sales contract price" value={form.purchasePrice} onChange={set('purchasePrice')} required span={2} />}
         <CurrencyInput label="Property value" value={scenario.value} readOnly hint="From the subject property" span={2} />
-        <Select label="Occupancy" value={form.occupancy} onChange={set('occupancy')} options={OCCUPANCY_OPTIONS} required span={2} />
-        <Select label="Mortgage type" value={form.mortgageType} onChange={set('mortgageType')} options={MORTGAGE_TYPE_OPTIONS} span={2} />
+        <Select aiKey="loan:occupancy" label="Occupancy" value={form.occupancy} onChange={set('occupancy')} options={OCCUPANCY_OPTIONS} required span={2} />
+        <Select aiKey="loan:mortgageType" label="Mortgage type" value={form.mortgageType} onChange={set('mortgageType')} options={MORTGAGE_TYPE_OPTIONS} span={2} />
         <Select label="Amortization" value={form.amortizationType} onChange={set('amortizationType')} options={AMORTIZATION_OPTIONS} span={2} />
         <Select label="Term" value={termValue} onChange={(v) => set('termMonths')(Number(v))} options={TERM_OPTIONS} />
         <PercentInput label="Note rate" value={form.noteRate} onChange={set('noteRate')} />

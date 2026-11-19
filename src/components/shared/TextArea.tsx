@@ -4,6 +4,8 @@ import { Textarea as BaseTextarea } from '@/components/ui/textarea'
 import { Field, type FieldSpan } from './Field'
 
 export interface TextAreaProps extends Omit<React.ComponentProps<'textarea'>, 'onChange' | 'value'> {
+  /** AI Fill: the 1003 key this field saves to (shows the AI tag while AI-filled). */
+  aiKey?: string
   label: string
   value: string
   onChange?: (value: string) => void
@@ -13,11 +15,11 @@ export interface TextAreaProps extends Omit<React.ComponentProps<'textarea'>, 'o
 }
 
 /** Labelled multi-line text input. */
-export function TextArea({ label, value, onChange, hint, error, span, required, id, ...props }: TextAreaProps) {
+export function TextArea({ label, aiKey, value, onChange, hint, error, span, required, id, ...props }: TextAreaProps) {
   const autoId = useId()
   const inputId = id ?? autoId
   return (
-    <Field label={label} htmlFor={inputId} required={required} hint={hint} error={error} span={span}>
+    <Field aiKey={aiKey} label={label} htmlFor={inputId} required={required} hint={hint} error={error} span={span}>
       <BaseTextarea
         id={inputId}
         value={value}

@@ -4,6 +4,8 @@ import { Input as BaseInput } from '@/components/ui/input'
 import { Field, readOnlyClass, type FieldSpan } from './Field'
 
 export interface DateInputProps {
+  /** AI Fill: the 1003 key this field saves to (shows the AI tag while AI-filled). */
+  aiKey?: string
   label: string
   /** YYYY-MM-DD or null. */
   value: string | null
@@ -17,10 +19,10 @@ export interface DateInputProps {
 }
 
 /** Calendar date field using the device's native date picker (works well on phones). */
-export function DateInput({ label, value, onChange, required, readOnly, hint, error, span, className }: DateInputProps) {
+export function DateInput({ label, aiKey, value, onChange, required, readOnly, hint, error, span, className }: DateInputProps) {
   const id = useId()
   return (
-    <Field label={label} htmlFor={id} required={required} hint={hint} error={error} span={span} className={className}>
+    <Field aiKey={aiKey} label={label} htmlFor={id} required={required} hint={hint} error={error} span={span} className={className}>
       <BaseInput
         id={id}
         type="date"

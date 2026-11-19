@@ -18,6 +18,7 @@ import {
   type LiabilityType,
 } from '@/lib/urla/options'
 import { AddButton, EditDialog, ListRow, SectionCard, SubHeading } from './parts'
+import { rowPrefixes } from '@/lib/aifill/badges'
 
 const last4 = (v: string) => v.replace(/\D/g, '').slice(-4)
 
@@ -85,15 +86,15 @@ function AssetDialog({ loanId, organizationId, borrowers, asset, onClose }: { lo
     <EditDialog title={asset ? 'Edit asset' : 'Add asset'} open onOpenChange={(o) => !o && onClose()} onSubmit={submit} saving={save.isPending}>
       <OwnerFields borrowers={borrowers} contactId={form.contactId} isJoint={form.isJoint} onContact={set('contactId')} onJoint={set('isJoint')} />
       <FormGrid className="lg:grid-cols-4">
-        <Select label="Type" value={form.assetType} onChange={set('assetType')} options={ASSET_OPTIONS} required span={2} />
+        <Select aiKey={asset ? `row:assets:${asset.id}:assetType` : undefined} label="Type" value={form.assetType} onChange={set('assetType')} options={ASSET_OPTIONS} required span={2} />
         <Select label="Use as" value={form.useAs} onChange={set('useAs')} options={ASSET_USE_OPTIONS} span={2} />
-        <CurrencyInput label={gift ? 'Gift / grant amount' : 'Cash or market value'} value={form.amount} onChange={set('amount')} required span={2} />
+        <CurrencyInput aiKey={asset ? `row:assets:${asset.id}:amount` : undefined} label={gift ? 'Gift / grant amount' : 'Cash or market value'} value={form.amount} onChange={set('amount')} required span={2} />
         {gift ? (
           <Select<GiftSource> label="Source" value={form.giftSource} onChange={set('giftSource')} options={GIFT_SOURCE_OPTIONS} span={2} />
         ) : (
           <>
-            <Input label="Financial institution" value={form.institutionName ?? ''} onChange={(v) => set('institutionName')(v || null)} span={2} />
-            <Input label="Account (last 4)" inputMode="numeric" value={form.accountLast4 ?? ''} onChange={(v) => set('accountLast4')(last4(v) || null)} hint="Only the last 4 digits are stored" />
+            <Input aiKey={asset ? `row:assets:${asset.id}:institutionName` : undefined} label="Financial institution" value={form.institutionName ?? ''} onChange={(v) => set('institutionName')(v || null)} span={2} />
+            <Input aiKey={asset ? `row:assets:${asset.id}:accountLast4` : undefined} label="Account (last 4)" inputMode="numeric" value={form.accountLast4 ?? ''} onChange={(v) => set('accountLast4')(last4(v) || null)} hint="Only the last 4 digits are stored" />
           </>
         )}
         <Input label="Notes" value={form.description ?? ''} onChange={(v) => set('description')(v || null)} span={4} />
@@ -135,6 +136,7 @@ export function AssetsSection({ loanId, organizationId, borrowers, assets }: { l
               {g.items.map((a) => (
                 <ListRow
                   key={a.id}
+                  aiPrefixes={rowPrefixes('assets', a.id)}
                   title={labelFor(ASSET_OPTIONS, a.assetType)}
                   detail={[
                     a.institutionName,
@@ -181,11 +183,11 @@ function LiabilityDialog({ loanId, organizationId, borrowers, liability, onClose
     <EditDialog title={liability ? 'Edit liability' : 'Add liability'} description="Mortgages go on the property they're secured by (Real estate section)." open onOpenChange={(o) => !o && onClose()} onSubmit={submit} saving={save.isPending}>
       <OwnerFields borrowers={borrowers} contactId={form.contactId} isJoint={form.isJoint} onContact={set('contactId')} onJoint={set('isJoint')} />
       <FormGrid className="lg:grid-cols-4">
-        <Select label="Type" value={form.liabilityType} onChange={set('liabilityType')} options={LIABILITY_OPTIONS} required span={2} />
-        <CurrencyInput label="Monthly payment" value={form.monthlyPayment} onChange={set('monthlyPayment')} required span={2} />
+        <Select aiKey={liability ? `row:liabilities:${liability.id}:liabilityType` : undefined} label="Type" value={form.liabilityType} onChange={set('liabilityType')} options={LIABILITY_OPTIONS} required span={2} />
+        <CurrencyInput aiKey={liability ? `row:liabilities:${liability.id}:monthlyPayment` : undefined} label="Monthly payment" value={form.monthlyPayment} onChange={set('monthlyPayment')} required span={2} />
         {!expense && (
           <>
-            <Input label="Creditor" value={form.creditorName ?? ''} onChange={(v) => set('creditorName')(v || null)} span={2} />
+            <Input aiKey={liability ? `row:liabilities:${liability.id}:creditorName` : undefined} label="Creditor" value={form.creditorName ?? ''} onChange={(v) => set('creditorName')(v || null)} span={2} />
             <Input label="Account (last 4)" inputMode="numeric" value={form.accountLast4 ?? ''} onChange={(v) => set('accountLast4')(last4(v) || null)} />
             <Input
               label="Months left"
@@ -193,7 +195,7 @@ function LiabilityDialog({ loanId, organizationId, borrowers, liability, onClose
               value={form.monthsRemaining?.toString() ?? ''}
               onChange={(v) => set('monthsRemaining')(v.trim() === '' ? null : Math.max(0, Math.floor(Number(v.replace(/\D/g, '')) || 0)))}
             />
-            <CurrencyInput label="Unpaid balance" value={form.unpaidBalance} onChange={set('unpaidBalance')} span={2} />
+            <CurrencyInput aiKey={liability ? `row:liabilities:${liability.id}:unpaidBalance` : undefined} label="Unpaid balance" value={form.unpaidBalance} onChange={set('unpaidBalance')} span={2} />
           </>
         )}
         <Input label="Notes" value={form.description ?? ''} onChange={(v) => set('description')(v || null)} span={expense ? 4 : 2} />
@@ -227,6 +229,7 @@ export function LiabilitiesSection({ loanId, organizationId, borrowers, liabilit
           {liabilities.map((l) => (
             <ListRow
               key={l.id}
+              aiPrefixes={rowPrefixes('liabilities', l.id)}
               title={
                 <>
                   {l.creditorName ?? labelFor(LIABILITY_OPTIONS, l.liabilityType)}
