@@ -20,7 +20,7 @@ import { wageIncome, type PayFrequency } from '@/lib/calc/income/wages'
 import { formatCurrency } from '@/lib/format'
 import { ASSET_OPTIONS, LIABILITY_OPTIONS, OTHER_INCOME_OPTIONS, labelFor } from '@/lib/urla/options'
 
-export type RowTable = 'employments' | 'other_incomes' | 'assets' | 'liabilities'
+export type RowTable = 'employments' | 'other_incomes' | 'assets' | 'liabilities' | 'contact_addresses'
 
 /** Where one value is saved. */
 export type FieldTarget =
@@ -190,6 +190,21 @@ export function planFill(facts: FillFact[], input: FillInput): FillPlan {
     const b = borrower(contactId)
     const current = b?.addresses.find((a) => a.kind === 'current')
     if (!current) {
+      // No current address yet: add one when the street was given (the table needs it); else keep it in the notes.
+      const value = (name: string) => list.find((f) => f.fieldPath === `address.${name}`)?.value ?? null
+      const street = value('addressLine')
+      if (street && b) {
+        const years = value('yearsAtAddress')
+        const months = years !== null ? Math.round(Number(years) * 12) : value('monthsAtAddress')
+        const values: Record<string, unknown> = { contactId, kind: 'current', addressLine: street }
+        for (const k of ['city', 'state', 'zip', 'housing', 'monthlyRent'] as const) if (value(k) !== null) values[k] = value(k)
+        if (months !== null) values.monthsAtAddress = months
+        const housing = values.housing === 'rent' ? `Renting${values.monthlyRent !== undefined ? ` ${money(values.monthlyRent as number)}/mo` : ''}` : values.housing === 'own' ? 'Owns' : values.housing === 'no_primary_expense' ? 'No housing expense' : ''
+        const time = months !== null ? tenure(Number(months) / 12) : ''
+        const place = [street, values.city].filter(Boolean).join(', ')
+        changes.push({ kind: 'new_row', key: `new:contact_addresses:${contactId}:current`, table: 'contact_addresses', contactId, values, section: 'borrower', display: ['Current address', place, housing, time].filter(Boolean).join(' · '), fieldCount: Object.keys(values).length - 2, factIds: list.map((f) => f.id), note: null })
+        continue
+      }
       toNotes.push({ factIds: list.map((f) => f.id), text: `Current housing (no address on the 1003 yet): ${list.map((f) => `${FILL_FIELDS[f.fieldPath].label} ${displayValue(f.fieldPath, f.value)}`).join(', ')}` })
       continue
     }
@@ -354,6 +369,7 @@ function rowOf(app: Application, table: RowTable, id: string): Record<string, un
   const list: { id: string }[] =
     table === 'employments' ? app.borrowers.flatMap((b) => b.employments) :
     table === 'other_incomes' ? app.borrowers.flatMap((b) => b.otherIncomes) :
+    table === 'contact_addresses' ? app.borrowers.flatMap((b) => b.addresses) :
     table === 'assets' ? app.assets : app.liabilities
   return (list.find((r) => r.id === id) as unknown as Record<string, unknown>) ?? null
 }

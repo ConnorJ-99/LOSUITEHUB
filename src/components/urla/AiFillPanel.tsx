@@ -72,7 +72,7 @@ function SectionTag({ section }: { section: FieldChange['section'] }) {
 
 /** The 1003 section card a change lands in (addresses and other income have their own cards). */
 function anchorFor(a: AppliedChange): string {
-  if (a.kind === 'field' && a.target.kind === 'address') return 'section-1-addresses'
+  if ((a.kind === 'field' && a.target.kind === 'address') || (a.kind === 'new_row' && a.table === 'contact_addresses')) return 'section-1-addresses'
   if ((a.kind === 'new_row' && a.table === 'other_incomes') || (a.kind === 'field' && a.target.kind === 'row' && a.target.table === 'other_incomes')) return 'section-1-other-income'
   return URLA_SECTIONS.find((x) => x.id === a.section)?.anchor ?? 'section-1'
 }

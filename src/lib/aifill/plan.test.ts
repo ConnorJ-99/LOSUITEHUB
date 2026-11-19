@@ -142,6 +142,26 @@ describe('planning the fill', () => {
     expect(answer.changes).toEqual([expect.objectContaining({ kind: 'field', target: { kind: 'row', table: 'employments', rowId: 'j9', contactId: 'p1', field: 'baseIncome' }, after: 2828.8, conflict: false })])
   })
 
+  it('adds the current address when there is none and the street was given', () => {
+    const p = planFill(
+      [
+        fact('address.addressLine', '1234 Rushmore St', { contactId: 'c1' }),
+        fact('address.yearsAtAddress', 4, { contactId: 'c1' }),
+        fact('address.housing', 'rent', { contactId: 'c1' }),
+        fact('address.monthlyRent', 2000, { contactId: 'c1' }),
+      ],
+      input,
+    )
+    expect(p.toNotes).toEqual([])
+    expect(p.changes[0]).toMatchObject({
+      kind: 'new_row',
+      table: 'contact_addresses',
+      contactId: 'c1',
+      values: { contactId: 'c1', kind: 'current', addressLine: '1234 Rushmore St', housing: 'rent', monthlyRent: 2000, monthsAtAddress: 48 },
+      display: 'Current address · 1234 Rushmore St · Renting $2,000/mo · 4 yrs',
+    })
+  })
+
   it('sends housing to the notes when there is no current address yet', () => {
     const p = planFill([fact('address.monthlyRent', 1350, { contactId: 'c1' })], input)
     expect(p.changes).toEqual([])

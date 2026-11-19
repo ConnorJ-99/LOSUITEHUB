@@ -76,6 +76,6 @@ describe('AI tags on the 1003', () => {
     expect(runsWithKey([run(), run({ id: 'r2', applied: [] })], 'loan:purchasePrice')).toEqual(['r1'])
     expect(runsWithKey([run()], newRowKey('employments', 'j1'))).toEqual(['r1'])
     expect(rowPrefixes('employments', 'j1')).toEqual(['row:employments:j1:', 'newrow:employments:j1'])
-    expect(rowPrefixes('contact_addresses', 'a1')).toEqual(['address:a1:'])
+    expect(rowPrefixes('contact_addresses', 'a1')).toEqual(['address:a1:', 'newrow:contact_addresses:a1'])
   })
 })

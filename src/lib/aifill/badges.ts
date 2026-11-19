@@ -21,13 +21,14 @@ export interface FillRun {
 export const newRowKey = (table: RowTable, rowId: string) => `newrow:${table}:${rowId}`
 
 /** Every key that belongs to one row (its fields, or the whole row when AI Fill added it). */
-export const rowPrefixes = (table: RowTable | 'contact_addresses', rowId: string) =>
-  table === 'contact_addresses' ? [`address:${rowId}:`] : [`row:${table}:${rowId}:`, newRowKey(table, rowId)]
+export const rowPrefixes = (table: RowTable, rowId: string) =>
+  table === 'contact_addresses' ? [`address:${rowId}:`, newRowKey(table, rowId)] : [`row:${table}:${rowId}:`, newRowKey(table, rowId)]
 
 function rowsOf(app: Application, table: RowTable): Record<string, unknown>[] {
   const list =
     table === 'employments' ? app.borrowers.flatMap((b) => b.employments) :
     table === 'other_incomes' ? app.borrowers.flatMap((b) => b.otherIncomes) :
+    table === 'contact_addresses' ? app.borrowers.flatMap((b) => b.addresses) :
     table === 'assets' ? app.assets : app.liabilities
   return list as unknown as Record<string, unknown>[]
 }
