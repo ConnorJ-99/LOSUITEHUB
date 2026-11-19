@@ -48,10 +48,13 @@ export function useMakePortalLink(loanId: string) {
     mutationFn: async (v: { organizationId: string; contactId: string }) => {
       unwrap(await db().from('document_upload_links').update({ revoked_at: new Date().toISOString() }).eq('loan_id', loanId).eq('contact_id', v.contactId).eq('kind', 'portal').is('revoked_at', null).select('id'))
       const token = newToken()
+      // An hour short of the 90-day limit: the database measures from its own clock (document_upload_links_expiry),
+      // so a computer clock even a second ahead made exactly 90 days fail.
+      const expiresAt = new Date(Date.now() + PORTAL_LINK_DAYS * 86_400_000 - 3_600_000).toISOString()
       unwrap(
         await db()
           .from('document_upload_links')
-          .insert({ organization_id: v.organizationId, loan_id: loanId, contact_id: v.contactId, kind: 'portal', token, token_hash: await sha256Hex(token), expires_at: new Date(Date.now() + PORTAL_LINK_DAYS * 86_400_000).toISOString() })
+          .insert({ organization_id: v.organizationId, loan_id: loanId, contact_id: v.contactId, kind: 'portal', token, token_hash: await sha256Hex(token), expires_at: expiresAt })
           .select('id'),
       )
       return portalUrl(window.location.origin, token)
