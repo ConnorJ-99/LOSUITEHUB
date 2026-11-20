@@ -1,18 +1,23 @@
 // /myhome: MyHome with MPS, the borrower's lifelong account (Stage 1,
 // docs/plans/myhome.md). Loaded by PublicApp, so a borrower's phone never
 // loads the staff app. No password: the borrower signs in with their email and
-// permanent 6-digit MyHome code, or opens their personal link (?invite=…, never
-// expires) and types their email; both reach them only in Connor's GHL email.
+// permanent 6-digit MyHome code; their personal link (?invite=…, never expires)
+// opens "Create your account" and still asks for both (Connor, 2026-11-20).
+// The code and link reach them only in Connor's GHL email.
 // It runs on MyHome's own Supabase client and stays signed in on this device.
 // Signed in, it shows every file the person is on as chips (open, getting
-// ready, closed) with their loan officer. Each file's own view comes later.
+// ready, closed) with their loan officer. An open file (Stage 2) shows what
+// the borrower portal shows: where the loan stands, their documents with
+// uploads, published letters and estimates, and Request numbers. Getting-ready
+// and closed views come in later stages.
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { HomeIcon, Loader2Icon, LockIcon, LogOutIcon } from 'lucide-react'
-import { fetchMe, hasSession, signIn, signOut } from '@/lib/myhome/api'
+import { fetchFile, fetchMe, fileCall, hasSession, putMyHomeUpload, signIn, signOut, type MyHomeFileView } from '@/lib/myhome/api'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { CODE_LENGTH, INVITE_TOKEN, cleanCode, emailLooksValid, type MyHomeMe } from '../../supabase/functions/myhome/rules'
-import { LoCard } from './PublicUploadPage'
+import { Items, LoCard } from './PublicUploadPage'
+import { LettersAndHomes, PortalHeader } from './PublicPortal'
 
 type Screen = { kind: 'loading' } | { kind: 'signed_out'; note?: string } | { kind: 'off'; message: string } | { kind: 'home'; me: MyHomeMe }
 
@@ -59,6 +64,7 @@ export function MyHomePage() {
         onSignOut={() => {
           void signOut().then(() => setScreen({ kind: 'signed_out' }))
         }}
+        onReload={() => void load(false)}
       />
     )
   return <SignIn note={screen.kind === 'off' ? screen.message : screen.note} onSignedIn={() => void load(true)} />
@@ -97,10 +103,10 @@ function SignIn({ note, onSignedIn }: { note?: string; onSignedIn: () => void })
     e.preventDefault()
     if (!emailLooksValid(email)) return setError('Type your email address.')
     const c = cleanCode(code)
-    if (!invite && !c) return setError(`Type the ${CODE_LENGTH}-digit MyHome code from your email.`)
+    if (!c) return setError(`Type the ${CODE_LENGTH}-digit MyHome code from your email.`)
     setBusy(true)
     setError(null)
-    const problem = await signIn(invite ? { email: email.trim(), invite } : { email: email.trim(), code: c! })
+    const problem = await signIn(invite ? { email: email.trim(), code: c, invite } : { email: email.trim(), code: c })
     setBusy(false)
     if (problem) return setError(problem)
     // The link's token leaves the address bar once it has done its job.
@@ -122,7 +128,7 @@ function SignIn({ note, onSignedIn }: { note?: string; onSignedIn: () => void })
           <div>
             <h2 className="text-2xl font-bold tracking-tight">{invite ? 'Create your account' : 'Sign in to MyHome'}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {invite ? 'No password. Type your email to finish.' : `No password. Use your email and the ${CODE_LENGTH}-digit MyHome code MPS Mortgage emailed you.`}
+              {invite ? `No password. Type your email and the ${CODE_LENGTH}-digit MyHome code from the same email.` : `No password. Use your email and the ${CODE_LENGTH}-digit MyHome code MPS Mortgage emailed you.`}
             </p>
           </div>
           {note && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{note}</p>}
@@ -132,26 +138,24 @@ function SignIn({ note, onSignedIn }: { note?: string; onSignedIn: () => void })
             </label>
             <input id="myhome-email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-invalid={!!error} className={field} />
           </div>
-          {!invite && (
-            <div>
-              <label className="block text-sm font-semibold" htmlFor="myhome-code">
-                MyHome code
-              </label>
-              <input
-                id="myhome-code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={CODE_LENGTH + 2}
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                aria-invalid={!!error}
-                className={`${field} font-mono text-xl tracking-[0.4em]`}
-              />
-              <p className="mt-1.5 text-sm text-muted-foreground">Can't find it? Ask your loan officer to send it again.</p>
-            </div>
-          )}
+          <div>
+            <label className="block text-sm font-semibold" htmlFor="myhome-code">
+              MyHome code
+            </label>
+            <input
+              id="myhome-code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={CODE_LENGTH + 2}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              aria-invalid={!!error}
+              className={`${field} font-mono text-xl tracking-[0.4em]`}
+            />
+            <p className="mt-1.5 text-sm text-muted-foreground">Can't find it? Ask your loan officer to send it again.</p>
+          </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <button type="submit" disabled={busy || !email.trim() || (!invite && !code.trim())} className={primaryButton}>
+          <button type="submit" disabled={busy || !email.trim() || !code.trim()} className={primaryButton}>
             {busy ? 'One moment…' : invite ? 'Create my MyHome account' : 'Sign in'}
           </button>
           <div className="flex gap-3 rounded-xl border bg-white p-4 text-sm text-muted-foreground">
@@ -166,12 +170,72 @@ function SignIn({ note, onSignedIn }: { note?: string; onSignedIn: () => void })
 }
 
 // ---------------------------------------------------------------------------
+// An open file (Stage 2): the borrower portal's sections
+// ---------------------------------------------------------------------------
+
+type FileScreen = { kind: 'loading' } | { kind: 'error'; message: string } | { kind: 'open'; view: MyHomeFileView }
+
+/**
+ * Where the loan stands, their documents (uploads go straight to the file),
+ * published letters and estimates, Request numbers, and this loan's officer.
+ * A file that is no longer open, or no longer theirs, sends them back to their
+ * list of loans; a lost session signs them out.
+ */
+function OpenFile({ loanId, onGone, onSignedOut }: { loanId: string; onGone: () => void; onSignedOut: () => void }) {
+  const [screen, setScreen] = useState<FileScreen>({ kind: 'loading' })
+  const call = fileCall(loanId)
+
+  const load = async (opened: boolean) => {
+    const r = await fetchFile(loanId, opened)
+    if (r.status === 200 && r.body.items && r.body.portal && r.body.lo) return setScreen({ kind: 'open', view: { items: r.body.items, portal: r.body.portal, lo: r.body.lo } })
+    if (r.status === 401) return onSignedOut()
+    if (r.status === 403 || r.status === 404 || r.status === 409) return onGone()
+    setScreen({ kind: 'error', message: r.body.error ?? 'Your loan could not load. Try again.' })
+  }
+
+  useEffect(() => {
+    void load(true)
+    // Once per loan (the parent remounts this for another loan).
+  }, [])
+
+  const gone = () => {
+    // Signed out → sign in again; anything else (the loan closed or moved) → reload the list.
+    void fetchFile(loanId, false).then((r) => (r.status === 401 ? onSignedOut() : onGone()))
+  }
+
+  if (screen.kind === 'loading')
+    return (
+      <p className="flex items-center justify-center gap-2 rounded-xl border bg-white py-12 text-sm text-muted-foreground shadow-soft">
+        <Loader2Icon className="size-4 animate-spin" /> Loading your loan…
+      </p>
+    )
+  if (screen.kind === 'error')
+    return (
+      <section className="rounded-xl border bg-white p-5 text-center shadow-soft">
+        <p className="text-sm text-muted-foreground">{screen.message}</p>
+        <button type="button" onClick={() => void load(false)} className="mt-3 h-10 rounded-lg border px-4 text-sm font-medium">
+          Try again
+        </button>
+      </section>
+    )
+  const { view } = screen
+  return (
+    <>
+      <PortalHeader view={view.portal} />
+      <Items call={call} put={putMyHomeUpload} items={view.items} portal onChanged={() => void load(false)} onExpired={gone} />
+      <LettersAndHomes view={view.portal} call={call} onChanged={() => void load(false)} onExpired={gone} />
+      <LoCard lo={view.lo} />
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Signed in
 // ---------------------------------------------------------------------------
 
 const HEADLINE = { active: "Here's where your loan stands.", nurture: "You're getting ready.", closed: 'Welcome home.' } as const
 
-function Home({ me, onSignOut }: { me: MyHomeMe; onSignOut: () => void }) {
+function Home({ me, onSignOut, onReload }: { me: MyHomeMe; onSignOut: () => void; onReload: () => void }) {
   const [picked, setPicked] = useState(me.files[0]?.loanId ?? null)
   const file = me.files.find((f) => f.loanId === picked) ?? me.files[0] ?? null
   const initials = me.firstName.slice(0, 1).toUpperCase() || 'M'
@@ -208,26 +272,27 @@ function Home({ me, onSignOut }: { me: MyHomeMe; onSignOut: () => void }) {
         </div>
       </header>
       <main className="mx-auto -mt-8 max-w-2xl space-y-4 px-4">
-        <section className="rounded-xl border bg-white p-5 shadow-soft">
-          {file ? (
-            <>
-              <h2 className="text-lg font-bold tracking-tight">{file.label}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {file.view === 'active'
-                  ? 'Your loan status, documents, and letters and estimates will show here. Until then, use the portal link your loan officer sent you.'
-                  : file.view === 'nurture'
-                    ? 'Your numbers and your readiness plan will show here.'
-                    : "Your home's estimated value and equity will show here."}
-              </p>
-            </>
-          ) : (
-            <>
-              <h2 className="text-lg font-bold tracking-tight">No loans to show yet</h2>
-              <p className="mt-1 text-sm text-muted-foreground">When your loan officer has a loan for you, it shows here.</p>
-            </>
-          )}
-        </section>
-        {me.lo && <LoCard lo={me.lo} />}
+        {file?.view === 'active' ? (
+          // key: picking another loan starts its view fresh.
+          <OpenFile key={file.loanId} loanId={file.loanId} onGone={onReload} onSignedOut={onSignOut} />
+        ) : (
+          <>
+            <section className="rounded-xl border bg-white p-5 shadow-soft">
+              {file ? (
+                <>
+                  <h2 className="text-lg font-bold tracking-tight">{file.label}</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">{file.view === 'nurture' ? 'Your numbers and your readiness plan will show here.' : "Your home's estimated value and equity will show here."}</p>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-lg font-bold tracking-tight">No loans to show yet</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">When your loan officer has a loan for you, it shows here.</p>
+                </>
+              )}
+            </section>
+            {me.lo && <LoCard lo={me.lo} />}
+          </>
+        )}
       </main>
       <Footer />
     </div>

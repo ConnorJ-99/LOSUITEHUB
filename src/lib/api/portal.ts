@@ -5,7 +5,7 @@
 // Before the borrower portal script has run, reads come back empty.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { newToken, sha256Hex } from '@/lib/documents/uploadRequests'
-import { numbersReady, portalInvite, portalUrl } from '@/lib/portal/messages'
+import { numbersReady, portalInvite, portalUrl, readyLinkFor } from '@/lib/portal/messages'
 import { PORTAL_LINK_DAYS, type RequestStatus } from '../../../supabase/functions/document-upload/portal'
 import { db, keys, unwrap } from './client'
 
@@ -138,7 +138,8 @@ export function usePublished(loanId: string) {
  * Publishes (or unpublishes) a letter or estimate PDF to the borrower portal.
  * Publishing one for a home the borrower asked about marks the request Ready
  * (the database does that) and drafts "your numbers are ready" for each
- * requester with a live portal link. Returns how many drafts were queued.
+ * requester: pointing to MyHome once they've signed in to it, else to their
+ * live portal link (none = no draft). Returns how many drafts were queued.
  */
 export function usePublishDocument(loanId: string) {
   const queryClient = useQueryClient()
@@ -156,9 +157,12 @@ export function usePublishDocument(loanId: string) {
         const person = unwrap<{ first_name: string; last_name: string | null; phone: string | null; email: string | null; sms_opted_out_at: string | null; email_opted_out_at: string | null }[]>(
           await db().from('contacts').select('first_name, last_name, phone, email, sms_opted_out_at, email_opted_out_at').eq('id', req.contact_id),
         )[0]
-        if (!link?.token || !person) continue
+        // MyHome once they've signed in to it (before the MyHome script there's no table: the portal link).
+        const account = await db().from('borrower_accounts').select('status').eq('contact_id', req.contact_id).maybeSingle()
+        const where = readyLinkFor(window.location.origin, { myhomeStatus: account.error ? null : ((account.data as { status: string } | null)?.status ?? null), portalToken: link?.token ?? null })
+        if (!where || !person) continue
         const to: DraftTo = { organizationId: doc.organization_id, loanId, contactId: req.contact_id, name: `${person.first_name} ${person.last_name ?? ''}`.trim(), phone: person.sms_opted_out_at ? null : person.phone, email: person.email_opted_out_at ? null : person.email }
-        const m = numbersReady({ firstName: person.first_name, loName: v.loName, url: portalUrl(window.location.origin, link.token), address: req.address_line })
+        const m = numbersReady({ firstName: person.first_name, loName: v.loName, url: where.url, address: req.address_line, myhome: where.myhome })
         // A text first; an email only when there's no phone to text.
         drafts += await queueDrafts(to, `Numbers ready: ${req.address_line}`, m, to.phone ? ['text'] : ['email'], `portal-ready:${req.id}`).catch(() => 0)
       }

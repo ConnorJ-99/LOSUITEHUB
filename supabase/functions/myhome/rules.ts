@@ -128,10 +128,12 @@ export interface MyHomeMe {
 
 /** The same words whether the email or the code is wrong, so the page never tells who has an account. */
 export const NO_MATCH = "That email and code don't match. Check the MyHome email from MPS Mortgage, or ask your loan officer."
-/** On the personal link: the typed email isn't the one the link was sent to. */
-export const LINK_EMAIL_WRONG = "That isn't the email this link was sent to. Type the email your loan officer has for you."
 export const LOCKED = 'Too many tries. Please wait an hour, or contact your loan officer.'
 export const LINK_GONE = 'This MyHome link is no longer active. Ask your loan officer for your MyHome code.'
 export const NOT_SIGNED_IN = 'Please sign in again.'
+/** A file that isn't theirs (or doesn't exist): the same words either way. */
+export const NOT_YOURS = "That loan isn't in your MyHome."
+/** Stage 2 serves open files only; nurture and closed views come later. */
+export const NOT_OPEN = "This loan isn't open anymore. Refresh the page to see where it stands."
 export const TURNED_OFF = 'This MyHome account is turned off. Contact your loan officer to turn it back on.'
 export const STAFF_EMAIL = 'That email is an MPS-HQ team login. Ask your loan officer to use your personal email for MyHome.'

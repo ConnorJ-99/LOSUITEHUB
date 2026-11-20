@@ -1,13 +1,15 @@
 # MyHome with MPS
 
-Status: Stage 0 approved by Connor 2026-11-19 ("Approve, start Stage 1"). Stage 1 built 2026-11-19, then reworked 2026-11-20 to Connor's sign-in plan (below). Not committed. Four Stage 0 questions are still open (end of this file); question 1 (login-code emails) is settled by the GHL plan.
+Status: Stage 0 approved by Connor 2026-11-19 ("Approve, start Stage 1"). Stage 1 built 2026-11-19, reworked 2026-11-20 to Connor's sign-in plan (below), approved and committed 2026-11-20 (f485208, "go for it"). Stage 2 built, set up on tlsq and committed 2026-11-20 after Connor tested MyHome. **Next (Connor, 2026-11-20): the closed view (Stages 4–5) before Nurture (Stage 3)**, planned first. Questions 4 (savings goal) and 5 (contact button) are still open (end of this file); 1–3 are settled.
 
 ## Connor's sign-in decisions (2026-11-20)
 - **No Supabase emails or SMTP.** MPS-HQ makes each borrower a permanent 6-digit MyHome code and a personal link that never expires (`/myhome?invite=<64 hex>`).
 - **Manual button.** "Send MyHome code to GHL" writes them to the borrower's GHL contact, in the custom fields `home_management_code` and `home_management_link`. It then adds the tag `home management code`, and Connor's GHL workflow emails his template (`{{contact.home_management_code}}`, `{{contact.home_management_link}}`). This is his exception to "LOSuite never adds tags or starts workflows", for MyHome only, on that click.
 - **Primary borrower only.** Co-borrowers get no MyHome invite.
 - **The link never expires.** "New code" replaces the code and link, and Turn off stops both.
+- **The link asks for the code too (Connor, 2026-11-20, after testing).** The personal link opens "Create your account" and asks for the email and the 6-digit code; a wrong email and a wrong code get the same answer and count toward the lockout.
 - **At closing (Connor, 2026-11-20, later).** The code stays on the borrower's GHL contact for good. When a file is marked Closed, the `ghl` function's opportunity move first writes the primary borrower's code and link into the two fields, with **no tag**: inviting them to MyHome first if they have no account, leaving them alone if MyHome is turned off. Then it moves the opportunity, and Connor's GHL closing email workflow (triggered by that Closed stage move, not a tag) includes the code. GHL isn't told whether they've signed in (Connor: not needed). A MyHome problem never stops the move; it comes back as a note (`myhome` on the result, shown as a toast). Rule `myHomeAtClose` in `supabase/functions/ghl/myhome.ts` (tested).
+- **Connor's GHL workflows (2026-11-20):** the "home management code" workflow is built; it allows re-entry and removes the tag after it sends (MPS-HQ still takes the tag off and on, which is harmless). The closing workflow starts on the pipeline stage change, waits 1 day, then sends the closing email with the code and link. Only a Closed move made by MPS-HQ fills the fields first; a contact moved to Closed by hand in GHL gets whatever is already in them.
 - **Set up on tlsq 2026-11-20 by Claude:** the script was run (its step 0 removed the empty first-draft tables), `myhome` and `ghl` redeployed (ghl again with the closing step). Connor made the two GHL custom fields; the workflows come later, and testing waits until then.
 
 ## Stage 1 — accounts and sign-in (built)
@@ -46,7 +48,15 @@ Status: Stage 0 approved by Connor 2026-11-19 ("Approve, start Stage 1"). Stage 
 5. In GHL, build the workflow: trigger **Contact Tag added = "home management code"** → send the email template.
 6. Optional: add the `locations/customFields.readonly` scope to the GHL token, so fields are written by id.
 
-**Found in passing:** the portal's `portalStep()` doesn't know the `underwriting` stage, so a file at Underwriting with no milestones shows "Application received". Fix it in Stage 2, which reuses `portalStep()`.
+## Stage 2 — open files (built 2026-11-20)
+- An open file (any stage but Nurture, Closed and Lost) in MyHome shows what the borrower portal shows, with the portal's own sections (`PortalHeader`, `Items`, `LettersAndHomes` take a `PortalCall` now, so `/u/{token}` and MyHome share them): where the loan stands, their document checklist with uploads (PDFs or photos into the file, the item marked received, the LO's `portal_upload` notice as before), published letters and estimates (one-minute PDF links), Request numbers on purchases, and that file's loan officer card.
+- `myhome` function actions `file`, `upload_url` / `uploaded`, `pdf`, `home_request`. Each checks the signed-in account, that its person is a borrower on the file and that the file is open (else "That loan isn't in your MyHome" / "isn't open anymore", and the page reloads their loans). It reuses `document-upload/portal.ts` and `rules.ts` unchanged. Events in `myhome_events` with the file: `opened` (once per pick), `upload`, `pdf`, `home_request` (5 an hour per account).
+- Script `20270225000000_myhome_active.sql`: `submit_myhome_request()` (service role only) does what `submit_portal_request()` does for a MyHome account instead of a portal link: the home on the file as interested, the request with the Approval Limits and how far over (`link_id` null), a note "(MyHome)" and the LO's `portal_request` notice. PGlite test 12/12.
+- "Your numbers are ready" (publishing a letter or estimate for a requested home) points to `/myhome` once the borrower has signed in to MyHome (account active), else to their portal link as before (`readyLinkFor`, tested).
+- Fixed in passing: the portal's `portalStep()` didn't know the `underwriting` stage, so a file at Underwriting with no milestones showed "Application received" on `/u/{token}`; it is now "Submitted to underwriting" (`document-upload` redeployed).
+- `npm run function:paste` now names a sibling module's namespace after its folder when two modules share a name (`myhome`'s `rules.ts` and `../document-upload/rules.ts` → `document_upload_rules`).
+- Not in MyHome yet: the portal's "Your mortgage application" card (the application runs on a portal link; Stage 5's "Start something new" brings it signed in).
+- **Set up on tlsq 2026-11-20 by Claude:** script run ("MPS HQ MyHome active files installed", functions 1), `myhome` and `document-upload` redeployed, `myhome` checked (refuses a request that isn't signed in). Not tried signed in yet: that needs a TEST borrower's MyHome login.
 
 ---
 
@@ -194,8 +204,8 @@ Supabase Auth can do both in one project. Staff keep `signInWithPassword`. Borro
   - an admin section with the accounts list, Turn off, settings and index status.
 
 ## Questions for Connor
-1. **Login codes.** OK for login codes to be the one automatic email (needs custom SMTP in Supabase)? Email only for now (no text codes)?
-2. **Hood County.** Fort Worth series labelled "nearest area index", the Texas index, or no estimate?
-3. **"My loan" on closed files.** The mockup shows their own monthly payment and "Conventional 30-year". That's their own loan, not an ad, but your "no term-based payment" rule is strict. Show their existing payment and loan type and term, or leave both off?
+1. ~~**Login codes.**~~ Settled 2026-11-20: no Supabase emails; the permanent code goes by Connor's GHL workflow.
+2. ~~**Hood County.**~~ Connor 2026-11-20: the Fort Worth index, labeled "based on the nearest area index".
+3. **"My loan" on closed files.** The mockup shows their own monthly payment and "Conventional 30-year". That's their own loan, not an ad, but your "no term-based payment" rule is strict. Show their existing payment and loan type and term, or leave both off? **Connor 2026-11-20: show both.**
 4. **Savings goal.** The mockup's "Saved $8,200 of $14,000" needs a goal. Nothing stores a cash-needed goal today. Show savings without "of $X", or work the goal out from the file's target price with the cash-to-close math?
 5. **Contact button.** The chat bubble on the loan officer card can't be in-app messaging (out of scope). Make it a text (sms:) and call (tel:) link to your GHL number?

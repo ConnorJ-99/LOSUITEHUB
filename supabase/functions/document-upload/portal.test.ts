@@ -10,6 +10,8 @@ describe('portal steps', () => {
   })
   it('milestones move it forward: submitted, conditions, clear to close, closed', () => {
     expect(portalStep('processing', [])).toBe('submitted')
+    expect(portalStep('underwriting', [])).toBe('submitted')
+    expect(portalStep('underwriting', ['approved_conditions'])).toBe('conditions')
     expect(portalStep('under_contract', ['submitted'])).toBe('submitted')
     expect(portalStep('processing', ['submitted', 'approved_conditions'])).toBe('conditions')
     expect(portalStep('processing', ['conditions_submitted'])).toBe('conditions')

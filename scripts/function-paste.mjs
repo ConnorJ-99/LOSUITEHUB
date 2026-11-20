@@ -13,15 +13,20 @@ const dir = `supabase/functions/${name}`
 const read = (path) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
 const index = read(`${dir}/index.ts`)
 const local = /import \{([^}]*)\} from '(\.\/|\.\.\/[\w-]+\/)(\w+)\.ts'\n/g
-const imports = [...index.matchAll(local)].map((m) => ({ folder: m[2], module: m[3], names: m[1].split(',').map((n) => n.replace(/^\s*type\s+/, '').trim()).filter(Boolean) }))
-if (imports.length === 0) throw new Error('Could not find the local imports in index.ts')
+const found = [...index.matchAll(local)].map((m) => ({ folder: m[2], module: m[3], names: m[1].split(',').map((n) => n.replace(/^\s*type\s+/, '').trim()).filter(Boolean) }))
+if (found.length === 0) throw new Error('Could not find the local imports in index.ts')
+// Two modules with one name (myhome's rules.ts and ../document-upload/rules.ts): the sibling's namespace takes its folder's name too.
+const imports = found.map((i) => ({
+  ...i,
+  ns: i.folder !== './' && found.some((o) => o !== i && o.module === i.module) ? `${i.folder.slice(3, -1).replace(/-/g, '_')}_${i.module}` : i.module,
+}))
 
-const namespaces = imports.map(({ folder, module }) => {
+const namespaces = imports.map(({ folder, module, ns }) => {
   const code = read(`${dir}/${folder}${module}.ts`)
   if (/^import /m.test(code)) throw new Error(`${module}.ts must not import anything`)
-  return `// ---- ${module}.ts ----\nnamespace ${module} {\n${code}\n}`
+  return `// ---- ${folder === './' ? '' : folder}${module}.ts ----\nnamespace ${ns} {\n${code}\n}`
 })
-const aliases = imports.flatMap(({ module, names }) => names.map((n) => `import ${n} = ${module}.${n}`))
+const aliases = imports.flatMap(({ ns, names }) => names.map((n) => `import ${n} = ${ns}.${n}`))
 const body = index.replace(local, '')
 // Keep the npm imports first, then the modules, then the function itself.
 const firstCode = body.search(/^(?!import |\/\/|\s*$)/m)

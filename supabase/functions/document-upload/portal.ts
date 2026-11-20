@@ -24,7 +24,7 @@ export const PORTAL_STEPS: readonly { id: PortalStep; label: string; message: st
 ]
 
 /** Pipeline stages and processing milestones, as the database names them. */
-export type PortalStage = 'lead' | 'contacted' | 'pre_qualified' | 'pre_approved' | 'home_search' | 'under_contract' | 'processing' | 'clear_to_close' | 'closed' | 'nurture' | 'lost'
+export type PortalStage = 'lead' | 'contacted' | 'pre_qualified' | 'pre_approved' | 'home_search' | 'under_contract' | 'processing' | 'underwriting' | 'clear_to_close' | 'closed' | 'nurture' | 'lost'
 export type PortalMilestone = 'application' | 'disclosures_sent' | 'submitted' | 'in_underwriting' | 'approved_conditions' | 'conditions_submitted' | 'clear_to_close' | 'docs_out' | 'closed' | 'funded'
 
 const IN_REVIEW_STAGES: PortalStage[] = ['pre_qualified', 'pre_approved', 'home_search', 'under_contract']
@@ -35,7 +35,7 @@ export function portalStep(stage: PortalStage, milestones: PortalMilestone[]): P
   if (stage === 'closed' || has('closed', 'funded')) return 'closed'
   if (stage === 'clear_to_close' || has('clear_to_close', 'docs_out')) return 'clear_to_close'
   if (has('approved_conditions', 'conditions_submitted')) return 'conditions'
-  if (stage === 'processing' || has('submitted', 'in_underwriting')) return 'submitted'
+  if (stage === 'processing' || stage === 'underwriting' || has('submitted', 'in_underwriting')) return 'submitted'
   if (IN_REVIEW_STAGES.includes(stage) || has('application', 'disclosures_sent')) return 'in_review'
   return 'application_received'
 }

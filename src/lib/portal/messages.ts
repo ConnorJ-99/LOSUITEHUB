@@ -6,6 +6,18 @@
 
 export const portalUrl = (origin: string, token: string) => `${origin.replace(/\/$/, '')}/u/${token}`
 
+/** MyHome's address (they sign in there; no token in it). */
+export const myHomeUrl = (origin: string) => `${origin.replace(/\/$/, '')}/myhome`
+
+/**
+ * Where "your numbers are ready" points: MyHome once they've signed in to it
+ * (an active account), else their portal link, else nowhere (no draft).
+ */
+export function readyLinkFor(origin: string, v: { myhomeStatus: string | null; portalToken: string | null }): { url: string; myhome: boolean } | null {
+  if (v.myhomeStatus === 'active') return { url: myHomeUrl(origin), myhome: true }
+  return v.portalToken ? { url: portalUrl(origin, v.portalToken), myhome: false } : null
+}
+
 const firstOf = (name: string) => name.split(/\s+/)[0] || name
 
 /** The invite: where to see the loan's status, upload documents and request numbers. */
@@ -34,9 +46,9 @@ export function portalInvite(v: { firstName: string; loName: string; url: string
 }
 
 /** "Your numbers for 123 Main St are ready" after a letter or estimate for a requested home is published. */
-export function numbersReady(v: { firstName: string; loName: string; url: string; address: string }) {
+export function numbersReady(v: { firstName: string; loName: string; url: string; address: string; myhome?: boolean }) {
   const text = `Hi ${v.firstName}, your numbers for ${v.address} are ready. View them here: ${v.url} - ${firstOf(v.loName)}`
-  const email = [`Hi ${v.firstName},`, '', `Your numbers for ${v.address} are ready. You can view them in your loan portal:`, v.url, '', 'Let me know if you have any questions.', '', 'Thanks,', v.loName].join('\n')
+  const email = [`Hi ${v.firstName},`, '', `Your numbers for ${v.address} are ready. You can view them in ${v.myhome ? 'MyHome' : 'your loan portal'}:`, v.url, '', 'Let me know if you have any questions.', '', 'Thanks,', v.loName].join('\n')
   return { text, subject: `Your numbers for ${v.address}`, email }
 }
 

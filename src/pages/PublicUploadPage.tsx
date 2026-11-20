@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
 import { AlertCircleIcon, CameraIcon, ClipboardListIcon, CheckCircle2Icon, Loader2Icon, MailIcon, MessageSquareIcon } from 'lucide-react'
 import logo from '@/assets/mps-logo.png'
-import { callDocumentUpload, putSignedUpload, saveUploadSession, savedUploadSession } from '@/lib/api/documentUpload'
+import { callDocumentUpload, portalGone, putSignedUpload, saveUploadSession, savedUploadSession, type PortalCall } from '@/lib/api/documentUpload'
 import { formatPhone } from '@/lib/pipeline/helpers'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { borrowerDocStatus, type PortalView } from '../../supabase/functions/document-upload/portal'
@@ -27,6 +27,9 @@ type Screen =
   | { kind: 'open'; lo: UploadLo | null; items: UploadItem[]; portal: PortalView | null }
 
 const TOKEN = /^[0-9a-f]{64}$/i
+
+/** Puts a file at a one-time upload link. */
+type UploadPut = (path: string, token: string, file: File) => Promise<void>
 
 export function PublicUploadPage() {
   const { token = '' } = useParams()
@@ -74,6 +77,7 @@ export function PublicUploadPage() {
 
   const lo = screen.kind === 'loading' || screen.kind === 'missing' ? null : screen.lo
   const refresh = () => session && screen.kind === 'open' && void view(session, screen.lo, !!screen.portal)
+  const call: PortalCall = (b) => callDocumentUpload({ ...b, token, session })
 
   return (
     <div className="min-h-screen bg-[#F4F7FB] text-foreground">
@@ -113,8 +117,8 @@ export function PublicUploadPage() {
         )}
         {screen.kind === 'open' && session && screen.portal && !applying && <PortalHeader view={screen.portal} />}
         {screen.kind === 'open' && session && screen.portal && !applying && <ApplicationEntry onOpen={() => setApplying(true)} />}
-        {screen.kind === 'open' && session && !(screen.portal && applying) && <Items token={token} session={session} items={screen.items} portal={!!screen.portal} onChanged={refresh} onExpired={() => expired(screen.lo)} />}
-        {screen.kind === 'open' && session && screen.portal && !applying && <LettersAndHomes view={screen.portal} token={token} session={session} onChanged={refresh} onExpired={() => expired(screen.lo)} />}
+        {screen.kind === 'open' && session && !(screen.portal && applying) && <Items call={call} items={screen.items} portal={!!screen.portal} onChanged={refresh} onExpired={() => expired(screen.lo)} />}
+        {screen.kind === 'open' && session && screen.portal && !applying && <LettersAndHomes view={screen.portal} call={call} onChanged={refresh} onExpired={() => expired(screen.lo)} />}
         {lo && <LoCard lo={lo} />}
       </main>
     </div>
@@ -186,7 +190,7 @@ function EmailBox({ token, portal, onOpen, onExpired }: { token: string; portal:
   )
 }
 
-function Items({ token, session, items, portal, onChanged, onExpired }: { token: string; session: string; items: UploadItem[]; portal: boolean; onChanged: () => void; onExpired: () => void }) {
+export function Items({ call, put, items, portal, onChanged, onExpired }: { call: PortalCall; put?: UploadPut; items: UploadItem[]; portal: boolean; onChanged: () => void; onExpired: () => void }) {
   const left = items.filter((i) => stillNeeded(i.status)).length
   const Title = portal ? 'h2' : 'h1'
   return (
@@ -199,13 +203,13 @@ function Items({ token, session, items, portal, onChanged, onExpired }: { token:
       </div>
       {portal && <DocProgress items={items} />}
       {items.map((i) => (
-        <ItemCard key={i.id} token={token} session={session} item={i} onChanged={onChanged} onExpired={onExpired} />
+        <ItemCard key={i.id} call={call} put={put} item={i} onChanged={onChanged} onExpired={onExpired} />
       ))}
     </section>
   )
 }
 
-function ItemCard({ token, session, item, onChanged, onExpired }: { token: string; session: string; item: UploadItem; onChanged: () => void; onExpired: () => void }) {
+function ItemCard({ call, put = putSignedUpload, item, onChanged, onExpired }: { call: PortalCall; put?: UploadPut; item: UploadItem; onChanged: () => void; onExpired: () => void }) {
   const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -223,16 +227,16 @@ function ItemCard({ token, session, item, onChanged, onExpired }: { token: strin
         continue
       }
       setBusy(`Uploading ${file.name}…`)
-      const meta = { token, session, itemId: item.id, fileName: file.name, size: file.size, type: file.type }
-      const start = await callDocumentUpload({ action: 'upload_url', ...meta })
-      if (start.status === 401 || start.status === 410) return onExpired()
+      const meta = { itemId: item.id, fileName: file.name, size: file.size, type: file.type }
+      const start = await call({ action: 'upload_url', ...meta })
+      if (portalGone(start.status)) return onExpired()
       if (start.status !== 200 || !start.body.path || !start.body.token) {
         setError(start.body.error ?? 'The upload could not start. Try again.')
         continue
       }
       try {
-        await putSignedUpload(start.body.path, start.body.token, file)
-        const fin = await callDocumentUpload({ action: 'uploaded', ...meta, path: start.body.path })
+        await put(start.body.path, start.body.token, file)
+        const fin = await call({ action: 'uploaded', ...meta, path: start.body.path })
         if (fin.status !== 200) setError(fin.body.error ?? 'The upload did not finish. Try again.')
       } catch (e) {
         setError((e as Error).message)

@@ -2,7 +2,10 @@
 // own Supabase client (createMyHomeClient), never the staff one. The MyHome
 // code reaches the borrower only through Connor's GHL email.
 import type { EmailOtpType, SupabaseClient } from '@supabase/supabase-js'
+import { putSignedUpload, type PortalCall, type UploadReply } from '@/lib/api/documentUpload'
 import { createMyHomeClient } from '@/lib/supabase'
+import type { PortalView } from '../../../supabase/functions/document-upload/portal'
+import type { UploadItem, UploadLo } from '../../../supabase/functions/document-upload/rules'
 import type { MyHomeMe } from '../../../supabase/functions/myhome/rules'
 
 let client: SupabaseClient | null | undefined
@@ -44,6 +47,35 @@ export async function signIn(v: { email: string; code?: string; invite?: string 
 
 /** The signed-in borrower and their files. `fresh` = right after signing in (records the sign-in). */
 export const fetchMe = (fresh = false) => call<Partial<MyHomeMe>>({ action: 'me', fresh })
+
+/** An open file (Stage 2): the borrower portal's sections, its checklist and that file's loan officer. */
+export interface MyHomeFileView {
+  items: UploadItem[]
+  portal: PortalView
+  lo: UploadLo
+}
+
+/** One open file's view. `opened` = the borrower just picked it (recorded once, not on every refresh). */
+export const fetchFile = (loanId: string, opened: boolean) => call<Partial<MyHomeFileView>>({ action: 'file', loanId, opened })
+
+/**
+ * The portal sections' server call for one file. "This loan isn't open
+ * anymore" (409) reads like the portal's "no longer available" (410), so the
+ * page reloads the borrower's files.
+ */
+export const fileCall =
+  (loanId: string): PortalCall =>
+  async (body) => {
+    const r = await call<UploadReply['body']>({ ...body, loanId })
+    return { status: r.status === 409 ? 410 : r.status, body: r.body as UploadReply['body'] }
+  }
+
+/** Uploads go through MyHome's own client, never the staff one. */
+export const putMyHomeUpload = (path: string, token: string, file: File) => {
+  const c = myHomeClient()
+  if (!c) throw new Error('MyHome is not set up yet.')
+  return putSignedUpload(path, token, file, c)
+}
 
 export const hasSession = async () => !!(await myHomeClient()?.auth.getSession())?.data.session
 

@@ -2,8 +2,8 @@
 // Verify JWT is ON. /myhome talks only to this; borrowers never query tables
 // (their login has no organization_members row, so RLS shows them nothing).
 // It uses the service role, so it checks everything itself:
-//   sign_in    email + the person's permanent MyHome code, or their personal
-//              link (/myhome?invite=…, never expires) + their email. 5 wrong
+//   sign_in    email + the person's permanent MyHome code, with or without
+//              their personal link (/myhome?invite=…, never expires). 5 wrong
 //              tries in an hour lock the account for the hour; a wrong email and
 //              a wrong code get the same answer. Then it makes or updates the
 //              MyHome login (marked myhome in app metadata, so it gets no staff
@@ -13,11 +13,22 @@
 //   me         the signed-in borrower: first name, every file they're a
 //              borrower on (lost ones left out) with its MyHome view (active,
 //              nurture, closed), and their loan officer's card.
+// Stage 2 (open files, the borrower portal's sections, same rules and shapes
+// as the document-upload function; each checks the file is theirs and open):
+//   file       the status step and its message, their document checklist with
+//              files, published letters and estimates by home, home requests,
+//              and that file's loan officer
+//   upload_url / uploaded   a one-time signed upload for one of their items,
+//              then the upload recorded on the Documents tab and the item received
+//   pdf        a one-minute link to a published letter or estimate PDF
+//   home_request "Request numbers" for a home (submit_myhome_request())
 // Never sends anything: the code and link reach the borrower only through
 // Connor's GHL email ("Send MyHome code to GHL", the ghl function).
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0'
-import { CODE_LENGTH, INVITE_TOKEN, LINK_EMAIL_WRONG, LINK_GONE, LOCKED, NOT_SIGNED_IN, NO_MATCH, STAFF_EMAIL, TURNED_OFF, cleanCode, emailLooksValid, fileLabel, isLocked, normEmail, orderFiles, pickAccount, sameCode, viewFor, type AccountMatch, type AccountStatus, type MyHomeFile, type MyHomeLo, type MyHomeMe } from './rules.ts'
+import { CODE_LENGTH, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, cleanCode, emailLooksValid, fileLabel, isLocked, normEmail, orderFiles, pickAccount, sameCode, viewFor, type AccountMatch, type AccountStatus, type MyHomeFile, type MyHomeLo, type MyHomeMe } from './rules.ts'
+import { groupByHome, homeRequestProblem, portalStep, stepMessage, type HomeRequestInput, type PortalDoc, type PortalMilestone, type PortalStage, type PortalView, type RequestStatus } from '../document-upload/portal.ts'
+import { canUpload, fileProblem, safeFileName, type UploadItem } from '../document-upload/rules.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -76,10 +87,13 @@ async function signIn(db: SupabaseClient, body: Record<string, unknown>): Promis
   const email = normEmail(typeof body.email === 'string' ? body.email : '')
   if (!email || !emailLooksValid(email)) return reply(400, { error: 'Type your email address.' })
   const invite = typeof body.invite === 'string' ? body.invite.toLowerCase() : null
+  // The code is always needed, with or without the personal link (Connor, 2026-11-20).
+  const code = cleanCode(typeof body.code === 'string' ? body.code : '')
+  if (!code) return reply(400, { error: `Type the ${CODE_LENGTH}-digit MyHome code from your email.` })
   let account: Candidate
 
   if (invite) {
-    // The personal link: it never expires, but the typed email must be the person's.
+    // The personal link: it never expires, but the typed email and code must be the person's.
     if (!INVITE_TOKEN.test(invite)) return reply(404, { error: LINK_GONE })
     const r = await db.from('borrower_accounts').select('id, organization_id, contact_id, user_id, status, invite_code, contact:contacts ( email )').eq('invite_token', invite).maybeSingle()
     if (r.error) throw new Error(r.error.message)
@@ -87,13 +101,12 @@ async function signIn(db: SupabaseClient, body: Record<string, unknown>): Promis
     if (!row || row.status === 'off') return reply(404, { error: LINK_GONE })
     account = { ...row, contact_email: row.contact?.email ?? null }
     if (isLocked(await wrongCount(db, account.id))) return reply(429, { error: LOCKED })
-    if (normEmail(account.contact_email) !== email) {
+    // A wrong email and a wrong code get the same answer.
+    if (normEmail(account.contact_email) !== email || !sameCode(code, account.invite_code)) {
       await event(db, account, 'code_wrong', { via: 'link' })
-      return reply(403, { error: LINK_EMAIL_WRONG })
+      return reply(403, { error: NO_MATCH })
     }
   } else {
-    const code = cleanCode(typeof body.code === 'string' ? body.code : '')
-    if (!code) return reply(400, { error: `Type the ${CODE_LENGTH}-digit MyHome code from your email.` })
     const found = await db.rpc('myhome_accounts_for_email', { p_email: email })
     if (found.error) throw new Error(found.error.message)
     const rows = (found.data ?? []) as { account_id: string; status: AccountStatus; user_id: string | null; organization_id: string; contact_id: string; contact_email: string | null; invite_code: string }[]
@@ -214,6 +227,186 @@ async function me(db: SupabaseClient, account: AccountRow, fresh: boolean): Prom
   }
 }
 
+// ---------------------------------------------------------------------------
+// Stage 2: an open file (the borrower portal's sections)
+// ---------------------------------------------------------------------------
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const PUBLISHABLE = ['preapproval_letter', 'fee_worksheet', 'loan_comparison']
+
+interface OpenFile {
+  id: string
+  organization_id: string
+  stage: PortalStage
+  purpose: string
+  assigned_lo_id: string | null
+}
+
+/** The file in the request, when the signed-in person is a borrower on it and it's open (not nurture, closed or lost). */
+async function openFile(db: SupabaseClient, account: AccountRow, loanId: unknown): Promise<OpenFile | Response> {
+  if (typeof loanId !== 'string' || !UUID.test(loanId)) return reply(404, { error: NOT_YOURS })
+  const [on, loan] = await Promise.all([
+    db.from('loan_borrowers').select('loan_id').eq('loan_id', loanId).eq('contact_id', account.contact_id).maybeSingle(),
+    db.from('loans').select('id, organization_id, stage, purpose, assigned_lo_id').eq('id', loanId).eq('organization_id', account.organization_id).maybeSingle(),
+  ])
+  if (on.error) throw new Error(on.error.message)
+  if (loan.error) throw new Error(loan.error.message)
+  const l = loan.data as OpenFile | null
+  if (!on.data || !l || !viewFor(l.stage)) return reply(404, { error: NOT_YOURS })
+  if (viewFor(l.stage) !== 'active') return reply(409, { error: NOT_OPEN, state: 'not_open' })
+  return l
+}
+
+interface ItemRow {
+  id: string
+  label: string
+  instructions: string | null
+  status: UploadItem['status']
+  reject_reason: string | null
+  due_on: string | null
+  kind: string
+  document_id: string | null
+}
+
+/** Every request for this person on the file (waived ones left out), like a portal link's. */
+async function itemsOf(db: SupabaseClient, account: AccountRow, l: OpenFile): Promise<ItemRow[]> {
+  const r = await db.from('document_requests').select('id, label, instructions, status, reject_reason, due_on, kind, document_id').eq('loan_id', l.id).eq('contact_id', account.contact_id).neq('status', 'waived').order('requested_at')
+  if (r.error) throw new Error(r.error.message)
+  return r.data as ItemRow[]
+}
+
+/** The status step, published letters and estimates by home, and this person's home requests. */
+async function portalView(db: SupabaseClient, account: AccountRow, l: OpenFile): Promise<PortalView> {
+  const [milestones, person, settings, docs, homes, requests] = await Promise.all([
+    db.from('loan_milestones').select('milestone').eq('loan_id', l.id),
+    db.from('contacts').select('first_name').eq('id', account.contact_id).single(),
+    db.from('messaging_settings').select('portal_stage_messages').eq('organization_id', l.organization_id).maybeSingle(),
+    db.from('loan_documents').select('id, kind, file_name, property_id, published_at').eq('loan_id', l.id).not('published_at', 'is', null).in('kind', PUBLISHABLE).order('published_at', { ascending: false }),
+    db.from('properties').select('id, address_line, city, list_price').eq('loan_id', l.id),
+    db.from('portal_property_requests').select('id, property_id, address_line, price, status, wants_letter, wants_estimate, created_at').eq('loan_id', l.id).eq('contact_id', account.contact_id),
+  ])
+  const step = portalStep(l.stage, ((milestones.data ?? []) as { milestone: PortalMilestone }[]).map((m) => m.milestone))
+  const custom = (settings.data as { portal_stage_messages: Record<string, unknown> } | null)?.portal_stage_messages ?? null
+  const published: PortalDoc[] = ((docs.data ?? []) as { id: string; kind: PortalDoc['kind']; file_name: string; property_id: string | null; published_at: string }[]).map((d) => ({ id: d.id, kind: d.kind, name: d.file_name, propertyId: d.property_id, publishedAt: d.published_at }))
+  const homeRows = ((homes.data ?? []) as { id: string; address_line: string; city: string | null; list_price: number | null }[]).map((h) => ({ id: h.id, address: h.city ? `${h.address_line}, ${h.city}` : h.address_line, price: h.list_price == null ? null : Number(h.list_price) }))
+  const reqRows = ((requests.data ?? []) as { id: string; property_id: string | null; address_line: string; price: number; status: RequestStatus; wants_letter: boolean; wants_estimate: boolean; created_at: string }[]).map((r) => ({ id: r.id, propertyId: r.property_id, address: r.address_line, price: Number(r.price), status: r.status, wantsLetter: r.wants_letter, wantsEstimate: r.wants_estimate, createdAt: r.created_at }))
+  return {
+    borrowerFirstName: (person.data as { first_name: string } | null)?.first_name ?? '',
+    step,
+    stepMessage: stepMessage(step, custom),
+    homes: groupByHome(homeRows, reqRows, published),
+    isPurchase: l.purpose === 'purchase',
+  }
+}
+
+async function fileView(db: SupabaseClient, account: AccountRow, l: OpenFile, opened: boolean) {
+  const items = await itemsOf(db, account, l)
+  const docs = items.length ? await db.from('loan_documents').select('document_request_id, file_name, created_at').in('document_request_id', items.map((i) => i.id)).order('created_at') : { data: [] }
+  const files = (docs.data ?? []) as { document_request_id: string; file_name: string; created_at: string }[]
+  if (opened) await event(db, account, 'opened', {}, l.id)
+  const out: UploadItem[] = items.map((i) => ({
+    id: i.id,
+    label: i.label,
+    instructions: i.instructions,
+    status: i.status,
+    rejectReason: i.status === 'rejected' ? i.reject_reason : null,
+    dueOn: i.due_on,
+    files: files.filter((f) => f.document_request_id === i.id).map((f) => ({ name: f.file_name, uploadedAt: f.created_at })),
+  }))
+  const [portal, lo] = await Promise.all([portalView(db, account, l), loCard(db, l.organization_id, l.assigned_lo_id)])
+  return { items: out, portal, lo }
+}
+
+async function pdf(db: SupabaseClient, account: AccountRow, l: OpenFile, documentId: unknown): Promise<Response> {
+  if (typeof documentId !== 'string' || !UUID.test(documentId)) return reply(400, { error: 'That document is not available.' })
+  const doc = await db.from('loan_documents').select('storage_path').eq('id', documentId).eq('loan_id', l.id).not('published_at', 'is', null).in('kind', PUBLISHABLE).maybeSingle()
+  const path = (doc.data as { storage_path: string } | null)?.storage_path
+  if (!path) return reply(404, { error: 'That document is not available.' })
+  const signed = await db.storage.from('loan-files').createSignedUrl(path, 60)
+  if (signed.error || !signed.data) return reply(500, { error: 'The PDF could not open. Try again.' })
+  await event(db, account, 'pdf', { documentId }, l.id)
+  return reply(200, { url: signed.data.signedUrl })
+}
+
+async function homeRequest(db: SupabaseClient, account: AccountRow, l: OpenFile, raw: unknown): Promise<Response> {
+  const input = (raw ?? {}) as Partial<HomeRequestInput>
+  const req: HomeRequestInput = {
+    address: String(input.address ?? '').slice(0, 200),
+    city: String(input.city ?? '').slice(0, 100),
+    state: String(input.state ?? '').toUpperCase(),
+    zip: String(input.zip ?? ''),
+    price: typeof input.price === 'number' && Number.isFinite(input.price) ? input.price : null,
+    downMode: input.downMode === 'amount' ? 'amount' : 'percent',
+    down: typeof input.down === 'number' && Number.isFinite(input.down) ? input.down : null,
+    wantsLetter: input.wantsLetter === true,
+    wantsEstimate: input.wantsEstimate === true,
+    notes: String(input.notes ?? ''),
+  }
+  const problem = homeRequestProblem(req)
+  if (problem) return reply(400, { error: problem })
+  // Five requests an hour per account is plenty for a real borrower.
+  const hourAgo = new Date(Date.now() - 3600_000).toISOString()
+  const recent = await db.from('myhome_events').select('id', { count: 'exact', head: true }).eq('account_id', account.id).eq('kind', 'home_request').gte('created_at', hourAgo)
+  if ((recent.count ?? 0) >= 5) return reply(429, { error: 'That is a lot of requests at once. Please wait a bit, or contact your loan officer.' })
+  const r = await db.rpc('submit_myhome_request', {
+    p_account: account.id,
+    p_loan: l.id,
+    p_address: req.address,
+    p_city: req.city,
+    p_state: req.state || 'TX',
+    p_zip: req.zip,
+    p_price: req.price,
+    p_down_amount: req.downMode === 'amount' ? req.down : null,
+    p_down_pct: req.downMode === 'percent' ? req.down : null,
+    p_wants_letter: req.wantsLetter,
+    p_wants_estimate: req.wantsEstimate,
+    p_notes: req.notes,
+  })
+  if (r.error) return reply(400, { error: r.error.message })
+  await event(db, account, 'home_request', { requestId: r.data }, l.id)
+  return reply(200, { ok: true })
+}
+
+async function upload(db: SupabaseClient, account: AccountRow, l: OpenFile, body: Record<string, unknown>): Promise<Response> {
+  if (typeof body.itemId !== 'string' || !UUID.test(body.itemId)) return reply(400, { error: 'Pick one of the items on this page.' })
+  const item = (await itemsOf(db, account, l)).find((i) => i.id === body.itemId)
+  if (!item) return reply(400, { error: 'Pick one of the items on this page.' })
+  if (!canUpload(item.status)) return reply(409, { error: 'This item is already done. Nothing more is needed.' })
+  const file = { name: String(body.fileName ?? ''), size: Number(body.size ?? 0), type: String(body.type ?? '') }
+  const problem = fileProblem(file)
+  if (problem) return reply(400, { error: problem })
+  const folder = `${l.organization_id}/${l.id}`
+
+  if (body.action === 'upload_url') {
+    const path = `${folder}/${crypto.randomUUID()}-${safeFileName(file.name)}`
+    const signed = await db.storage.from('loan-files').createSignedUploadUrl(path)
+    if (signed.error || !signed.data) return reply(500, { error: 'The upload could not start. Try again.' })
+    return reply(200, { path, token: signed.data.token })
+  }
+
+  // uploaded: the file must be in this file's folder and really there.
+  const path = String(body.path ?? '')
+  if (!path.startsWith(`${folder}/`) || path.includes('..')) return reply(400, { error: 'That upload is not for this file.' })
+  const name = path.slice(folder.length + 1)
+  const there = await db.storage.from('loan-files').list(folder, { search: name, limit: 1 })
+  if (!(there.data ?? []).some((f) => f.name === name)) return reply(400, { error: "The file didn't finish uploading. Try again." })
+  const doc = await db
+    .from('loan_documents')
+    .insert({ organization_id: l.organization_id, loan_id: l.id, contact_id: account.contact_id, kind: item.kind, file_name: file.name.slice(0, 200) || name, storage_path: path, content_type: file.type, size_bytes: file.size, document_request_id: item.id })
+    .select('id')
+    .single()
+  if (doc.error) throw new Error(doc.error.message)
+  const r = await db
+    .from('document_requests')
+    .update({ status: 'received', received_at: new Date().toISOString(), reviewed_at: null, reject_reason: null, ...(item.document_id ? {} : { document_id: (doc.data as { id: string }).id }) })
+    .eq('id', item.id)
+  if (r.error) throw new Error(r.error.message)
+  await event(db, account, 'upload', { item: item.label }, l.id)
+  return reply(200, { ok: true })
+}
+
+const FILE_ACTIONS = ['file', 'pdf', 'home_request', 'upload_url', 'uploaded']
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (request.method !== 'POST') return reply(405, { error: 'Use POST.' })
@@ -225,6 +418,16 @@ Deno.serve(async (request) => {
       const account = await signedIn(db, request)
       if (account instanceof Response) return account
       return reply(200, await me(db, account, body.fresh === true))
+    }
+    if (typeof body.action === 'string' && FILE_ACTIONS.includes(body.action)) {
+      const account = await signedIn(db, request)
+      if (account instanceof Response) return account
+      const l = await openFile(db, account, body.loanId)
+      if (l instanceof Response) return l
+      if (body.action === 'file') return reply(200, await fileView(db, account, l, body.opened === true))
+      if (body.action === 'pdf') return await pdf(db, account, l, body.documentId)
+      if (body.action === 'home_request') return await homeRequest(db, account, l, body.request)
+      return await upload(db, account, l, body)
     }
     return reply(400, { error: 'Unknown action.' })
   } catch (e) {

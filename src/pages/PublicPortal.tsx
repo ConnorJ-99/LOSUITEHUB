@@ -1,10 +1,11 @@
-// The borrower portal's sections on /u/{token} (a portal link): where the loan
+// The borrower portal's sections on /u/{token} (a portal link) and in MyHome
+// (an open file; Stage 2): where the loan
 // stands, the document checklist with a progress bar, published letters and
 // estimates by home, and "Request numbers" for a home. Borrowers only ever
 // request: letters and estimates come from the loan officer. Phone first.
 import { useState } from 'react'
 import { CheckIcon, FileTextIcon, HomeIcon, Loader2Icon, PlusIcon } from 'lucide-react'
-import { callDocumentUpload } from '@/lib/api/documentUpload'
+import { portalGone, type PortalCall } from '@/lib/api/documentUpload'
 import { formatCurrency } from '@/lib/format'
 import { PORTAL_STEPS, PUBLISHED_KIND_LABEL, REQUEST_STATUS_LABEL, docProgress, homeRequestProblem, type HomeRequestInput, type PortalHome, type PortalView } from '../../supabase/functions/document-upload/portal'
 import type { UploadItem } from '../../supabase/functions/document-upload/rules'
@@ -65,7 +66,7 @@ export function DocProgress({ items }: { items: UploadItem[] }) {
   )
 }
 
-export function LettersAndHomes({ view, token, session, onChanged, onExpired }: { view: PortalView; token: string; session: string; onChanged: () => void; onExpired: () => void }) {
+export function LettersAndHomes({ view, call, onChanged, onExpired }: { view: PortalView; call: PortalCall; onChanged: () => void; onExpired: () => void }) {
   const [asking, setAsking] = useState(false)
   const homes = view.homes
   return (
@@ -77,7 +78,7 @@ export function LettersAndHomes({ view, token, session, onChanged, onExpired }: 
         {homes.every((h) => h.docs.length === 0) ? (
           <p className={`${card} text-sm text-muted-foreground`}>Nothing here yet. When your loan officer shares a pre-approval letter or a payment estimate with you, it shows up here.</p>
         ) : (
-          homes.filter((h) => h.docs.length > 0).map((h) => <HomeDocs key={`${h.propertyId}-${h.address}`} home={h} token={token} session={session} onExpired={onExpired} />)
+          homes.filter((h) => h.docs.length > 0).map((h) => <HomeDocs key={`${h.propertyId}-${h.address}`} home={h} call={call} onExpired={onExpired} />)
         )}
       </section>
 
@@ -96,8 +97,7 @@ export function LettersAndHomes({ view, token, session, onChanged, onExpired }: 
           </div>
           {asking && (
             <HomeRequestForm
-              token={token}
-              session={session}
+              call={call}
               onDone={() => {
                 setAsking(false)
                 onChanged()
@@ -134,7 +134,7 @@ function RequestChip({ status }: { status: keyof typeof REQUEST_STATUS_LABEL }) 
   return <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}>{REQUEST_STATUS_LABEL[status]}</span>
 }
 
-function HomeDocs({ home, token, session, onExpired }: { home: PortalHome; token: string; session: string; onExpired: () => void }) {
+function HomeDocs({ home, call, onExpired }: { home: PortalHome; call: PortalCall; onExpired: () => void }) {
   const [opening, setOpening] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const open = async (id: string) => {
@@ -142,9 +142,9 @@ function HomeDocs({ home, token, session, onExpired }: { home: PortalHome; token
     setError(null)
     // Open the tab first (phones block pop-ups that open after a wait), then point it at the PDF.
     const tab = window.open('', '_blank')
-    const r = await callDocumentUpload({ action: 'pdf', token, session, documentId: id })
+    const r = await call({ action: 'pdf', documentId: id })
     setOpening(null)
-    if (r.status === 401 || r.status === 410) {
+    if (portalGone(r.status)) {
       tab?.close()
       return onExpired()
     }
@@ -177,7 +177,7 @@ function HomeDocs({ home, token, session, onExpired }: { home: PortalHome; token
   )
 }
 
-function HomeRequestForm({ token, session, onDone, onCancel, onExpired }: { token: string; session: string; onDone: () => void; onCancel: () => void; onExpired: () => void }) {
+function HomeRequestForm({ call, onDone, onCancel, onExpired }: { call: PortalCall; onDone: () => void; onCancel: () => void; onExpired: () => void }) {
   const [r, setR] = useState<HomeRequestInput>({ address: '', city: '', state: 'TX', zip: '', price: null, downMode: 'percent', down: null, wantsLetter: true, wantsEstimate: true, notes: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -192,9 +192,9 @@ function HomeRequestForm({ token, session, onDone, onCancel, onExpired }: { toke
     if (problem) return setError(problem)
     setBusy(true)
     setError(null)
-    const res = await callDocumentUpload({ action: 'home_request', token, session, request: r })
+    const res = await call({ action: 'home_request', request: r })
     setBusy(false)
-    if (res.status === 401 || res.status === 410) return onExpired()
+    if (portalGone(res.status)) return onExpired()
     if (res.status !== 200) return setError(res.body.error ?? 'That did not go through. Try again.')
     onDone()
   }
