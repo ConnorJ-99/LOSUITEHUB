@@ -24,6 +24,12 @@
 //   An email can carry up to 3 saved PDFs from the file (estimates and
 //   pre-approval letters): they're uploaded into the person's GHL conversation
 //   and attached from there. Documents never go by text.
+// - "myhome_code" (MyHome, Connor 2026-11-20): writes the primary borrower's
+//   MyHome code and link into two GHL custom fields and adds the tag
+//   "home management code", which starts Connor's MyHome email workflow. The
+//   one place LOSuite adds a tag, on that click only. At closing, the
+//   "opportunity" task also writes the code and link into those fields (no
+//   tag) before the Closed move, for Connor's closing email workflow.
 // - "pipelines" (owners and admins): GHL's pipelines and stages, for the
 //   Settings picker, with "Closed" / "Recently Closed" suggested by name.
 // - "opportunity" (Session 2, decisions 2–3 in docs/plans/next-build.md):
@@ -58,6 +64,7 @@ import {
 } from './checks.ts'
 import { e164, hasTestName, planSend, textToHtml, type SendHoursValue } from './sendRules.ts'
 import { chooseOpportunity, newContactBody, pickOpportunities, pickOpportunity, pickPipelines, planMove, suggestClosed, type OpportunityMove } from './opportunities.ts'
+import { MYHOME_TAG, appOrigin, myHomeAtClose, myHomeFieldIds, myHomeFieldsBody, myHomeLink } from './myhome.ts'
 import { pickContact, secretMatches } from '../ghl-inbound/sync.ts'
 import { pickGhlMatch, sharedDetails, splitName } from './link.ts'
 import { planTransfer, transferRefusal } from './transfer.ts'
@@ -891,7 +898,7 @@ async function listPipelines(g: Ghl) {
  * A step that can't run yet (nothing picked in Settings, test mode) comes back
  * as `skipped` with the reason, never as an error.
  */
-async function moveOpportunity(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, body: Record<string, unknown>) {
+async function moveOpportunity(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, userId: string, body: Record<string, unknown>) {
   const loanId = typeof body.loanId === 'string' ? body.loanId : null
   const move: OpportunityMove | null = body.move === 'closed' || body.move === 'comeback' ? body.move : null
   if (!loanId || !move) throw new UserError('Which file, and closed or coming back?')
@@ -935,6 +942,8 @@ async function moveOpportunity(db: SupabaseClient, admin: SupabaseClient, g: Ghl
     assignTo = (link.data as { ghl_user_id: string } | null)?.ghl_user_id ?? null
   }
   const contact = await ensureGhlContact(admin, g, organizationId, person.id, person, assignTo)
+  // Closing: the MyHome fields first, so Connor's workflow (started by the stage move) can use them.
+  const myhome = move === 'closed' ? await myHomeAtClosing(db, admin, g, organizationId, userId, loanId, person.id, contact.id, appOrigin(body.appUrl)) : null
 
   // Their opportunities: GET /opportunities/search?location_id&contact_id (opportunities.readonly).
   const search = await g.call(
@@ -973,6 +982,7 @@ async function moveOpportunity(db: SupabaseClient, admin: SupabaseClient, g: Ghl
     to: target.label,
     // More than one opportunity in GHL for this person: the newest was used; the rest are for someone to tidy in GHL.
     otherOpportunities: chosen?.others ?? 0,
+    myhome,
   }
 }
 
@@ -1154,6 +1164,107 @@ async function processorFollowers(db: SupabaseClient, admin: SupabaseClient, g: 
     }
   }
   return { followed, unfollowed, notes: [...new Set(notes)] }
+}
+
+/**
+ * "Send MyHome code to GHL" (MyHome Stage 1, Connor 2026-11-20): writes the
+ * primary borrower's permanent MyHome code and personal link into the GHL
+ * custom fields home_management_code / home_management_link, then takes off
+ * and adds the tag "home management code", which starts Connor's GHL email
+ * workflow. His exception to "LOSuite never adds tags or starts workflows",
+ * for MyHome only, on this one click. The person is added to GHL first if
+ * needed (linkContact: same matching and checks). Test mode only touches TEST
+ * people. The code and link are read with the service role (logins can't).
+ */
+async function myHomeCode(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, userId: string, body: Record<string, unknown>) {
+  const loanId = typeof body.loanId === 'string' ? body.loanId : null
+  const contactId = typeof body.contactId === 'string' ? body.contactId : null
+  const origin = appOrigin(body.appUrl)
+  if (!loanId || !contactId) throw new UserError('Which file, and which borrower?')
+  if (!origin) throw new UserError("The app's address is missing, so the MyHome link can't be made.")
+
+  // What the caller can see (Row Level Security): the primary borrower on this file.
+  const onFile = await db.from('loan_borrowers').select('role, contact:contacts ( first_name, last_name )').eq('loan_id', loanId).eq('contact_id', contactId).maybeSingle()
+  if (onFile.error) throw new Error(onFile.error.message)
+  const row = onFile.data as unknown as { role: string; contact: { first_name: string | null; last_name: string | null } | null } | null
+  if (!row?.contact) throw new UserError('That person is not on this file, or the file is not yours.')
+  if (row.role !== 'primary') throw new UserError('MyHome codes go to the primary borrower only.')
+
+  const [account, settings] = await Promise.all([
+    admin.from('borrower_accounts').select('id, contact_id, status, invite_code, invite_token').eq('contact_id', contactId).eq('organization_id', organizationId).maybeSingle(),
+    admin.from('messaging_settings').select('inbound_mode').eq('organization_id', organizationId).maybeSingle(),
+  ])
+  for (const r of [account, settings]) if (r.error) throw new Error(r.error.message)
+  const a = account.data as { id: string; contact_id: string; status: string; invite_code: string; invite_token: string } | null
+  if (!a || a.status === 'off') throw new UserError('Invite them to MyHome first.')
+  if (((settings.data as { inbound_mode: string } | null)?.inbound_mode ?? 'test_only') === 'test_only' && !hasTestName(row.contact.first_name, row.contact.last_name)) {
+    return { skipped: "Test mode: LOSuite only changes people with TEST in their name in GHL, so the MyHome code wasn't sent." }
+  }
+
+  const linked = (await linkContact(db, admin, g, organizationId, { loanId, contactId })) as { skipped?: string }
+  if (linked.skipped) return { skipped: linked.skipped }
+  const person = await admin.from('contacts').select('ghl_contact_id').eq('id', contactId).single()
+  if (person.error) throw new Error(person.error.message)
+  const ghlId = (person.data as { ghl_contact_id: string | null }).ghl_contact_id
+  if (!ghlId) return { skipped: "They aren't linked to a GHL contact yet, so the MyHome code wasn't sent." }
+
+  const fieldsProblem = await writeMyHomeFields(g, ghlId, a.invite_code, myHomeLink(origin, a.invite_token))
+  if (fieldsProblem) return { skipped: fieldsProblem }
+  const path = `/contacts/${encodeURIComponent(ghlId)}`
+
+  // Off, then on, so pressing it again starts the workflow again (POST / DELETE /contacts/{id}/tags, contacts.write).
+  await g.call({ ...plan('contacts_write'), method: 'DELETE', dryRun: false }, `${path}/tags`, { tags: [MYHOME_TAG] })
+  const tagged = await g.call({ ...plan('contacts_write'), method: 'POST', dryRun: false }, `${path}/tags`, { tags: [MYHOME_TAG] })
+  if (tagged.outcome.result !== 'works') return { skipped: `The MyHome fields were saved, but GHL didn't add the "${MYHOME_TAG}" tag: ${tagged.outcome.detail}` }
+
+  const now = new Date().toISOString()
+  const done = await admin.from('borrower_accounts').update({ code_sent_at: now }).eq('id', a.id)
+  if (done.error) throw new Error(done.error.message)
+  await admin.from('myhome_events').insert({ organization_id: organizationId, account_id: a.id, contact_id: a.contact_id, loan_id: loanId, kind: 'code_sent', created_by: userId, detail: { via: 'ghl' } })
+  return { sent: true }
+}
+
+/** Writes the MyHome code and link into the GHL contact's two custom fields. Null = saved, else the problem in words. */
+async function writeMyHomeFields(g: Ghl, ghlId: string, code: string, link: string): Promise<string | null> {
+  // GET /locations/{id}/customFields (locations/customFields.readonly) for the field ids; without it, the fields go by key.
+  const fieldList = await g.call({ ...plan('location'), label: 'Read custom fields', scope: 'locations/customFields.readonly' }, `/locations/${encodeURIComponent(g.locationId)}/customFields?model=contact`)
+  const ids = fieldList.outcome.result === 'works' ? myHomeFieldIds(fieldList.body) : { code: null, link: null }
+  const saved = await g.call({ ...plan('contacts_write'), dryRun: false }, `/contacts/${encodeURIComponent(ghlId)}`, myHomeFieldsBody(ids, code, link))
+  if (saved.outcome.result === 'works') return null
+  return `GHL didn't save the MyHome fields: ${saved.outcome.detail} Check that the custom fields home_management_code and home_management_link exist in GHL.`
+}
+
+/**
+ * At closing (Connor, 2026-11-20), before the opportunity moves to Closed
+ * (which starts his closing email workflow): the primary borrower's MyHome
+ * code and link go into the two GHL fields, with NO tag. No account yet →
+ * invited first (as the person closing the file, so the usual checks apply);
+ * turned off → left alone. Never stops the opportunity move: a problem comes
+ * back as a note in words. Test mode was already checked by the caller.
+ */
+async function myHomeAtClosing(db: SupabaseClient, admin: SupabaseClient, g: Ghl, organizationId: string, userId: string, loanId: string, contactId: string, ghlId: string, origin: string | null): Promise<string> {
+  if (!origin) return "MyHome code not added to GHL: the app's address was missing."
+  try {
+    const found = await admin.from('borrower_accounts').select('id, status').eq('contact_id', contactId).eq('organization_id', organizationId).maybeSingle()
+    if (found.error) throw new Error(found.error.message)
+    const step = myHomeAtClose(found.data as { status: string } | null)
+    if (step === 'off') return 'MyHome is turned off for them, so their code was not added to GHL.'
+    if (step === 'invite') {
+      const invited = await db.rpc('invite_to_myhome', { p_contact_id: contactId })
+      if (invited.error) return `MyHome code not added to GHL: ${invited.error.message}`
+    }
+    const account = await admin.from('borrower_accounts').select('id, invite_code, invite_token').eq('contact_id', contactId).eq('organization_id', organizationId).single()
+    if (account.error) throw new Error(account.error.message)
+    const a = account.data as { id: string; invite_code: string; invite_token: string }
+    const problem = await writeMyHomeFields(g, ghlId, a.invite_code, myHomeLink(origin, a.invite_token))
+    if (problem) return problem
+    const done = await admin.from('borrower_accounts').update({ code_sent_at: new Date().toISOString() }).eq('id', a.id)
+    if (done.error) throw new Error(done.error.message)
+    await admin.from('myhome_events').insert({ organization_id: organizationId, account_id: a.id, contact_id: contactId, loan_id: loanId, kind: 'code_sent', created_by: userId, detail: { via: 'ghl', at: 'closing', tag: false } })
+    return step === 'invite' ? 'Invited them to MyHome and added their code and link to GHL for the closing email.' : 'Their MyHome code and link are on their GHL contact for the closing email.'
+  } catch (e) {
+    return `MyHome code not added to GHL: ${(e as Error).message}`
+  }
 }
 
 /** Others in the company (people, or partners) with the same email or 10-digit phone. */
@@ -1429,7 +1540,7 @@ Deno.serve(async (request) => {
       // Anyone who can see the file.
       const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
       try {
-        return reply(200, await moveOpportunity(db, admin, g, organizationId, body))
+        return reply(200, await moveOpportunity(db, admin, g, organizationId, userId, body))
       } finally {
         if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'opportunity', ...c })))
       }
@@ -1460,6 +1571,15 @@ Deno.serve(async (request) => {
         return reply(200, await processorFollowers(db, admin, g, organizationId, body))
       } finally {
         if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'processor_followers', ...c })))
+      }
+    }
+    if (task === 'myhome_code') {
+      // Anyone who can see the file (checked inside, as the caller).
+      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+      try {
+        return reply(200, await myHomeCode(db, admin, g, organizationId, userId, body))
+      } finally {
+        if (g.calls.length) await admin.from('ghl_calls').insert(g.calls.map((c) => ({ organization_id: organizationId, called_by: userId, task: 'myhome_code', ...c })))
       }
     }
     if (task === 'calendar_slots' || task === 'book_appointment') {

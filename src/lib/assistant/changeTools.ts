@@ -290,7 +290,7 @@ export async function movePipelineStage(input: Record<string, unknown>): Promise
   if (stage === 'closed') {
     try {
       const r = await moveGhlOpportunity(loan.organizationId, loan.id, 'closed')
-      ghl = 'skipped' in r ? `not moved: ${r.skipped}` : `moved to ${r.to ?? 'Closed'}`
+      ghl = 'skipped' in r ? `not moved: ${r.skipped}` : `moved to ${r.to ?? 'Closed'}${r.myhome ? ` (MyHome: ${r.myhome})` : ''}`
     } catch (e) {
       ghl = `not moved: ${(e as Error).message}`
     }

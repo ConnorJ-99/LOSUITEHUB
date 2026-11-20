@@ -39,14 +39,35 @@ import { QuickQuotePage } from '@/pages/QuickQuotePage'
 import { RefiBenchmarksPage } from '@/pages/RefiBenchmarksPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
-/** Shows the sign-in page until there's a session, then the app shell. */
+/** Shows the sign-in page until there's a session, then the app shell (team logins only). */
 function AuthGate() {
   const { state } = useAuth()
   if (state.status === 'loading') {
     return <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">Loading…</div>
   }
   if (state.status === 'signedOut') return <LoginPage />
+  // A login with no team membership (a borrower's MyHome login, or one not added to the team yet) never reaches the app.
+  if (state.status === 'signedIn' && !state.user.organizationId) return <NotOnTeam />
   return <AppShell user={state.user} preview={state.status === 'preview'} />
+}
+
+function NotOnTeam() {
+  const { signOut } = useAuth()
+  return (
+    <div className="flex min-h-svh items-center justify-center bg-muted/40 p-4">
+      <div className="w-full max-w-sm space-y-3 rounded-xl border bg-card p-6 text-center shadow-soft">
+        <h1 className="text-lg font-bold tracking-tight">This is a MyHome account</h1>
+        <p className="text-sm text-muted-foreground">MPS-HQ is for the MPS Mortgage team. To see your loan, go to MyHome.</p>
+        <a href="/myhome" className="flex h-10 items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground">
+          Go to MyHome
+        </a>
+        <button type="button" onClick={() => void signOut()} className="text-sm font-medium text-primary underline">
+          Sign out
+        </button>
+        <p className="text-xs text-muted-foreground">On the team? Ask an owner or admin to add this login in Settings → Team & roles.</p>
+      </div>
+    </div>
+  )
 }
 
 const router = createBrowserRouter([

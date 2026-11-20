@@ -412,14 +412,24 @@ export function useGhlPipelines(enabled: boolean) {
 /** What happened to the borrower's GHL opportunity. `skipped` = GHL wasn't changed, and why. */
 export type OpportunityResult =
   | { skipped: string }
-  | { moved: true; created: boolean; contactCreated: boolean; to: string | null; otherOpportunities: number }
+  | {
+      moved: true
+      created: boolean
+      contactCreated: boolean
+      to: string | null
+      otherOpportunities: number
+      /** Closing only: what happened to the MyHome code fields, in words (null before the function is redeployed). */
+      myhome?: string | null
+    }
 
 /**
  * Moves the file's borrower's one GHL opportunity: "closed" when the loan
  * closes, "comeback" when a closed client starts a new loan (decision 3).
+ * On "closed" the function first puts the MyHome code and link on their GHL
+ * contact (no tag), so it needs the app's address for the link.
  */
 export function moveGhlOpportunity(organizationId: string, loanId: string, move: 'closed' | 'comeback') {
-  return invokeGhl<OpportunityResult>({ task: 'opportunity', organizationId, loanId, move }, 'The GHL opportunity was not moved.')
+  return invokeGhl<OpportunityResult>({ task: 'opportunity', organizationId, loanId, move, appUrl: window.location.origin }, 'The GHL opportunity was not moved.')
 }
 
 /** What happened to the borrower's GHL contact. `skipped` = GHL wasn't changed, and why. */

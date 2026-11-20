@@ -287,7 +287,7 @@ function ItemCard({ token, session, item, onChanged, onExpired }: { token: strin
   )
 }
 
-function LoCard({ lo }: { lo: UploadLo }) {
+export function LoCard({ lo }: { lo: UploadLo }) {
   const digits = lo.phone?.replace(/\D/g, '') ?? ''
   return (
     <div className="flex flex-wrap items-center gap-4 rounded-xl border bg-white p-4 shadow-soft">

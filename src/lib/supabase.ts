@@ -18,3 +18,13 @@ export const isSupabaseConfigured = Boolean(url && anonKey)
 
 /** Null in preview mode (no .env.local yet); the app then runs without a backend. */
 export const supabase: SupabaseClient | null = isSupabaseConfigured ? createClient(url!, anonKey!) : null
+
+/**
+ * MyHome's own client (borrowers, /myhome): its sign-in is kept under its own
+ * storage key, so a staff login and a borrower login on the same browser never
+ * overwrite each other. Null in preview mode.
+ */
+export function createMyHomeClient(): SupabaseClient | null {
+  if (!isSupabaseConfigured) return null
+  return createClient(url!, anonKey!, { auth: { storageKey: 'mps-myhome-auth', persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } })
+}

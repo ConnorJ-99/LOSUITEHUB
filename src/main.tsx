@@ -11,8 +11,8 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
   })
 }
 
-// A public page (/p/{slug}), shared estimates (/e/{token}) or an upload link (/u/{token}) loads only the page, not the whole app.
-const isPublicPage = /^\/([peu]\/[^/]+|apply)\/?$/.test(window.location.pathname)
+// A public page (/p/{slug}), shared estimates (/e/{token}), an upload link (/u/{token}), /apply or MyHome (/myhome) loads only the page, not the whole app.
+const isPublicPage = /^\/([peu]\/[^/]+|apply|myhome)\/?$/.test(window.location.pathname)
 const root = createRoot(document.getElementById('root')!)
 void (isPublicPage ? import('./PublicApp.tsx') : import('./App.tsx')).then(({ default: Root }) =>
   root.render(

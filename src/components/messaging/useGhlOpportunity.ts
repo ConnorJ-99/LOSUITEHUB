@@ -24,6 +24,7 @@ export function useGhlOpportunity() {
       if ('skipped' in r) return void toast.message(`GHL: ${r.skipped}`)
       const where = r.to ?? (kind === 'closed' ? 'the Closed pipeline' : 'the active pipeline')
       toast.success(`GHL: ${r.created ? `added an opportunity for ${who} in` : `moved ${who}'s opportunity to`} ${where}${r.contactCreated ? ` (and added ${who} as a GHL contact)` : ''}`)
+      if (r.myhome) toast.message(`MyHome: ${r.myhome}`)
       if (r.otherOpportunities > 0) {
         toast.warning(`${who} has ${r.otherOpportunities} more ${r.otherOpportunities === 1 ? 'opportunity' : 'opportunities'} in GHL. MPS HQ used the newest; the others can be deleted in GHL.`)
       }

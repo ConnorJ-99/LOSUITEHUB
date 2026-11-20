@@ -2,11 +2,12 @@
 // with Copy, Draft text / Draft email (Action Queue; nothing sends on its
 // own), Renew and Turn off, plus the home requests they sent from the portal.
 import { useNavigate } from 'react-router'
-import { CopyIcon, MailIcon, MessageSquareIcon, PlusIcon, PowerOffIcon, RefreshCwIcon } from 'lucide-react'
+import { CopyIcon, HomeIcon, MailIcon, MessageSquareIcon, PlusIcon, PowerOffIcon, RefreshCwIcon, SendIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, confirmAction } from '@/components/shared'
+import { useMyHomeAccounts, useSendMyHomeCode, useTurnOffMyHome, type MyHomeAccount } from '@/lib/api/myhome'
 import { startNumbersUrl, useDraftPortalInvite, useMakePortalLink, usePortalLinks, usePortalRequests, useSetRequestStatus, useTurnOffPortalLink, type PortalLink, type PortalRequest } from '@/lib/api/portal'
 import { useProfile } from '@/lib/api/settings'
 import type { LoanProfile } from '@/lib/api/types'
@@ -33,8 +34,9 @@ export function PortalCard({ loan }: { loan: LoanProfile }) {
   const me = state.status === 'signedIn' ? state.user.id : null
   const lo = useProfile(loan.assignedLo?.id ?? me)
   const readOnly = loan.stage === 'closed' || loan.stage === 'lost'
-  if (links.data === null) return null // The borrower portal script hasn't run yet.
   const people = app.data?.borrowers ?? []
+  const accounts = useMyHomeAccounts(people.map((b) => b.contactId))
+  if (links.data === null) return null // The borrower portal script hasn't run yet.
   const fail = (e: Error) => toast.error(e.message)
 
   const renew = async (contactId: string, name: string, existing: PortalLink | null) => {
@@ -98,6 +100,17 @@ export function PortalCard({ loan }: { loan: LoanProfile }) {
                   )}
                 </div>
               )}
+              {b.role === 'primary' && accounts.data !== null && accounts.data !== undefined && (
+                <MyHomeLine
+                  organizationId={loan.organizationId}
+                  loanId={loan.id}
+                  contactId={b.contactId}
+                  name={name}
+                  hasEmail={!!b.person.email}
+                  account={accounts.data.find((a) => a.contactId === b.contactId) ?? null}
+                  readOnly={loan.stage === 'lost'}
+                />
+              )}
             </li>
           )
         })}
@@ -113,6 +126,76 @@ export function PortalCard({ loan }: { loan: LoanProfile }) {
         </div>
       )}
     </Card>
+  )
+}
+
+/**
+ * The primary borrower's MyHome account (Stage 1): "Send MyHome code to GHL"
+ * puts their permanent code and link on their GHL contact and adds the tag
+ * that starts Connor's MyHome email workflow (nothing is sent from MPS-HQ
+ * itself). New code (the old code and link stop working) and Turn off.
+ */
+function MyHomeLine({ organizationId, loanId, contactId, name, hasEmail, account, readOnly }: { organizationId: string; loanId: string; contactId: string; name: string; hasEmail: boolean; account: MyHomeAccount | null; readOnly: boolean }) {
+  const send = useSendMyHomeCode()
+  const off = useTurnOffMyHome()
+  const live = !!account && account.status !== 'off'
+  const status = !account
+    ? 'Not sent yet'
+    : account.status === 'off'
+      ? 'Turned off'
+      : account.lastSignedInAt
+        ? `Signed in ${relativeTime(account.lastSignedInAt)}`
+        : account.codeSentAt
+          ? `Code sent to GHL ${relativeTime(account.codeSentAt)}, not signed in yet`
+          : 'Code not sent to GHL yet'
+  const go = (newCode: boolean) =>
+    send.mutate(
+      { organizationId, loanId, contactId, newCode },
+      {
+        onSuccess: (r) => ('skipped' in r ? toast.warning(r.skipped) : toast.success(`${name}'s MyHome code and link are in GHL, and the "home management code" tag is on. Your GHL workflow sends the email.`)),
+        onError: (e) => toast.error(e.message),
+      },
+    )
+  const newCode = async () => {
+    if (!(await confirmAction(`Make a new MyHome code and link for ${name}? The old code and link stop working right away. The new ones go to GHL.`, { confirmLabel: 'New code' }))) return
+    go(true)
+  }
+  const turnOff = async () => {
+    if (!account || !(await confirmAction(`Turn off ${name}'s MyHome? They can't sign in until you send their code again.`, { confirmLabel: 'Turn off', destructive: true }))) return
+    off.mutate(account.id, { onSuccess: () => toast.success('MyHome turned off'), onError: (e) => toast.error(e.message) })
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-muted/40 px-2 py-1.5">
+      <HomeIcon className="size-3.5 text-primary" />
+      <span className="text-xs font-semibold">MyHome</span>
+      <span className="mr-auto text-xs text-muted-foreground">{status}</span>
+      {!readOnly && (
+        <>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={!hasEmail || send.isPending}
+            title={hasEmail ? 'Puts their MyHome code and link in GHL and adds the "home management code" tag, which starts your GHL email' : 'Add their email first: it is how they sign in'}
+            onClick={() => go(false)}
+          >
+            <SendIcon />
+            {live && account?.codeSentAt ? 'Send code again' : 'Send MyHome code to GHL'}
+          </Button>
+          {live && (
+            <>
+              <Button size="xs" variant="ghost" disabled={send.isPending} onClick={() => void newCode()} title="A new code and link; the old ones stop working">
+                <RefreshCwIcon />
+                New code
+              </Button>
+              <Button size="xs" variant="ghost" disabled={off.isPending} onClick={() => void turnOff()}>
+                <PowerOffIcon />
+                Turn off
+              </Button>
+            </>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 
