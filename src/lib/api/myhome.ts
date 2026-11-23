@@ -131,3 +131,16 @@ export function useHandleMyHomeAsk(loanId: string) {
     },
   })
 }
+
+/** Extra payments the borrower logged in MyHome on this loan (not removed), oldest first. Null before the script. */
+export function useMyHomeExtraPayments(loanId: string) {
+  return useQuery({
+    queryKey: ['myhomeExtraPayments', loanId],
+    retry: false,
+    queryFn: async (): Promise<{ id: string; paidOn: string; amount: number; loggedAt: string }[] | null> => {
+      const r = await db().from('myhome_extra_payments').select('id, paid_on, amount, created_at').eq('loan_id', loanId).is('removed_at', null).order('paid_on')
+      if (r.error) return null
+      return (r.data as { id: string; paid_on: string; amount: number; created_at: string }[]).map((p) => ({ id: p.id, paidOn: p.paid_on, amount: Number(p.amount), loggedAt: p.created_at }))
+    },
+  })
+}

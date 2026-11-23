@@ -15,11 +15,11 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { CheckIcon, ExternalLinkIcon, FileTextIcon, HomeIcon, Loader2Icon, LockIcon, LogOutIcon } from 'lucide-react'
-import { amortization, extraPaymentEffect, mortgageToday } from '@/lib/calc/amortization'
+import { amortization, loggedExtras, mortgageToday } from '@/lib/calc/amortization'
 import { homeValue } from '@/lib/calc/homeValue'
 import { todayIso } from '@/lib/dates'
 import { formatCurrency } from '@/lib/format'
-import { askLo, closedDocumentUrl, fetchClosed, fetchFile, fetchMe, fileCall, hasSession, putMyHomeUpload, signIn, signOut, type MyHomeFileView } from '@/lib/myhome/api'
+import { askLo, closedDocumentUrl, fetchClosed, fetchFile, fetchMe, fileCall, hasSession, putMyHomeUpload, recordExtraPayment, removeExtraPayment, signIn, signOut, type MyHomeFileView } from '@/lib/myhome/api'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { CODE_LENGTH, INVITE_TOKEN, cleanCode, emailLooksValid, type MyHomeClosed, type MyHomeMe } from '../../supabase/functions/myhome/rules'
 import { Items, LoCard } from './PublicUploadPage'
@@ -288,7 +288,7 @@ function ClosedFile({ loanId, onGone, onSignedOut }: { loanId: string; onGone: (
     <>
       <HomeValue loanId={loanId} view={v} loFirst={loFirst} onAsked={(at) => setScreen({ kind: 'open', view: { ...v, asked: { ...v.asked, value_check: at } } })} onGone={onGone} />
       <MyLoan loanId={loanId} view={v} onGone={onGone} />
-      {v.balance && <LoanSchedule balance={v.balance} />}
+      {v.balance && <LoanSchedule loanId={loanId} balance={v.balance} extraPaid={v.extraPaid ?? []} onChanged={() => void load(false)} />}
       <LoCard lo={v.lo} />
     </>
   )
@@ -311,7 +311,8 @@ function HomeValue({ loanId, view, loFirst, onAsked, onGone }: { loanId: string;
   const ix = view.index
   const value = homeValue(view.value, ix ? { base: ix.base, baseIndex: ix.baseIndex, latestIndex: ix.latestIndex, loadedOn: ix.loadedOn } : null)
   // The estimated balance today from the loan's own terms, and the equity (src/lib/calc/amortization.ts).
-  const today = view.balance ? mortgageToday(view.balance, todayIso(), value?.amount ?? null) : null
+  // Counting the extra payments they logged.
+  const today = view.balance ? mortgageToday(view.balance, todayIso(), value?.amount ?? null, view.extraPaid?.length ? loggedExtras(view.balance.firstPaymentDate ?? amortization(view.balance)?.firstPaymentDate ?? todayIso(), view.extraPaid) : undefined) : null
   const balance = today?.balance ?? null
   const equity = today?.equity ?? null
   const since = ix?.baseKind === 'appraised' ? 'since your appraisal' : 'since you bought'
@@ -499,60 +500,95 @@ const dollars = (s: string) => {
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
+/** The due date of payment number n (0 = the first), from the first payment date. */
+const dueDate = (first: string, n: number) => {
+  const [y, m, d] = first.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1 + n, d)).toISOString().slice(0, 10)
+}
+
 /**
- * Their amortization table by year and "What if I pay extra?" (Connor,
- * 2026-11-23): a monthly extra and a one-time amount, both starting with the
- * next payment, show the new payoff date, how much sooner and the interest
- * saved, and the table follows them. Math in src/lib/calc/amortization.ts.
+ * Their amortization table by year and two kinds of extra payment (Connor,
+ * 2026-11-23):
+ * - Estimate: "what if" an extra amount each month and/or one time, from the
+ *   next payment: the new payoff date, how much sooner, the interest saved.
+ *   Nothing is saved.
+ * - I made an extra payment: logs it (date and amount; a note goes on the
+ *   file and Connor sees it on the closed file), and the balance, equity and
+ *   schedule count it from then on. A mistake can be removed.
+ * Payments are counted as made on each due date from the first payment date.
+ * Math in src/lib/calc/amortization.ts.
  */
-function LoanSchedule({ balance }: { balance: NonNullable<MyHomeClosed['balance']> }) {
+function LoanSchedule({ loanId, balance, extraPaid, onChanged }: { loanId: string; balance: NonNullable<MyHomeClosed['balance']>; extraPaid: MyHomeClosed['extraPaid']; onChanged: () => void }) {
+  const [mode, setMode] = useState<'estimate' | 'log'>('estimate')
   const [monthlyText, setMonthlyText] = useState('')
   const [oneTimeText, setOneTimeText] = useState('')
   const [showAll, setShowAll] = useState(false)
   const today = todayIso()
-  const monthly = dollars(monthlyText)
-  const oneTime = dollars(oneTimeText)
-  const hasExtra = monthly > 0 || oneTime > 0
-  const effect = extraPaymentEffect(balance, { monthly: monthly ? { amount: monthly, from: today } : null, oneTime: oneTime ? [{ date: today, amount: oneTime }] : [] })
-  const now = mortgageToday(balance, today, null)
-  if (!effect || !now) return null
-  const schedule = hasExtra ? effect.withExtra : effect.base
+  const logged = loggedExtras(balance.firstPaymentDate ?? amortization(balance)?.firstPaymentDate ?? today, extraPaid)
+  const now = mortgageToday(balance, today, null, logged)
+  const monthly = mode === 'estimate' ? dollars(monthlyText) : 0
+  const oneTime = mode === 'estimate' ? dollars(oneTimeText) : 0
+  const hasWhatIf = monthly > 0 || oneTime > 0
+  const base = amortization(balance, logged)
+  const whatIf = amortization(balance, { monthly: monthly ? { amount: monthly, from: today } : null, oneTime: [...(logged.oneTime ?? []), ...(oneTime ? [{ date: today, amount: oneTime }] : [])] })
+  if (!now || !base || !whatIf) return null
+  const schedule = hasWhatIf ? whatIf : base
+  const interestSaved = Math.round((base.totalInterest - whatIf.totalInterest) / 100) * 100
+  const monthsSaved = base.months - whatIf.months
+  const lastDue = now.paymentsMade > 0 ? dueDate(base.firstPaymentDate, now.paymentsMade - 1) : null
+  const nextDue = now.paymentsMade < base.months ? dueDate(base.firstPaymentDate, now.paymentsMade) : null
   const thisYear = Number(today.slice(0, 4))
   const rows = showAll ? schedule.years : schedule.years.filter((y) => y.year >= thisYear - 1).slice(0, 6)
   const input = 'h-11 w-full rounded-lg border border-input bg-white pr-3 pl-7 text-base outline-none focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/20'
+  const tab = (m: typeof mode, label: string) => (
+    <button type="button" role="tab" aria-selected={mode === m} onClick={() => setMode(m)} className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold ${mode === m ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground'}`}>
+      {label}
+    </button>
+  )
   return (
     <section className={card} aria-labelledby="myhome-schedule">
       <h2 id="myhome-schedule" className="text-lg font-bold tracking-tight">
         My loan schedule
       </h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        {now.paymentsMade} of {balance.termMonths} payments made · paid off {monthYear(effect.base.payoffDate)} · about {formatCurrency(Math.round(now.balance / 100) * 100)} left
+        {now.paymentsMade} of {balance.termMonths} payments made{lastDue ? ` (through ${shortDate(lastDue)})` : ''} · about {formatCurrency(Math.round(now.balance / 100) * 100)} left · paid off {monthYear(base.payoffDate)}
       </p>
+      {nextDue && <p className="text-sm text-muted-foreground">Next payment due {shortDate(nextDue)}.</p>}
 
       <div className="mt-4 rounded-xl bg-[#F4F7FB] p-4">
-        <h3 className="font-semibold">What if I pay extra?</h3>
-        <div className="mt-2 grid grid-cols-2 gap-3">
-          <label className="block text-sm font-medium">
-            Extra each month
-            <span className="relative mt-1 block">
-              <span className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground">$</span>
-              <input className={input} inputMode="decimal" placeholder="0" value={monthlyText} onChange={(e) => setMonthlyText(e.target.value)} />
-            </span>
-          </label>
-          <label className="block text-sm font-medium">
-            One time, now
-            <span className="relative mt-1 block">
-              <span className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground">$</span>
-              <input className={input} inputMode="decimal" placeholder="0" value={oneTimeText} onChange={(e) => setOneTimeText(e.target.value)} />
-            </span>
-          </label>
+        <h3 className="font-semibold">Extra payments</h3>
+        <div className="mt-2 flex gap-1 rounded-lg bg-muted p-1" role="tablist" aria-label="Extra payments">
+          {tab('estimate', 'Estimate')}
+          {tab('log', 'I made an extra payment')}
         </div>
-        {hasExtra ? (
-          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900">
-            Paid off <strong>{monthYear(effect.withExtra.payoffDate)}</strong> instead of {monthYear(effect.base.payoffDate)}: <strong>{yearsMonths(effect.monthsSaved)} sooner</strong>, saving about <strong>{formatCurrency(Math.round(effect.interestSaved / 100) * 100)}</strong> in interest.
-          </p>
+        {mode === 'estimate' ? (
+          <>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <label className="block text-sm font-medium">
+                Extra each month
+                <span className="relative mt-1 block">
+                  <span className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground">$</span>
+                  <input className={input} inputMode="decimal" placeholder="0" value={monthlyText} onChange={(e) => setMonthlyText(e.target.value)} />
+                </span>
+              </label>
+              <label className="block text-sm font-medium">
+                One time, now
+                <span className="relative mt-1 block">
+                  <span className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground">$</span>
+                  <input className={input} inputMode="decimal" placeholder="0" value={oneTimeText} onChange={(e) => setOneTimeText(e.target.value)} />
+                </span>
+              </label>
+            </div>
+            {hasWhatIf ? (
+              <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900">
+                Paid off <strong>{monthYear(whatIf.payoffDate)}</strong> instead of {monthYear(base.payoffDate)}: <strong>{yearsMonths(monthsSaved)} sooner</strong>, saving about <strong>{formatCurrency(interestSaved)}</strong> in interest.
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-muted-foreground">An estimate only: type an amount to see how much sooner you'd pay it off and the interest you'd save. Nothing is saved.</p>
+            )}
+          </>
         ) : (
-          <p className="mt-2 text-sm text-muted-foreground">Type an amount to see how much sooner you'd pay it off and the interest you'd save.</p>
+          <LogExtraPayment loanId={loanId} extraPaid={extraPaid} today={today} onChanged={onChanged} />
         )}
       </div>
 
@@ -578,14 +614,98 @@ function LoanSchedule({ balance }: { balance: NonNullable<MyHomeClosed['balance'
           </tbody>
         </table>
         <p className="border-t px-3 py-2 text-xs text-muted-foreground">
-          {hasExtra ? 'With your extra payments. ' : ''}Total interest: {formatCurrency(Math.round(schedule.totalInterest))} ·{' '}
+          {hasWhatIf ? 'With the estimate above. ' : extraPaid.length ? 'Counting the extra payments you logged. ' : ''}Total interest: {formatCurrency(Math.round(schedule.totalInterest))} ·{' '}
           <button type="button" className="font-medium text-primary" onClick={() => setShowAll((s) => !s)}>
             {showAll ? 'Show fewer years' : `Show all ${schedule.years.length} years`}
           </button>
         </p>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">Estimated from your loan's amount, rate and term, paid on time. Your lender's statement shows the official balance. Ask your lender how to send extra payments to principal.</p>
+      <p className="mt-2 text-xs text-muted-foreground">Estimated from your loan's amount, rate and term, paid on time on each due date. Your lender's statement shows the official balance. Ask your lender how to send extra payments to principal.</p>
     </section>
+  )
+}
+
+/** "I made an extra payment": the date and amount, logged; the list of logged ones with Remove. */
+function LogExtraPayment({ loanId, extraPaid, today, onChanged }: { loanId: string; extraPaid: MyHomeClosed['extraPaid']; today: string; onChanged: () => void }) {
+  const [paidOn, setPaidOn] = useState(today)
+  const [amountText, setAmountText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState<string | null>(null)
+  const [removing, setRemoving] = useState<string | null>(null)
+  const amount = dollars(amountText)
+  const input = 'mt-1 h-11 w-full rounded-lg border border-input bg-white px-3 text-base outline-none focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/20'
+  const save = async () => {
+    if (!amount) return setError('Enter the amount you paid.')
+    setBusy(true)
+    setError(null)
+    const r = await recordExtraPayment(loanId, paidOn, amount)
+    setBusy(false)
+    if (r.status !== 200) return setError(r.body.error ?? 'That did not save. Try again.')
+    setSaved(`Logged ${formatCurrency(amount)} paid ${shortDate(paidOn)}. Your balance and schedule now count it.`)
+    setAmountText('')
+    onChanged()
+  }
+  const remove = async (id: string) => {
+    setBusy(true)
+    setError(null)
+    const r = await removeExtraPayment(loanId, id)
+    setBusy(false)
+    setRemoving(null)
+    if (r.status !== 200) return setError(r.body.error ?? 'That did not go through. Try again.')
+    onChanged()
+  }
+  return (
+    <div className="mt-3 space-y-3">
+      <p className="text-sm text-muted-foreground">Paid extra toward your principal? Log it here and your balance, equity and payoff date update. Your loan officer sees it too.</p>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block text-sm font-medium">
+          Date paid
+          <input type="date" className={input} max={today} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
+        </label>
+        <label className="block text-sm font-medium">
+          Extra amount
+          <span className="relative mt-1 block">
+            <span className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground">$</span>
+            <input className={`${input} mt-0 pl-7`} inputMode="decimal" placeholder="0" value={amountText} onChange={(e) => setAmountText(e.target.value)} />
+          </span>
+        </label>
+      </div>
+      <button type="button" disabled={busy || !amount || !paidOn} onClick={() => void save()} className="h-12 w-full rounded-lg bg-primary text-base font-semibold text-white disabled:opacity-60">
+        {busy ? 'Saving…' : 'Log this payment'}
+      </button>
+      {saved && <p className="rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900">{saved}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      {extraPaid.length > 0 && (
+        <div>
+          <h4 className="text-sm font-semibold">Extra payments you logged</h4>
+          <ul className="mt-1 divide-y rounded-lg border bg-white text-sm">
+            {extraPaid.map((p) => (
+              <li key={p.id} className="flex items-center gap-3 px-3 py-2">
+                <span className="flex-1">
+                  {shortDate(p.paidOn)} · <strong className="tabular-nums">{formatCurrency(p.amount)}</strong>
+                </span>
+                {removing === p.id ? (
+                  <span className="flex items-center gap-2 text-xs">
+                    Remove it?
+                    <button type="button" disabled={busy} onClick={() => void remove(p.id)} className="font-semibold text-destructive">
+                      Yes
+                    </button>
+                    <button type="button" onClick={() => setRemoving(null)} className="text-muted-foreground">
+                      No
+                    </button>
+                  </span>
+                ) : (
+                  <button type="button" onClick={() => setRemoving(p.id)} className="text-xs text-muted-foreground underline">
+                    Remove
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   )
 }
 

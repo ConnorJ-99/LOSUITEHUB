@@ -174,6 +174,8 @@ export interface MyHomeClosed {
   /** Step B: the loan's own terms, for its estimated balance today (mortgageToday). Null when any is missing. */
   balance: { loanAmount: number; ratePct: number; termMonths: number; firstPaymentDate: string | null; closingDate: string | null } | null
   links: { label: string; url: string }[]
+  /** Extra payments the borrower logged (not removed), oldest first. */
+  extraPaid: { id: string; paidOn: string; amount: number }[]
   /** Documents Connor published on the closed file. */
   documents: { id: string; name: string; publishedAt: string }[]
   /** When each ask was last made and not yet handled (within a day, asking again does nothing new). */

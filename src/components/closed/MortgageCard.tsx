@@ -2,15 +2,23 @@ import { useState } from 'react'
 import { cn } from 'cn'
 import { Card } from '@/components/shared'
 import type { ClosedLoan } from '@/lib/api/closed'
-import { mortgageToday } from '@/lib/calc'
+import { amortization, loggedExtras, mortgageToday } from '@/lib/calc'
+import { useMyHomeExtraPayments } from '@/lib/api/myhome'
 import { formatIsoDate, todayIso } from '@/lib/dates'
 import { formatCurrency } from '@/lib/format'
 
-/** The mortgage today (estimated balance and equity) and an assumed amortization by year. */
+/**
+ * The mortgage today (estimated balance and equity) and an assumed
+ * amortization by year, counting the extra payments the borrower logged in
+ * MyHome (listed, "reported by the borrower"; Connor 2026-11-23).
+ */
 export function MortgageCard({ closed: c }: { closed: ClosedLoan }) {
   const [showAll, setShowAll] = useState(false)
   const today = todayIso()
-  const now = mortgageToday({ loanAmount: c.loanAmount, ratePct: c.rate, termMonths: c.termMonths, firstPaymentDate: c.firstPaymentDate, closingDate: c.closingDate }, today, c.home?.estimatedValue ?? c.purchasePrice)
+  const paid = useMyHomeExtraPayments(c.id).data ?? []
+  const input = { loanAmount: c.loanAmount, ratePct: c.rate, termMonths: c.termMonths, firstPaymentDate: c.firstPaymentDate, closingDate: c.closingDate }
+  const first = amortization(input)?.firstPaymentDate ?? null
+  const now = mortgageToday(input, today, c.home?.estimatedValue ?? c.purchasePrice, paid.length && first ? loggedExtras(first, paid) : undefined)
 
   if (!now) {
     return (
@@ -27,7 +35,7 @@ export function MortgageCard({ closed: c }: { closed: ClosedLoan }) {
   return (
     <Card
       title="Mortgage today"
-      description={`Estimated from the note, paid on time with no extra principal${schedule.firstPaymentAssumed ? `, first payment assumed ${formatIsoDate(schedule.firstPaymentDate)}` : ''}.`}
+      description={`Estimated from the note, paid on time${paid.length ? ', with the extra payments the borrower reported' : ' with no extra principal'}${schedule.firstPaymentAssumed ? `, first payment assumed ${formatIsoDate(schedule.firstPaymentDate)}` : ''}.`}
     >
       <div className="space-y-4">
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
@@ -36,6 +44,18 @@ export function MortgageCard({ closed: c }: { closed: ClosedLoan }) {
           <Fact label="Principal & interest" value={`${formatCurrency(schedule.monthlyPayment)}/mo`} />
           <Fact label="Payments made · paid off" value={`${made} of ${c.termMonths} · ${formatIsoDate(schedule.payoffDate)}`} />
         </dl>
+        {paid.length > 0 && (
+          <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Extra payments reported by the borrower (MyHome)</p>
+            <ul className="mt-1 space-y-0.5">
+              {paid.map((p) => (
+                <li key={p.id} className="tabular-nums">
+                  {formatIsoDate(p.paidOn)} · {formatCurrency(p.amount)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-sm">
             <thead className="border-b text-[11px] tracking-wide text-muted-foreground uppercase">

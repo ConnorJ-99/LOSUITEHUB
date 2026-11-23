@@ -28,6 +28,8 @@ export interface Amortization {
   months: number
   totalInterest: number
   years: AmortizationYear[]
+  /** The balance after each payment (index 0 = after the first). */
+  balances: number[]
 }
 
 /**
@@ -66,6 +68,7 @@ export function amortization(input: AmortizationInput, extra?: ExtraPayments): A
   let balance = loanAmount
   let totalInterest = 0
   let months = 0
+  const balances: number[] = []
   // One-time amounts by the payment they land on (the first one on or after their date).
   const lump = new Map<number, number>()
   for (const o of extra?.oneTime ?? []) {
@@ -84,6 +87,7 @@ export function amortization(input: AmortizationInput, extra?: ExtraPayments): A
     balance = round(balance - principal)
     totalInterest = round(totalInterest + interest)
     months = n + 1
+    balances.push(balance)
     const year = Number(date.slice(0, 4))
     const row = years.get(year) ?? { year, payments: 0, principal: 0, interest: 0, endingBalance: 0 }
     row.payments++
@@ -100,6 +104,7 @@ export function amortization(input: AmortizationInput, extra?: ExtraPayments): A
     months,
     totalInterest,
     years: [...years.values()],
+    balances,
   }
 }
 
@@ -121,11 +126,12 @@ export interface MortgageToday {
 }
 
 /** Where a closed loan stands today: payments made, estimated balance and equity. */
-export function mortgageToday(input: AmortizationInput, today: string, value: number | null): MortgageToday | null {
-  const schedule = amortization(input)
+export function mortgageToday(input: AmortizationInput, today: string, value: number | null, extra?: ExtraPayments): MortgageToday | null {
+  const schedule = amortization(input, extra)
   if (!schedule) return null
-  const made = paymentsMade(schedule.firstPaymentDate, input.termMonths!, today)
-  const balance = balanceAfter(input.loanAmount!, input.ratePct!, input.termMonths!, made)
+  const made = Math.min(paymentsMade(schedule.firstPaymentDate, input.termMonths!, today), schedule.months)
+  // With extra payments the schedule's own balances; without, the plain on-time balance.
+  const balance = extra ? (made ? (schedule.balances[made - 1] ?? 0) : input.loanAmount!) : balanceAfter(input.loanAmount!, input.ratePct!, input.termMonths!, made)
   return { schedule, paymentsMade: made, balance, equity: value === null ? null : round(value - balance) }
 }
 
@@ -147,4 +153,25 @@ export function extraPaymentEffect(input: AmortizationInput, extra: ExtraPayment
   const withExtra = amortization(input, extra)
   if (!base || !withExtra) return null
   return { base, withExtra, interestSaved: round(base.totalInterest - withExtra.totalInterest), monthsSaved: base.months - withExtra.months }
+}
+
+
+/**
+ * Extra payments a borrower logged (MyHome, Connor 2026-11-23) as one-time
+ * amounts on the schedule: each counts on the most recent due date on or
+ * before the day it was paid (the first payment when paid before it), so the
+ * balance drops right away rather than at the next payment.
+ */
+export function loggedExtras(firstPaymentDate: string, paid: readonly { paidOn: string; amount: number }[]): ExtraPayments {
+  const [fy, fm, fd] = firstPaymentDate.split('-').map(Number)
+  return {
+    oneTime: paid
+      .filter((p) => p.amount > 0)
+      .map((p) => {
+        if (p.paidOn <= firstPaymentDate) return { date: firstPaymentDate, amount: p.amount }
+        const [y, m, d] = p.paidOn.split('-').map(Number)
+        const back = (y - fy) * 12 + (m - fm) - (d < fd ? 1 : 0)
+        return { date: addMonths(firstPaymentDate, back), amount: p.amount }
+      }),
+  }
 }

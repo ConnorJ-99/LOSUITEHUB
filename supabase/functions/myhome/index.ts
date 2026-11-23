@@ -475,13 +475,14 @@ async function closedView(db: SupabaseClient, account: AccountRow, l: OpenFile, 
     first_payment_date: string | null
   }
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString()
-  const [home, docs, asks, lo] = await Promise.all([
+  const [home, docs, asks, lo, paid] = await Promise.all([
     ln.subject_property_id
       ? db.from('properties').select('address_line, city, state, zip, county, insurance_renewal_date, homestead_filed, estimated_value, estimated_value_on, annual_taxes, annual_insurance').eq('id', ln.subject_property_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
     db.from('loan_documents').select('id, file_name, published_at').eq('loan_id', l.id).not('published_at', 'is', null).order('published_at', { ascending: false }),
     db.from('myhome_events').select('kind, created_at').eq('account_id', account.id).eq('loan_id', l.id).in('kind', ASK_KINDS.map((k) => `${k}_requested`)).is('handled_at', null).gte('created_at', dayAgo),
     loCard(db, l.organization_id, l.assigned_lo_id),
+    db.from('myhome_extra_payments').select('id, paid_on, amount').eq('loan_id', l.id).eq('account_id', account.id).is('removed_at', null).order('paid_on'),
   ])
   if (home.error) throw new Error(home.error.message)
   const h = home.data as { address_line: string; city: string | null; state: string | null; zip: string | null; county: string | null; insurance_renewal_date: string | null; homestead_filed: boolean | null; estimated_value: number | null; estimated_value_on: string | null; annual_taxes: number | null; annual_insurance: number | null } | null
@@ -517,6 +518,7 @@ async function closedView(db: SupabaseClient, account: AccountRow, l: OpenFile, 
     homesteadFiled: h?.homestead_filed ?? null,
     value: h?.estimated_value != null && Number(h.estimated_value) > 0 ? { amount: Number(h.estimated_value), on: h.estimated_value_on } : null,
     links,
+    extraPaid: ((paid.data ?? []) as { id: string; paid_on: string; amount: number }[]).map((x) => ({ id: x.id, paidOn: x.paid_on, amount: Number(x.amount) })),
     documents: ((docs.data ?? []) as { id: string; file_name: string; published_at: string }[]).map((d) => ({ id: d.id, name: d.file_name, publishedAt: d.published_at })),
     asked,
     lo,
@@ -544,7 +546,24 @@ async function ask(db: SupabaseClient, account: AccountRow, l: OpenFile, kind: u
 }
 
 const FILE_ACTIONS = ['file', 'pdf', 'home_request', 'upload_url', 'uploaded']
-const CLOSED_ACTIONS = ['closed', 'closed_pdf', 'ask']
+const CLOSED_ACTIONS = ['closed', 'closed_pdf', 'ask', 'extra_payment', 'remove_payment']
+
+/** "I made an extra payment": logged with its date and amount (myhome_record_payment(): checks and a note on the file). */
+async function extraPayment(db: SupabaseClient, account: AccountRow, l: OpenFile, body: Record<string, unknown>): Promise<Response> {
+  const paidOn = typeof body.paidOn === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.paidOn) ? body.paidOn : null
+  const amount = typeof body.amount === 'number' && Number.isFinite(body.amount) ? Math.round(body.amount * 100) / 100 : null
+  if (!paidOn || !amount) return reply(400, { error: 'Enter the date and the amount you paid.' })
+  const r = await db.rpc('myhome_record_payment', { p_account: account.id, p_loan: l.id, p_paid_on: paidOn, p_amount: amount })
+  if (r.error) return reply(400, { error: r.error.message })
+  return reply(200, { id: r.data })
+}
+
+async function removePayment(db: SupabaseClient, account: AccountRow, paymentId: unknown): Promise<Response> {
+  if (typeof paymentId !== 'string' || !UUID.test(paymentId)) return reply(400, { error: "That payment isn't in your MyHome." })
+  const r = await db.rpc('myhome_remove_payment', { p_account: account.id, p_payment: paymentId })
+  if (r.error) return reply(400, { error: r.error.message })
+  return reply(200, { ok: true })
+}
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: CORS })
@@ -575,6 +594,8 @@ Deno.serve(async (request) => {
       if (l instanceof Response) return l
       if (body.action === 'closed') return reply(200, await closedView(db, account, l, body.opened === true))
       if (body.action === 'closed_pdf') return await closedPdf(db, account, l, body.documentId)
+      if (body.action === 'extra_payment') return await extraPayment(db, account, l, body)
+      if (body.action === 'remove_payment') return await removePayment(db, account, body.paymentId)
       return await ask(db, account, l, body.kind)
     }
     return reply(400, { error: 'Unknown action.' })

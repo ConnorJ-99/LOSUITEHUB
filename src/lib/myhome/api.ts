@@ -79,6 +79,12 @@ export const closedDocumentUrl = (loanId: string, documentId: string) => call<{ 
 /** "Ask {LO} to check my value" (and, later, refi and equity checks). Returns when it was asked. */
 export const askLo = (loanId: string, kind: AskKind) => call<{ askedAt?: string }>({ action: 'ask', loanId, kind })
 
+/** "I made an extra payment": logs it (date and amount) on the closed loan. */
+export const recordExtraPayment = (loanId: string, paidOn: string, amount: number) => call<{ id?: string }>({ action: 'extra_payment', loanId, paidOn, amount })
+
+/** Takes back a logged extra payment (a mistake). */
+export const removeExtraPayment = (loanId: string, paymentId: string) => call<{ ok?: boolean }>({ action: 'remove_payment', loanId, paymentId })
+
 /** Uploads go through MyHome's own client, never the staff one. */
 export const putMyHomeUpload = (path: string, token: string, file: File) => {
   const c = myHomeClient()

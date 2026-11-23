@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { amortization, balanceAfter, extraPaymentEffect, mortgageToday, paymentsMade } from './amortization'
+import { amortization, balanceAfter, extraPaymentEffect, loggedExtras, mortgageToday, paymentsMade } from './amortization'
 
 const loan = { loanAmount: 300_000, ratePct: 6.125, termMonths: 360, firstPaymentDate: '2024-05-01', closingDate: '2024-03-15' }
 
@@ -92,5 +92,24 @@ describe('extra payments', () => {
     const done = amortization(loan, { oneTime: [{ date: '2025-01-01', amount: 1_000_000 }] })!
     expect(done.payoffDate).toBe('2025-01-01')
     expect(done.years.at(-1)!.endingBalance).toBe(0)
+  })
+})
+
+describe('extra payments the borrower logged', () => {
+  it('count on the most recent due date on or before the day paid', () => {
+    expect(loggedExtras('2024-05-01', [{ paidOn: '2025-06-15', amount: 5_000 }, { paidOn: '2025-07-01', amount: 100 }, { paidOn: '2024-04-20', amount: 50 }]).oneTime).toEqual([
+      { date: '2025-06-01', amount: 5_000 },
+      { date: '2025-07-01', amount: 100 },
+      { date: '2024-05-01', amount: 50 },
+    ])
+  })
+  it('lower the balance today, and without them it is the plain balance', () => {
+    const plain = mortgageToday(loan, '2025-06-20', 400_000)!
+    const withPaid = mortgageToday(loan, '2025-06-20', 400_000, loggedExtras(loan.firstPaymentDate, [{ paidOn: '2025-06-15', amount: 5_000 }]))!
+    expect(withPaid.paymentsMade).toBe(plain.paymentsMade)
+    expect(plain.balance - withPaid.balance).toBeCloseTo(5_000, -1)
+    expect(withPaid.equity! - plain.equity!).toBeCloseTo(5_000, -1)
+    expect(withPaid.schedule.payoffDate < plain.schedule.payoffDate).toBe(true)
+    expect(mortgageToday(loan, '2025-06-20', null, { oneTime: [] })!.balance).toBe(plain.balance)
   })
 })
