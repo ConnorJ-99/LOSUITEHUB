@@ -32,7 +32,7 @@ export interface SelectData {
  * before goes back to Draft) and logs it on the file. Used by the
  * Scenarios & Estimate tab and by the assistant.
  */
-export async function selectEstimate(loan: LoanProfile, data: SelectData, e: Estimate): Promise<void> {
+export async function selectEstimate(loan: LoanProfile, data: SelectData, e: Estimate, opts?: { quiet?: boolean }): Promise<void> {
   const draft = draftOf(e)
   const facts = e.loanSnapshot?.facts ?? data.factsFor(e.propertyId)
   const r = computeEstimate(draft, data.feesOf(e.id), data.templates, facts)
@@ -55,13 +55,14 @@ export async function selectEstimate(loan: LoanProfile, data: SelectData, e: Est
   })
   const home = data.properties.find((p) => p.id === e.propertyId)
   if (c.property && home) await saveProperty(loan.id, loan.organizationId, { ...propertyInput(home), ...c.property, id: home.id })
-  if (loan.borrower) unwrap(await db().from('notes').insert({ organization_id: loan.organizationId, contact_id: loan.borrower.id, loan_id: loan.id, kind: 'note', body: selectedNote(e, nowIso()) }).select('id'))
+  // The automatic sync of an already-Selected estimate leaves no note each time.
+  if (loan.borrower && !opts?.quiet) unwrap(await db().from('notes').insert({ organization_id: loan.organizationId, contact_id: loan.borrower.id, loan_id: loan.id, kind: 'note', body: selectedNote(e, nowIso()) }).select('id'))
 }
 
 export function useSelectEstimate(loan: LoanProfile, data: SelectData & { refresh: () => Promise<void> }) {
   const queryClient = useQueryClient()
-  return async (e: Estimate) => {
-    await selectEstimate(loan, data, e)
+  return async (e: Estimate, opts?: { quiet?: boolean }) => {
+    await selectEstimate(loan, data, e, opts)
     if (loan.borrower) queryClient.invalidateQueries({ queryKey: keys.notes(loan.borrower.id) })
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: keys.loan(loan.id) }),

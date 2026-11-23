@@ -33,6 +33,7 @@ export type CdTarget =
   | 'loans.lender_loan_number'
   | 'loans.lender_id'
   | 'loans.appraised_value'
+  | 'loans.purchase_price'
   | 'properties.annual_taxes'
   | 'properties.annual_insurance'
   | 'properties.address'
@@ -72,6 +73,7 @@ export const CD_FIELDS = [
   { key: 'lender_loan_number', label: "Lender's loan number", kind: 'text', target: 'loans.lender_loan_number', hint: 'Loan ID # (page 1, Loan Information)' },
   // Connor, 2026-11-23: the CD fills in the home, so taxes and insurance always land and MyHome has the home.
   { key: 'property_address', label: 'Property address', kind: 'address', target: 'properties.address', hint: 'Property address (page 1, Closing Information), as one line: street, city, state ZIP, e.g. "1420 Oak Ridge Dr, Frisco, TX 75034"' },
+  { key: 'sale_price', label: 'Sale price', kind: 'money', target: 'loans.purchase_price', hint: 'Sale Price (page 1, Closing Information); not found on a refinance, which shows an Appraised Prop. Value instead' },
   { key: 'appraised_value', label: 'Appraised value', kind: 'money', target: 'loans.appraised_value', hint: 'Appraised Prop. Value (page 1, Closing Information); not found when the CD shows only a Sale Price' },
 ] as const satisfies readonly CdFieldDef[]
 

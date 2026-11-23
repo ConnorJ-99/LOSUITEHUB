@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { approvalDefaults, approvalFormFrom, approvalInput, type ApprovalFacts } from './maxApproval'
+import { approvalCostsAt, approvalDefaults, approvalFormFrom, approvalInput, type ApprovalFacts } from './maxApproval'
 
-const facts: ApprovalFacts = { income: 9_000, debts: 400, assets: 30_000, gift: 10_000, payoffs: 0, conformingLimit: 832_750, fhaLimit: 557_750, defaultInsurancePct: null }
+const facts: ApprovalFacts = { income: 9_000, debts: 400, assets: 30_000, gift: 10_000, payoffs: 0, conformingLimit: 832_750, fhaLimit: 557_750, defaultInsurancePct: null, selectedCosts: null }
 const loan = { mortgageType: 'fha' as const, noteRate: 6.25, termMonths: 360, upfrontFeePct: null }
 
 describe('max approval form', () => {
@@ -23,5 +23,18 @@ describe('max approval form', () => {
     expect(approvalDefaults('conventional', form, facts)).toMatchObject({ loanLimit: 832_750, downPaymentPct: 15, reserveMonths: 6 })
     expect(approvalDefaults('va', form, facts).loanLimit).toBeNull()
     expect(approvalDefaults('non_qm', form, facts)).toMatchObject({ loanLimit: null, maxDtiPct: 50 })
+  })
+
+
+  it('closing costs: typed over (dollars or % of the price), else the Selected estimate, else the fee list', () => {
+    const form = approvalFormFrom({ occupancy: 'primary', estimatedTaxRatePct: null, estimatedMonthlyHoa: null, sellerCredits: null, purchasePrice: null })
+    expect(form).toMatchObject({ closingCosts: null, closingCostsPct: false })
+    expect(approvalCostsAt(form, facts)).toBeUndefined()
+    expect(approvalCostsAt(form, { selectedCosts: 11_250 })?.(400_000)).toBe(11_250)
+    expect(approvalCostsAt({ closingCosts: 9_000, closingCostsPct: false }, { selectedCosts: 11_250 })?.(400_000)).toBe(9_000)
+    expect(approvalCostsAt({ closingCosts: 2.5, closingCostsPct: true }, { selectedCosts: 11_250 })?.(400_000)).toBe(10_000)
+    const fees = () => 7_777
+    expect(approvalInput(loan, form, facts, fees).costsAt?.(400_000, 386_000)).toBe(7_777)
+    expect(approvalInput(loan, form, { ...facts, selectedCosts: 11_250 }, fees).costsAt?.(400_000, 386_000)).toBe(11_250)
   })
 })

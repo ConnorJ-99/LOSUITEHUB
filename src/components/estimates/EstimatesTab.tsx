@@ -298,7 +298,12 @@ export function EstimatesTab({ loan }: { loan: LoanProfile }) {
         estimate={open}
         data={data}
         selected={open.id === selectedId}
-        onSelect={(e) => void selectEstimate(e).then(() => toast.success('The file is updated'), (err: Error) => toast.error(err.message))}
+        onSelect={(e, opts) =>
+          selectEstimate(e, opts).then(
+            () => void (opts?.quiet || toast.success('The file is updated')),
+            (err: Error) => void toast.error(err.message),
+          )
+        }
         onOpen={openEstimate}
         onCompare={() => show('compare')}
         onSaveState={onSaveState}

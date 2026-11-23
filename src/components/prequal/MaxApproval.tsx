@@ -109,6 +109,31 @@ export function MaxApprovalCard({
           </div>
           {type === 'va' && <ToggleChip label="Exempt from the funding fee (disability)" pressed={draftLoan.upfrontFeePct === 0} onChange={(on) => onLoanChange({ ...draftLoan, upfrontFeePct: on ? 0 : null })} />}
         </Fold>
+        <Fold title="Closing costs & prepaids">
+          <div className="flex items-end gap-2">
+            <div className="flex shrink-0 rounded-md bg-muted p-0.5 text-xs" role="group" aria-label="Closing costs as dollars or percent of the price">
+              {([false, true] as const).map((pct) => (
+                <button key={String(pct)} type="button" aria-pressed={form.closingCostsPct === pct} onClick={() => onChange({ ...form, closingCostsPct: pct, closingCosts: null })} className={cn('rounded px-2 py-1', form.closingCostsPct === pct ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground')}>
+                  {pct ? '%' : '$'}
+                </button>
+              ))}
+            </div>
+            <div className="min-w-0 flex-1">
+              {form.closingCostsPct ? (
+                <PercentInput label="Closing costs & prepaids" value={form.closingCosts} onChange={set('closingCosts')} maxDecimals={2} placeholder={m ? ph((m.costs / m.price) * 100, 2) : undefined} hint="Percent of the price" />
+              ) : (
+                <CurrencyInput label="Closing costs & prepaids" value={form.closingCosts} onChange={set('closingCosts')} placeholder={facts.selectedCosts != null ? ph(facts.selectedCosts) : m ? ph(m.costs) : undefined} />
+              )}
+            </div>
+          </div>
+          <p className="text-[0.7rem] text-muted-foreground">
+            {form.closingCosts != null
+              ? 'Typed here for this what-if. Clear it to go back to the estimate.'
+              : facts.selectedCosts != null
+                ? 'Blank: the Selected estimate on Scenarios & Estimate (fees, prepaids and points, less credits).'
+                : 'Blank: your fee list at each price (Settings), else 3% of the price. Select an estimate to use its figure.'}
+          </p>
+        </Fold>
         <Fold title="Seller concessions & loan limit">
           <div className="grid grid-cols-2 gap-2">
             <PercentInput label="Seller concessions" value={form.sellerConcessionPct} onChange={set('sellerConcessionPct')} maxDecimals={2} placeholder="0" hint="Percent of the price" />

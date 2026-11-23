@@ -4,10 +4,10 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { CurrencyInput, NumberInput, confirmAction } from '@/components/shared'
+import { CurrencyInput, NumberInput } from '@/components/shared'
 import type { FeeOverride, FeeSection } from '@/lib/calc'
 import { formatIsoDate } from '@/lib/dates'
-import { applyChange, computeEstimate, estimateName, type ChangeField, type ChangeForAll, type Estimate, type EstimateDraft } from '@/lib/estimates/estimate'
+import { applyChange, computeEstimate, type ChangeField, type ChangeForAll, type Estimate, type EstimateDraft } from '@/lib/estimates/estimate'
 import { formatCurrency } from '@/lib/format'
 import { draftOf, type EstimateData } from './useEstimateData'
 
@@ -102,14 +102,10 @@ export function ChangeForAllDialog({ data, estimates, initial, selectedId, onSel
       for (const e of chosen) {
         const { draft, overrides } = apply(e)
         if (e.id === selectedId) {
-          const update = await confirmAction(`"${e.name}" is Selected for the file. Update the file too? Choose "Keep the file" to save this change as a new Draft instead.`, { confirmLabel: 'Yes, update the file', cancelLabel: 'Keep the file' })
-          if (update) {
-            const saved = await data.save(e, draft, overrides)
-            await data.refresh()
-            await onSelectAgain({ ...e, ...saved })
-          } else {
-            await data.create({ ...draft, name: estimateName(`${e.name} (changed)`, data.list.map((x) => x.name)), archivedAt: null }, overrides)
-          }
+          // The Selected estimate and the file stay in step (Connor, 2026-11-23): the file updates too.
+          const saved = await data.save(e, draft, overrides)
+          await data.refresh()
+          await onSelectAgain({ ...e, ...saved })
         } else {
           await data.save(e, draft, overrides)
         }

@@ -43,6 +43,13 @@ export interface ApprovalForm {
   reserveMonths: number | null
   /** Null = from Settings → Company. */
   loanLimit: number | null
+  /**
+   * Closing costs and prepaids typed over (Connor, 2026-11-23): dollars, or a
+   * percent of the price when closingCostsPct. Null = the Selected estimate's
+   * figure, else the fee list at each price, else 3%.
+   */
+  closingCosts: number | null
+  closingCostsPct: boolean
 }
 
 /** Figures from the 1003 (through the prequal draft) and Settings that the form starts from. */
@@ -57,9 +64,16 @@ export interface ApprovalFacts {
   conformingLimit: number | null
   fhaLimit: number | null
   defaultInsurancePct: number | null
+  /** The Selected estimate's closing costs, prepaids and points less credits (null = none). */
+  selectedCosts: number | null
 }
 
-export function approvalFacts(draft: PrequalDraft, summary: PrequalSummary, org: { conformingLoanLimit?: number | null; fhaLoanLimit?: number | null; defaultHoiPct?: number | null } | null | undefined): ApprovalFacts {
+export function approvalFacts(
+  draft: PrequalDraft,
+  summary: PrequalSummary,
+  org: { conformingLoanLimit?: number | null; fhaLoanLimit?: number | null; defaultHoiPct?: number | null } | null | undefined,
+  selectedCosts: number | null = null,
+): ApprovalFacts {
   const funds = approvalFunds(draft.assets)
   return {
     income: summary.totalIncome,
@@ -70,6 +84,7 @@ export function approvalFacts(draft: PrequalDraft, summary: PrequalSummary, org:
     conformingLimit: org?.conformingLoanLimit ?? null,
     fhaLimit: org?.fhaLoanLimit ?? null,
     defaultInsurancePct: org?.defaultHoiPct ?? null,
+    selectedCosts,
   }
 }
 
@@ -94,6 +109,8 @@ export function approvalFormFrom(d: Pick<LoanDetails, 'occupancy' | 'estimatedTa
     nonQmConcessionCapPct: null,
     reserveMonths: null,
     loanLimit: null,
+    closingCosts: null,
+    closingCostsPct: false,
   }
 }
 
@@ -123,6 +140,23 @@ export interface ApprovalLoanTerms {
   upfrontFeePct: number | null
 }
 
+/**
+ * Closing costs and prepaids at a price: typed over (dollars, or % of the
+ * price), else the Selected estimate's figure; undefined = let the caller use
+ * the fee list (else 3%).
+ */
+export function approvalCostsAt(form: Pick<ApprovalForm, 'closingCosts' | 'closingCostsPct'>, facts: Pick<ApprovalFacts, 'selectedCosts'>): ((price: number) => number) | undefined {
+  if (form.closingCosts != null) {
+    const typed = form.closingCosts
+    return form.closingCostsPct ? (price) => round((price * typed) / 100) : () => typed
+  }
+  if (facts.selectedCosts != null) {
+    const selected = facts.selectedCosts
+    return () => selected
+  }
+  return undefined
+}
+
 /** The calculator input: the form, with every blank filled from the 1003 or the defaults. */
 export function approvalInput(loan: ApprovalLoanTerms, form: ApprovalForm, facts: ApprovalFacts, costsAt?: (price: number, loanAmount: number) => number): MaxApprovalInput {
   const loanType = approvalTypeFor(loan.mortgageType)
@@ -150,6 +184,6 @@ export function approvalInput(loan: ApprovalLoanTerms, form: ApprovalForm, facts
     reserveMonths: form.reserveMonths ?? def.reserveMonths,
     payoffs: facts.payoffs,
     loanLimit: form.loanLimit ?? def.loanLimit,
-    costsAt,
+    costsAt: approvalCostsAt(form, facts) ?? costsAt,
   }
 }

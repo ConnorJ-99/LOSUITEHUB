@@ -27,7 +27,7 @@ export const CD_GROUPS: { id: CdGroup; label: string }[] = [
 ]
 
 const GROUP: Record<CdFieldKey, CdGroup> = {
-  loan_amount: 'loan', interest_rate: 'loan', loan_term: 'loan', lender_name: 'loan', lender_loan_number: 'loan', property_address: 'loan', appraised_value: 'loan',
+  loan_amount: 'loan', interest_rate: 'loan', loan_term: 'loan', lender_name: 'loan', lender_loan_number: 'loan', property_address: 'loan', sale_price: 'loan', appraised_value: 'loan',
   date_issued: 'dates', closing_date: 'dates', disbursement_date: 'dates', first_payment_date: 'dates',
   principal_interest: 'payment', monthly_escrow: 'payment', total_monthly_payment: 'payment', tax_monthly: 'payment', insurance_monthly: 'payment',
   discount_points: 'credits', prepaids_total: 'credits', total_closing_costs: 'credits', lender_credits: 'credits', seller_credits: 'credits', cash_to_close: 'credits', broker_compensation: 'credits',

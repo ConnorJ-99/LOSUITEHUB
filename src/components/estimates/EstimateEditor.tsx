@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowRightIcon, CheckIcon, FileTextIcon, RefreshCwIcon, RotateCcwIcon, SparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
@@ -12,7 +12,7 @@ import { lenderClause, useLenders } from '@/lib/api/lenders'
 import { mortgageeClause } from '@/lib/loans/mortgagee'
 import { useSaveRow } from '@/lib/api/urla'
 import type { LoanProfile } from '@/lib/api/types'
-import { pct, pointsAmount, prepaidInterestDays, round, type FeeOverride } from '@/lib/calc'
+import { pct, pointsAmount, prepaidInterestDays, round, type Factor, type FeeOverride } from '@/lib/calc'
 import { formatIsoDate, nowIso } from '@/lib/dates'
 import { joinNames } from '@/lib/documents/feeWorksheet'
 import {
@@ -22,7 +22,6 @@ import {
   computeEstimate,
   estimateChanges,
   estimateLender,
-  estimateName,
   estimateProgramName,
   factsFingerprint,
   feeChanges,
@@ -44,8 +43,9 @@ interface Props {
   data: EstimateData
   /** This estimate is Selected for the file. */
   selected: boolean
-  onSelect: (e: Estimate) => void
-  /** Open another estimate (after "No, save as a new draft"). */
+  /** Writes it to the file; quiet = the automatic sync of the Selected estimate (no note, no toast). */
+  onSelect: (e: Estimate, opts?: { quiet?: boolean }) => Promise<void>
+  /** Open another estimate. */
   onOpen: (id: string) => void
   onCompare: () => void
   onSaveState: (s: SaveState) => void
@@ -54,7 +54,7 @@ interface Props {
 const AUTOSAVE_MS = 900
 
 /** One open estimate: the step rail, its five sections and the summary, saved as you type. */
-export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpen, onCompare, onSaveState }: Props) {
+export function EstimateEditor({ loan, estimate, data, selected, onSelect, onCompare, onSaveState }: Props) {
   const [draft, setDraft] = useState<EstimateDraft>(() => draftOf(estimate))
   const [overrides, setOverrides] = useState<FeeOverride[]>(() => data.feesOf(estimate.id))
   const [state, setState] = useState<SaveState>('saved')
@@ -66,21 +66,18 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
 
   const savedDraft = draftOf(estimate)
   const dirty = Object.keys(estimateChanges(savedDraft, draft)).filter((k) => !['figures', 'pricedAt'].includes(k)).length > 0 || feeChanges(data.feesOf(estimate.id), overrides).upsert.length + feeChanges(data.feesOf(estimate.id), overrides).remove.length > 0
-  const holdForFile = selected && dirty
 
-  // Autosave (Drafts). The Selected estimate waits for "Update the file too?".
-  const latest = useRef({ draft, overrides, estimate, holdForFile })
-  latest.current = { draft, overrides, estimate, holdForFile }
+  // Autosave. The Selected estimate also writes itself to the file (Connor, 2026-11-23: automatic both ways).
   useEffect(() => {
     if (!dirty) return void setState('saved')
-    if (selected) return void setState('waiting')
     setState('unsaved')
     const t = setTimeout(async () => {
       setState('saving')
       try {
         const ready = await data.save(estimate, draft, overrides)
         setDraft((d) => withSaved(d, ready))
-        await data.refresh()
+        if (selected) await onSelect({ ...estimate, ...ready }, { quiet: true })
+        else await data.refresh()
         setState('saved')
       } catch (e) {
         setState('unsaved')
@@ -90,21 +87,6 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
     return () => clearTimeout(t)
   }, [draft, overrides, dirty, selected])
   useEffect(() => onSaveState(state), [state, onSaveState])
-
-  // Leaving the Selected estimate with changes nobody answered: keep them as a new Draft, never change the file by surprise.
-  useEffect(
-    () => () => {
-      const l = latest.current
-      if (!l.holdForFile) return
-      const name = estimateName(`${l.draft.name} (edit)`, data.list.map((x) => x.name))
-      data
-        .create({ ...l.draft, name, archivedAt: null }, l.overrides)
-        .then(() => data.refresh())
-        .then(() => toast.success(`Your changes to "${l.estimate.name}" were saved as a new draft, "${name}". The file didn't change.`))
-        .catch((e: Error) => toast.error(`Could not keep your changes: ${e.message}`))
-    },
-    [],
-  )
 
   const set =
     <K extends keyof EstimateDraft>(key: K) =>
@@ -119,6 +101,12 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
 
   const refreshFromCurrent = () =>
     setDraft((d) => ({ ...d, ...refreshFromLoan(d, d.loanSnapshot!.facts, currentFacts), feeRules: activeRules(data.templates, estimate.program?.lenderId ?? null), feesGeneratedAt: nowIso() }))
+  // The Selected estimate follows the file on its own: a change on the 1003 (price, loan amount, rate, taxes, insurance…) refreshes it.
+  const changedKey = changed.join('|')
+  useEffect(() => {
+    if (selected && changedKey) refreshFromCurrent()
+    // Once per new difference.
+  }, [selected, changedKey])
   const keepAsIs = () => setDraft((d) => ({ ...d, loanSnapshot: d.loanSnapshot && { ...d.loanSnapshot, keptFingerprint: factsFingerprint(currentFacts) } }))
   const regenerate = () => {
     setDraft((d) => ({ ...d, feeRules: activeRules(data.templates, estimate.program?.lenderId ?? null), feesGeneratedAt: nowIso() }))
@@ -130,38 +118,6 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
   }
   const saveFee = (o: FeeOverride) => setOverrides((list) => [...list.filter((x) => x.key !== o.key), o])
   const resetFee = (key: string) => setOverrides((list) => list.filter((x) => x.key !== key))
-
-  // "Update the file too?"
-  const [answering, setAnswering] = useState(false)
-  const updateFile = async () => {
-    setAnswering(true)
-    try {
-      const ready = await data.save(estimate, draft, overrides)
-      setDraft((d) => withSaved(d, ready))
-      await data.refresh()
-      onSelect({ ...estimate, ...ready })
-    } catch (e) {
-      toast.error((e as Error).message)
-    } finally {
-      setAnswering(false)
-    }
-  }
-  const saveAsDraft = async () => {
-    setAnswering(true)
-    try {
-      const name = estimateName(`${draft.name} (edit)`, data.list.map((x) => x.name))
-      const created = await data.create({ ...draft, name, archivedAt: null }, overrides)
-      await data.refresh()
-      setDraft(savedDraft)
-      setOverrides(data.feesOf(estimate.id))
-      toast.success(`Saved as a new draft, "${name}". The file didn't change.`)
-      onOpen(created.id)
-    } catch (e) {
-      toast.error((e as Error).message)
-    } finally {
-      setAnswering(false)
-    }
-  }
 
   // The 1003's "paid off at closing", from inside the estimate.
   const togglePayoff = async (id: string, on: boolean) => {
@@ -229,7 +185,7 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
     <div className="space-y-3">
       <SendSavedPdf loan={loan} docId={pdf.sendingId} onClose={pdf.closeSend} />
 
-      {changed.length > 0 && (
+      {!selected && changed.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <p className="mr-auto">
             <span className="font-semibold">Loan changed since this estimate was priced{estimate.pricedAt ? ` (${formatIsoDate(estimate.pricedAt.slice(0, 10))})` : ''}:</span> {changed.join(' · ')}
@@ -275,25 +231,13 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
               {estimate.feesGeneratedAt ? ` · fees generated ${formatIsoDate(estimate.feesGeneratedAt.slice(0, 10))}` : ''}.{' '}
               {selected ? (
                 <>
-                  This estimate is <span className="font-semibold text-nurture">Selected for file</span>: the 1003, Overview, Prequal and letters read it.
+                  This estimate is <span className="font-semibold text-nurture">Selected for file</span>: changes here update the 1003, Overview, Prequal and letters, and changes there update it.
                 </>
               ) : (
                 'A Draft: editing it never changes the file until you select it.'
               )}
             </p>
           </Card>
-          {holdForFile && (
-            <div className="rounded-xl border-2 border-primary bg-card p-3 shadow-soft">
-              <p className="text-sm font-semibold">Update the file too?</p>
-              <p className="mt-1 text-xs text-muted-foreground">You changed the selected estimate. Its numbers are on the 1003, Overview and letters.</p>
-              <Button className="mt-3 w-full" size="sm" disabled={answering} onClick={updateFile}>
-                Yes, update the file
-              </Button>
-              <Button className="mt-2 w-full" size="sm" variant="outline" disabled={answering} onClick={saveAsDraft}>
-                No, save as a new draft
-              </Button>
-            </div>
-          )}
         </aside>
 
         <div className="min-w-0 space-y-4">
@@ -409,11 +353,25 @@ export function EstimateEditor({ loan, estimate, data, selected, onSelect, onOpe
             <Card title="3 · Monthly payment & credits" description="One place for all of it">
               <dl className="divide-y text-sm">
                 <PayLine label="Principal & interest" value={f.principalAndInterest} />
-                <PayLine label={`Property taxes${facts.property?.county ? ` · ${facts.property.county} Co.` : ''}`} value={f.taxes}>
-                  <CurrencyInput label="Property taxes per year" hideLabel value={draft.taxesFactor === 'annual' ? draft.taxesValue : round(f.taxes * 12)} onChange={(v) => setDraft((d) => ({ ...d, taxesValue: v, taxesFactor: 'annual' }))} placeholder="per year" />
+                <PayLine label={`Property taxes${facts.property?.county ? ` · ${facts.property.county} Co.` : ''}`} value={f.taxes} wide>
+                  <AmountOrPct
+                    label="Property taxes"
+                    value={draft.taxesValue}
+                    factor={draft.taxesFactor}
+                    monthly={f.taxes}
+                    base={draft.propertyValue ?? draft.purchasePrice}
+                    onChange={(value, factor) => setDraft((d) => ({ ...d, taxesValue: value, taxesFactor: factor }))}
+                  />
                 </PayLine>
-                <PayLine label="Homeowner's insurance" value={f.hoi}>
-                  <CurrencyInput label="Insurance per year" hideLabel value={draft.insuranceFactor === 'annual' ? draft.insuranceValue : round(f.hoi * 12)} onChange={(v) => setDraft((d) => ({ ...d, insuranceValue: v, insuranceFactor: 'annual' }))} placeholder="per year" />
+                <PayLine label="Homeowner's insurance" value={f.hoi} wide>
+                  <AmountOrPct
+                    label="Insurance"
+                    value={draft.insuranceValue}
+                    factor={draft.insuranceFactor}
+                    monthly={f.hoi}
+                    base={draft.propertyValue ?? draft.purchasePrice}
+                    onChange={(value, factor) => setDraft((d) => ({ ...d, insuranceValue: value, insuranceFactor: factor }))}
+                  />
                 </PayLine>
                 <PayLine label="Mortgage insurance" value={f.mi}>
                   {draft.monthlyMi == null ? (
@@ -561,11 +519,39 @@ function Tile({ label, value, hint, money, warn }: { label: string; value: strin
   )
 }
 
-function PayLine({ label, value, children }: { label: string; value: number; children?: React.ReactNode }) {
+/**
+ * Taxes or insurance typed as $ a year or as a % of the value (Connor,
+ * 2026-11-23). A percent follows the price or value when it changes; the
+ * switch converts what's there so the payment doesn't jump.
+ */
+function AmountOrPct({ label, value, factor, monthly, base, onChange }: { label: string; value: number | null; factor: Factor; monthly: number; base: number | null; onChange: (value: number | null, factor: Factor) => void }) {
+  const isPct = factor === 'pct_of_value'
+  const toPct = () => onChange(base ? round(((monthly * 12) / base) * 100, 3) : null, 'pct_of_value')
+  const toAnnual = () => onChange(round(monthly * 12), 'annual')
+  return (
+    <div className="flex items-center gap-1">
+      <div className="flex shrink-0 rounded-md bg-muted p-0.5 text-xs" role="group" aria-label={`${label} as dollars or percent`}>
+        <button type="button" aria-pressed={!isPct} onClick={() => isPct && toAnnual()} className={cn('rounded px-1.5 py-0.5', !isPct ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground')}>
+          $
+        </button>
+        <button type="button" aria-pressed={isPct} disabled={!base} title={base ? undefined : 'Add the price or value first'} onClick={() => !isPct && toPct()} className={cn('rounded px-1.5 py-0.5 disabled:opacity-50', isPct ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground')}>
+          %
+        </button>
+      </div>
+      {isPct ? (
+        <PercentInput label={`${label} as % of value per year`} hideLabel value={value} onChange={(v) => onChange(v, 'pct_of_value')} placeholder="% / yr" />
+      ) : (
+        <CurrencyInput label={`${label} per year`} hideLabel value={factor === 'annual' ? value : round(monthly * 12)} onChange={(v) => onChange(v, 'annual')} placeholder="per year" />
+      )}
+    </div>
+  )
+}
+
+function PayLine({ label, value, wide, children }: { label: string; value: number; wide?: boolean; children?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 py-1.5">
       <dt className="min-w-0 flex-1 truncate">{label}</dt>
-      {children && <dd className="w-28 shrink-0">{children}</dd>}
+      {children && <dd className={cn('shrink-0', wide ? 'w-40' : 'w-28')}>{children}</dd>}
       <dd className="w-20 shrink-0 text-right font-semibold tabular-nums">{value ? formatCurrency(value) : '—'}</dd>
     </div>
   )

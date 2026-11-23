@@ -101,7 +101,7 @@ export function useCdFileValues(loanId: string) {
       const l = unwrap<Record<string, unknown> | null>(
         await db()
           .from('loans')
-          .select('loan_amount, note_rate, term_months, closing_date, funding_date, first_payment_date, monthly_payment, lender_credits, seller_credits, discount_points_amount, prepaid_items_amount, lender_loan_number, lender_id, subject_property_id, appraised_value')
+          .select('loan_amount, note_rate, term_months, closing_date, funding_date, first_payment_date, monthly_payment, lender_credits, seller_credits, discount_points_amount, prepaid_items_amount, lender_loan_number, lender_id, subject_property_id, appraised_value, purchase_price')
           .eq('id', loanId)
           .maybeSingle(),
       )
@@ -130,6 +130,7 @@ export function useCdFileValues(loanId: string) {
         'properties.annual_taxes': home ? num(home.annual_taxes) : null,
         'properties.annual_insurance': home ? num(home.annual_insurance) : null,
         'loans.appraised_value': num(l.appraised_value),
+        'loans.purchase_price': num(l.purchase_price),
         'properties.address': home ? [home.address_line, home.city, [home.state, home.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ') : null,
       }
       return { values, hasHome: !!home, lenderId: numbers.lenderId, programLenderId: numbers.programLenderId, lenderNameTyped: numbers.lenderNameTyped }

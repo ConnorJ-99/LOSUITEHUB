@@ -12,7 +12,7 @@ import { NumberInput } from '@/components/shared'
 import { useUpdateStage } from '@/lib/api/loans'
 import { useSavePrequal } from '@/lib/api/prequal'
 import { useFeeTemplates } from '@/lib/api/pricing'
-import { prequalFeeEstimate } from '@/lib/estimates/prequal'
+import { prequalFeeEstimate, selectedClosingCosts } from '@/lib/estimates/prequal'
 import { useOrganization } from '@/lib/api/settings'
 import type { LoanProfile, Property } from '@/lib/api/types'
 import type { Application } from '@/lib/api/urla'
@@ -73,16 +73,19 @@ function PrequalForm({ loan, app, subject, properties, saved, render }: { loan: 
   const dirty = hasChanges(changes)
   // Max Approval (purchase files): the highest price where every limit passes. No specific home needed.
   const org = useOrganization()
-  const facts = approvalFacts(draft, summary, org.data)
+  // Closing costs: typed over in the card, else the Selected estimate's (Connor, 2026-11-23), else the fee list at each price.
+  const facts = approvalFacts(draft, summary, org.data, selectedClosingCosts(loan.details))
   const approvalIn = approvalInput(draft.loan, approvalForm, facts)
-  const approvalKey = JSON.stringify(approvalIn)
+  const approvalKey = JSON.stringify([approvalIn, approvalForm.closingCosts, approvalForm.closingCostsPct, facts.selectedCosts])
   const approval = useMemo(
     () =>
       isPurchase
         ? maxApproval({
             ...approvalIn,
-            // Closing costs and prepaids from the company fee list (Smart Fees) at each price, else 3% of the price.
-            costsAt: feeEstimate && ((price, loanAmount) => feeEstimate(price, loanAmount, { mortgageType: draft.loan.mortgageType, noteRate: draft.loan.noteRate, termMonths: draft.loan.termMonths, occupancy: approvalForm.occupancy, upfrontFeePct: draft.loan.upfrontFeePct })),
+            // Closing costs and prepaids: typed or the Selected estimate (approvalIn), else the company fee list (Smart Fees) at each price, else 3% of the price.
+            costsAt:
+              approvalIn.costsAt ??
+              (feeEstimate && ((price, loanAmount) => feeEstimate(price, loanAmount, { mortgageType: draft.loan.mortgageType, noteRate: draft.loan.noteRate, termMonths: draft.loan.termMonths, occupancy: approvalForm.occupancy, upfrontFeePct: draft.loan.upfrontFeePct }))),
           })
         : null,
     // Recalculated when the input's contents or the fee list change.
