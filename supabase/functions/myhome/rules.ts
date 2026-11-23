@@ -149,6 +149,9 @@ export interface MyHomeClosed {
   closedOn: string | null
   loanLine: string | null
   monthlyPayment: number | null
+  /** The home's yearly taxes and insurance (for the payment breakdown; the CD fills them). */
+  annualTaxes: number | null
+  annualInsurance: number | null
   insuranceRenewsOn: string | null
   homesteadFiled: boolean | null
   /** Connor's own figure on the home, and the day he set it (null when unknown). */

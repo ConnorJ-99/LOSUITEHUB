@@ -15,7 +15,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { CheckIcon, ExternalLinkIcon, FileTextIcon, HomeIcon, Loader2Icon, LockIcon, LogOutIcon } from 'lucide-react'
-import { mortgageToday } from '@/lib/calc/amortization'
+import { amortization, extraPaymentEffect, mortgageToday } from '@/lib/calc/amortization'
 import { homeValue } from '@/lib/calc/homeValue'
 import { todayIso } from '@/lib/dates'
 import { formatCurrency } from '@/lib/format'
@@ -288,6 +288,7 @@ function ClosedFile({ loanId, onGone, onSignedOut }: { loanId: string; onGone: (
     <>
       <HomeValue loanId={loanId} view={v} loFirst={loFirst} onAsked={(at) => setScreen({ kind: 'open', view: { ...v, asked: { ...v.asked, value_check: at } } })} onGone={onGone} />
       <MyLoan loanId={loanId} view={v} onGone={onGone} />
+      {v.balance && <LoanSchedule balance={v.balance} />}
       <LoCard lo={v.lo} />
     </>
   )
@@ -421,6 +422,7 @@ function MyLoan({ loanId, view, onGone }: { loanId: string; view: MyHomeClosed; 
           </div>
         ))}
       </dl>
+      <PaymentBreakdown view={view} />
       {view.documents.length > 0 && (
         <div className="mt-4 border-t pt-3">
           <h3 className="text-sm font-semibold">My closing documents</h3>
@@ -441,6 +443,148 @@ function MyLoan({ loanId, view, onGone }: { loanId: string; view: MyHomeClosed; 
           {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
         </div>
       )}
+    </section>
+  )
+}
+
+/**
+ * What's in their monthly payment (Connor, 2026-11-23): principal and
+ * interest from the loan's own terms, taxes and insurance from the home (the
+ * Closing Disclosure fills them), and whatever else is in the total they pay
+ * (mortgage insurance, usually). Nothing when there's no payment to split.
+ */
+function PaymentBreakdown({ view }: { view: MyHomeClosed }) {
+  const pi = view.balance ? (amortization(view.balance)?.monthlyPayment ?? null) : null
+  const taxes = view.annualTaxes ? view.annualTaxes / 12 : 0
+  const insurance = view.annualInsurance ? view.annualInsurance / 12 : 0
+  if (pi == null && !taxes && !insurance) return null
+  const parts = (pi ?? 0) + taxes + insurance
+  const total = view.monthlyPayment && view.monthlyPayment >= parts ? view.monthlyPayment : parts
+  const other = total - parts
+  const lines: [string, number][] = [
+    ...(pi != null ? [['Principal & interest', pi] as [string, number]] : []),
+    ...(taxes ? [['Property taxes', taxes] as [string, number]] : []),
+    ...(insurance ? [["Homeowner's insurance", insurance] as [string, number]] : []),
+    ...(other >= 1 ? [['Mortgage insurance & other', other] as [string, number]] : []),
+  ]
+  return (
+    <div className="mt-4 border-t pt-3">
+      <h3 className="text-sm font-semibold">What's in my payment</h3>
+      <dl className="mt-1 divide-y text-sm">
+        {lines.map(([label, amount]) => (
+          <div key={label} className="flex justify-between py-1.5">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="font-medium tabular-nums">{formatCurrency(Math.round(amount * 100) / 100)}</dd>
+          </div>
+        ))}
+        <div className="flex justify-between py-1.5 font-bold">
+          <dt>Total each month</dt>
+          <dd className="tabular-nums">{formatCurrency(Math.round(total * 100) / 100)}</dd>
+        </div>
+      </dl>
+      {(taxes > 0 || insurance > 0) && <p className="mt-1 text-xs text-muted-foreground">Taxes and insurance can change each year with your escrow.</p>}
+    </div>
+  )
+}
+
+const yearsMonths = (months: number) => {
+  const y = Math.floor(months / 12)
+  const m = months % 12
+  return [y && `${y} year${y === 1 ? '' : 's'}`, m && `${m} month${m === 1 ? '' : 's'}`].filter(Boolean).join(' and ') || 'no time'
+}
+
+/** Typed dollars in a plain input ("$1,250" → 1250), or 0. */
+const dollars = (s: string) => {
+  const n = Number(s.replace(/[^0-9.]/g, ''))
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+/**
+ * Their amortization table by year and "What if I pay extra?" (Connor,
+ * 2026-11-23): a monthly extra and a one-time amount, both starting with the
+ * next payment, show the new payoff date, how much sooner and the interest
+ * saved, and the table follows them. Math in src/lib/calc/amortization.ts.
+ */
+function LoanSchedule({ balance }: { balance: NonNullable<MyHomeClosed['balance']> }) {
+  const [monthlyText, setMonthlyText] = useState('')
+  const [oneTimeText, setOneTimeText] = useState('')
+  const [showAll, setShowAll] = useState(false)
+  const today = todayIso()
+  const monthly = dollars(monthlyText)
+  const oneTime = dollars(oneTimeText)
+  const hasExtra = monthly > 0 || oneTime > 0
+  const effect = extraPaymentEffect(balance, { monthly: monthly ? { amount: monthly, from: today } : null, oneTime: oneTime ? [{ date: today, amount: oneTime }] : [] })
+  const now = mortgageToday(balance, today, null)
+  if (!effect || !now) return null
+  const schedule = hasExtra ? effect.withExtra : effect.base
+  const thisYear = Number(today.slice(0, 4))
+  const rows = showAll ? schedule.years : schedule.years.filter((y) => y.year >= thisYear - 1).slice(0, 6)
+  const input = 'h-11 w-full rounded-lg border border-input bg-white pr-3 pl-7 text-base outline-none focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/20'
+  return (
+    <section className={card} aria-labelledby="myhome-schedule">
+      <h2 id="myhome-schedule" className="text-lg font-bold tracking-tight">
+        My loan schedule
+      </h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {now.paymentsMade} of {balance.termMonths} payments made · paid off {monthYear(effect.base.payoffDate)} · about {formatCurrency(Math.round(now.balance / 100) * 100)} left
+      </p>
+
+      <div className="mt-4 rounded-xl bg-[#F4F7FB] p-4">
+        <h3 className="font-semibold">What if I pay extra?</h3>
+        <div className="mt-2 grid grid-cols-2 gap-3">
+          <label className="block text-sm font-medium">
+            Extra each month
+            <span className="relative mt-1 block">
+              <span className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground">$</span>
+              <input className={input} inputMode="decimal" placeholder="0" value={monthlyText} onChange={(e) => setMonthlyText(e.target.value)} />
+            </span>
+          </label>
+          <label className="block text-sm font-medium">
+            One time, now
+            <span className="relative mt-1 block">
+              <span className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground">$</span>
+              <input className={input} inputMode="decimal" placeholder="0" value={oneTimeText} onChange={(e) => setOneTimeText(e.target.value)} />
+            </span>
+          </label>
+        </div>
+        {hasExtra ? (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900">
+            Paid off <strong>{monthYear(effect.withExtra.payoffDate)}</strong> instead of {monthYear(effect.base.payoffDate)}: <strong>{yearsMonths(effect.monthsSaved)} sooner</strong>, saving about <strong>{formatCurrency(Math.round(effect.interestSaved / 100) * 100)}</strong> in interest.
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground">Type an amount to see how much sooner you'd pay it off and the interest you'd save.</p>
+        )}
+      </div>
+
+      <div className="mt-4 overflow-x-auto rounded-lg border">
+        <table className="w-full text-sm">
+          <thead className="border-b text-[11px] tracking-wide text-muted-foreground uppercase">
+            <tr>
+              <th className="px-3 py-2 text-left font-medium">Year</th>
+              <th className="px-3 py-2 text-right font-medium">Principal</th>
+              <th className="px-3 py-2 text-right font-medium">Interest</th>
+              <th className="px-3 py-2 text-right font-medium">Balance</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y tabular-nums">
+            {rows.map((y) => (
+              <tr key={y.year} className={y.year === thisYear ? 'bg-primary/5 font-semibold' : ''}>
+                <td className="px-3 py-1.5">{y.year}</td>
+                <td className="px-3 py-1.5 text-right">{formatCurrency(Math.round(y.principal))}</td>
+                <td className="px-3 py-1.5 text-right">{formatCurrency(Math.round(y.interest))}</td>
+                <td className="px-3 py-1.5 text-right">{formatCurrency(Math.round(y.endingBalance))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="border-t px-3 py-2 text-xs text-muted-foreground">
+          {hasExtra ? 'With your extra payments. ' : ''}Total interest: {formatCurrency(Math.round(schedule.totalInterest))} ·{' '}
+          <button type="button" className="font-medium text-primary" onClick={() => setShowAll((s) => !s)}>
+            {showAll ? 'Show fewer years' : `Show all ${schedule.years.length} years`}
+          </button>
+        </p>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">Estimated from your loan's amount, rate and term, paid on time. Your lender's statement shows the official balance. Ask your lender how to send extra payments to principal.</p>
     </section>
   )
 }

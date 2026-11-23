@@ -24,8 +24,20 @@ export interface Amortization {
   /** True when the first payment date was worked out from the closing date. */
   firstPaymentAssumed: boolean
   payoffDate: string
+  /** How many payments until it is paid off (the term, or fewer with extra payments). */
+  months: number
   totalInterest: number
   years: AmortizationYear[]
+}
+
+/**
+ * Extra principal (MyHome, Connor 2026-11-23): a monthly extra from a date
+ * on, and one-time amounts, each added to the first scheduled payment on or
+ * after its date. The regular payment stays the same; the loan pays off sooner.
+ */
+export interface ExtraPayments {
+  monthly?: { amount: number; from: string } | null
+  oneTime?: { date: string; amount: number }[]
 }
 
 export interface AmortizationInput {
@@ -42,7 +54,7 @@ const addMonths = (isoDate: string, months: number) => {
 }
 
 /** The yearly schedule, or null when amount, rate, term or a date is missing. */
-export function amortization(input: AmortizationInput): Amortization | null {
+export function amortization(input: AmortizationInput, extra?: ExtraPayments): Amortization | null {
   const { loanAmount, ratePct, termMonths } = input
   if (!loanAmount || loanAmount <= 0 || ratePct === null || ratePct < 0 || !termMonths || termMonths <= 0) return null
   const first = input.firstPaymentDate ?? (input.closingDate ? firstPaymentDateFor(input.closingDate) : null)
@@ -53,13 +65,26 @@ export function amortization(input: AmortizationInput): Amortization | null {
   const years = new Map<number, AmortizationYear>()
   let balance = loanAmount
   let totalInterest = 0
+  let months = 0
+  // One-time amounts by the payment they land on (the first one on or after their date).
+  const lump = new Map<number, number>()
+  for (const o of extra?.oneTime ?? []) {
+    if (!(o.amount > 0)) continue
+    let n = 0
+    while (n < termMonths - 1 && addMonths(first, n) < o.date) n++
+    lump.set(n, round((lump.get(n) ?? 0) + o.amount))
+  }
+  const monthly = extra?.monthly && extra.monthly.amount > 0 ? extra.monthly : null
   for (let n = 0; n < termMonths && balance > 0; n++) {
+    const date = addMonths(first, n)
     const interest = round(balance * r)
-    // The last payment clears whatever is left (rounding).
-    const principal = n === termMonths - 1 ? balance : Math.min(balance, round(payment - interest))
+    const more = round((monthly && date >= monthly.from ? monthly.amount : 0) + (lump.get(n) ?? 0))
+    // The last payment clears whatever is left (rounding); extra principal never goes past the balance.
+    const principal = n === termMonths - 1 ? balance : Math.min(balance, round(payment - interest + more))
     balance = round(balance - principal)
     totalInterest = round(totalInterest + interest)
-    const year = Number(addMonths(first, n).slice(0, 4))
+    months = n + 1
+    const year = Number(date.slice(0, 4))
     const row = years.get(year) ?? { year, payments: 0, principal: 0, interest: 0, endingBalance: 0 }
     row.payments++
     row.principal = round(row.principal + principal)
@@ -71,7 +96,8 @@ export function amortization(input: AmortizationInput): Amortization | null {
     monthlyPayment: payment,
     firstPaymentDate: first,
     firstPaymentAssumed: !input.firstPaymentDate,
-    payoffDate: addMonths(first, termMonths - 1),
+    payoffDate: addMonths(first, months - 1),
+    months,
     totalInterest,
     years: [...years.values()],
   }
@@ -113,4 +139,12 @@ export function balanceAfter(loanAmount: number, ratePct: number, termMonths: nu
     balance = n === termMonths - 1 ? 0 : round(balance - Math.min(balance, round(payment - interest)))
   }
   return balance
+}
+
+/** What extra payments do: the schedule with them, the interest saved and how much sooner it's paid off. */
+export function extraPaymentEffect(input: AmortizationInput, extra: ExtraPayments): { base: Amortization; withExtra: Amortization; interestSaved: number; monthsSaved: number } | null {
+  const base = amortization(input)
+  const withExtra = amortization(input, extra)
+  if (!base || !withExtra) return null
+  return { base, withExtra, interestSaved: round(base.totalInterest - withExtra.totalInterest), monthsSaved: base.months - withExtra.months }
 }

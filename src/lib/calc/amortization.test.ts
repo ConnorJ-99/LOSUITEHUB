@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { amortization, balanceAfter, mortgageToday, paymentsMade } from './amortization'
+import { amortization, balanceAfter, extraPaymentEffect, mortgageToday, paymentsMade } from './amortization'
 
 const loan = { loanAmount: 300_000, ratePct: 6.125, termMonths: 360, firstPaymentDate: '2024-05-01', closingDate: '2024-03-15' }
 
@@ -58,5 +58,39 @@ describe('balance today', () => {
     expect(balanceAfter(300_000, 6.125, 360, 20)).toBe(a.years[1].endingBalance)
     expect(balanceAfter(300_000, 6.125, 360, 360)).toBe(0)
     expect(balanceAfter(300_000, 6.125, 360, 0)).toBe(300_000)
+  })
+})
+
+describe('extra payments', () => {
+  it('without extras it is the plain schedule', () => {
+    expect(amortization(loan, { monthly: null, oneTime: [] })).toEqual(amortization(loan))
+    expect(amortization(loan)!.months).toBe(360)
+  })
+  it('$200 more a month from the start pays it off years sooner and saves interest', () => {
+    const e = extraPaymentEffect(loan, { monthly: { amount: 200, from: '2024-05-01' } })!
+    expect(e.withExtra.monthlyPayment).toBe(1822.83)
+    expect(e.withExtra.years.at(-1)!.endingBalance).toBe(0)
+    expect(e.monthsSaved).toBeGreaterThan(60)
+    expect(e.interestSaved).toBeGreaterThan(80_000)
+    expect(Math.round(e.withExtra.years.reduce((s, y) => s + y.principal, 0))).toBe(300_000)
+    expect(e.withExtra.payoffDate < e.base.payoffDate).toBe(true)
+  })
+  it('a monthly extra starts on its date', () => {
+    const later = amortization(loan, { monthly: { amount: 200, from: '2026-01-01' } })!
+    expect(later.years[0].principal).toBe(amortization(loan)!.years[0].principal)
+    expect(later.years.find((y) => y.year === 2026)!.principal).toBeGreaterThan(amortization(loan)!.years.find((y) => y.year === 2026)!.principal + 2_000)
+  })
+  it('a one-time amount lands on the next payment on or after its date', () => {
+    const a = amortization(loan, { oneTime: [{ date: '2025-06-15', amount: 10_000 }] })!
+    const plain = amortization(loan)!
+    // The $10,000 plus a little more: the rest of 2025's payments carry less interest, so more principal.
+    const more = a.years.find((y) => y.year === 2025)!.principal - plain.years.find((y) => y.year === 2025)!.principal
+    expect(more).toBeGreaterThan(10_000)
+    expect(more).toBeLessThan(10_500)
+    expect(a.months).toBeLessThan(360)
+    // A huge one-time amount pays it off then and there.
+    const done = amortization(loan, { oneTime: [{ date: '2025-01-01', amount: 1_000_000 }] })!
+    expect(done.payoffDate).toBe('2025-01-01')
+    expect(done.years.at(-1)!.endingBalance).toBe(0)
   })
 })

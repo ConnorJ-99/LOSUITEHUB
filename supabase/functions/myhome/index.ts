@@ -477,14 +477,14 @@ async function closedView(db: SupabaseClient, account: AccountRow, l: OpenFile, 
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString()
   const [home, docs, asks, lo] = await Promise.all([
     ln.subject_property_id
-      ? db.from('properties').select('address_line, city, state, zip, county, insurance_renewal_date, homestead_filed, estimated_value, estimated_value_on').eq('id', ln.subject_property_id).maybeSingle()
+      ? db.from('properties').select('address_line, city, state, zip, county, insurance_renewal_date, homestead_filed, estimated_value, estimated_value_on, annual_taxes, annual_insurance').eq('id', ln.subject_property_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
     db.from('loan_documents').select('id, file_name, published_at').eq('loan_id', l.id).not('published_at', 'is', null).order('published_at', { ascending: false }),
     db.from('myhome_events').select('kind, created_at').eq('account_id', account.id).eq('loan_id', l.id).in('kind', ASK_KINDS.map((k) => `${k}_requested`)).is('handled_at', null).gte('created_at', dayAgo),
     loCard(db, l.organization_id, l.assigned_lo_id),
   ])
   if (home.error) throw new Error(home.error.message)
-  const h = home.data as { address_line: string; city: string | null; state: string | null; zip: string | null; county: string | null; insurance_renewal_date: string | null; homestead_filed: boolean | null; estimated_value: number | null; estimated_value_on: string | null } | null
+  const h = home.data as { address_line: string; city: string | null; state: string | null; zip: string | null; county: string | null; insurance_renewal_date: string | null; homestead_filed: boolean | null; estimated_value: number | null; estimated_value_on: string | null; annual_taxes: number | null; annual_insurance: number | null } | null
   const county = countyName(h?.county)
   const links: MyHomeClosed['links'] = []
   if (h) links.push({ label: 'Zillow', url: zillowUrl({ line: h.address_line, city: h.city, state: h.state, zip: h.zip }) })
@@ -511,6 +511,8 @@ async function closedView(db: SupabaseClient, account: AccountRow, l: OpenFile, 
     balance: loanAmount > 0 && ratePct > 0 && ln.term_months ? { loanAmount, ratePct, termMonths: ln.term_months, firstPaymentDate: ln.first_payment_date, closingDate: ln.closing_date } : null,
     loanLine: loanLine({ purpose: ln.purpose, mortgageType: ln.mortgage_type, termMonths: ln.term_months, programName: ln.program_name }),
     monthlyPayment: ln.monthly_payment == null ? null : Number(ln.monthly_payment),
+    annualTaxes: h?.annual_taxes == null ? null : Number(h.annual_taxes),
+    annualInsurance: h?.annual_insurance == null ? null : Number(h.annual_insurance),
     insuranceRenewsOn: h?.insurance_renewal_date ?? null,
     homesteadFiled: h?.homestead_filed ?? null,
     value: h?.estimated_value != null && Number(h.estimated_value) > 0 ? { amount: Number(h.estimated_value), on: h.estimated_value_on } : null,
