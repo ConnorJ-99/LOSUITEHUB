@@ -117,3 +117,30 @@ describe('lenderKey', () => {
     expect(lenderKey('The Loan Store, Inc.')).toBe('loan store')
   })
 })
+
+describe('the CD fills in the home (Connor, 2026-11-23)', () => {
+  const ADDRESS = '1420 Oak Ridge Dr, Frisco, TX 75034'
+  it('with no home on the file, the address makes one and taxes and insurance go on it', () => {
+    const fields = [f('property_address', ADDRESS), f('tax_monthly', 500), f('insurance_monthly', 300)]
+    const rows = rowsOf(fields, { hasHome: false, values: {} })
+    expect(rows.find((r) => r.key === 'property_address')).toMatchObject({ state: 'fill', next: ADDRESS, defaultUse: true })
+    expect(rows.find((r) => r.key === 'tax_monthly')).toMatchObject({ state: 'fill', next: 6000 })
+    const changes = changesFor(rows, {}, false)
+    expect(changes.find((c) => c.key === 'property_address')?.after).toEqual({ line: '1420 Oak Ridge Dr', city: 'Frisco', state: 'TX', zip: '75034' })
+    expect(changes.map((c) => c.target)).toEqual(['properties.address', 'properties.annual_taxes', 'properties.annual_insurance'])
+  })
+  it('without the address, taxes and insurance stay off a file with no home', () => {
+    const rows = rowsOf([f('property_address', ADDRESS), f('tax_monthly', 500)], { hasHome: false, values: {} })
+    expect(changesFor(rows, { property_address: 'keep' }, false)).toEqual([])
+    expect(row([f('tax_monthly', 500)], 'tax_monthly', { hasHome: false, values: {} }).state).toBe('cannot')
+  })
+  it("never renames the file's home", () => {
+    expect(row([f('property_address', ADDRESS)], 'property_address', { values: { 'properties.address': '1420 Oak Ridge Dr, Frisco, TX 75034' } }).state).toBe('same')
+    const r = row([f('property_address', ADDRESS)], 'property_address', { values: { 'properties.address': '88 Willow Bend Ct, McKinney, TX 75071' } })
+    expect(r.state).toBe('check')
+    expect(r.note).toContain("isn't changed here")
+  })
+  it('the appraised value fills the loan', () => {
+    expect(row([f('appraised_value', 410000)], 'appraised_value', { values: {} })).toMatchObject({ state: 'fill', target: 'loans.appraised_value', next: 410000 })
+  })
+})

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CD_FIELDS, CD_SCHEMA, CD_USER_PROMPT, normalizeCdReading, parseCdValue, targetValue } from './closingDisclosure'
+import { CD_FIELDS, CD_SCHEMA, CD_USER_PROMPT, normalizeCdReading, parseCdValue, splitCdAddress, targetValue } from './closingDisclosure'
 
 const def = (key: string) => CD_FIELDS.find((f) => f.key === key)!
 const allMissing = () => CD_FIELDS.map((f) => ({ key: f.key, found: false, value: '', quote: '', page: 0, confidence: 'high' }))
@@ -105,5 +105,20 @@ describe('normalizeCdReading', () => {
   it('says so when nothing was found, or the reply is unreadable', () => {
     expect(normalizeCdReading({ is_closing_disclosure: true, fields: allMissing(), notes: '' })).toHaveProperty('error')
     expect(normalizeCdReading('nonsense')).toHaveProperty('error')
+  })
+})
+
+describe('the property address', () => {
+  it('splits street, city, state and ZIP', () => {
+    expect(splitCdAddress('1420 Oak Ridge Dr, Frisco, TX 75034')).toEqual({ line: '1420 Oak Ridge Dr', city: 'Frisco', state: 'TX', zip: '75034' })
+    expect(splitCdAddress('1420 Oak Ridge Dr\nFrisco, tx 75034-1234')).toEqual({ line: '1420 Oak Ridge Dr', city: 'Frisco', state: 'TX', zip: '75034' })
+    expect(splitCdAddress('88 Willow Bend Ct, Unit 4, McKinney, TX')).toEqual({ line: '88 Willow Bend Ct, Unit 4', city: 'McKinney', state: 'TX', zip: null })
+    expect(splitCdAddress('Frisco, TX 75034')).toBeNull()
+    expect(splitCdAddress('Oak Ridge Dr, Frisco, TX')).toBeNull()
+  })
+  it('reads it as one line, or not at all', () => {
+    const def = CD_FIELDS.find((d) => d.key === 'property_address')!
+    expect(parseCdValue(def, '1420 Oak Ridge Dr\nFrisco, TX 75034')).toBe('1420 Oak Ridge Dr, Frisco, TX 75034')
+    expect(parseCdValue(def, 'See attached')).toBeNull()
   })
 })

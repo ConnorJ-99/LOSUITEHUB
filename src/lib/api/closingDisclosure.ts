@@ -101,13 +101,17 @@ export function useCdFileValues(loanId: string) {
       const l = unwrap<Record<string, unknown> | null>(
         await db()
           .from('loans')
-          .select('loan_amount, note_rate, term_months, closing_date, funding_date, first_payment_date, monthly_payment, lender_credits, seller_credits, discount_points_amount, prepaid_items_amount, lender_loan_number, lender_id, subject_property_id')
+          .select('loan_amount, note_rate, term_months, closing_date, funding_date, first_payment_date, monthly_payment, lender_credits, seller_credits, discount_points_amount, prepaid_items_amount, lender_loan_number, lender_id, subject_property_id, appraised_value')
           .eq('id', loanId)
           .maybeSingle(),
       )
       if (!l) throw new Error('Loan not found.')
       const homeId = l.subject_property_id as string | null
-      const home = homeId ? unwrap<{ annual_taxes: unknown; annual_insurance: unknown } | null>(await db().from('properties').select('annual_taxes, annual_insurance').eq('id', homeId).maybeSingle()) : null
+      const home = homeId
+        ? unwrap<{ annual_taxes: unknown; annual_insurance: unknown; address_line: string; city: string | null; state: string | null; zip: string | null } | null>(
+            await db().from('properties').select('annual_taxes, annual_insurance, address_line, city, state, zip').eq('id', homeId).maybeSingle(),
+          )
+        : null
       const numbers = await fetchLoanNumbers(loanId)
       const values: CdFileValues['values'] = {
         'loans.loan_amount': num(l.loan_amount),
@@ -125,6 +129,8 @@ export function useCdFileValues(loanId: string) {
         'loans.lender_id': (l.lender_id as string | null) ?? null,
         'properties.annual_taxes': home ? num(home.annual_taxes) : null,
         'properties.annual_insurance': home ? num(home.annual_insurance) : null,
+        'loans.appraised_value': num(l.appraised_value),
+        'properties.address': home ? [home.address_line, home.city, [home.state, home.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ') : null,
       }
       return { values, hasHome: !!home, lenderId: numbers.lenderId, programLenderId: numbers.programLenderId, lenderNameTyped: numbers.lenderNameTyped }
     },

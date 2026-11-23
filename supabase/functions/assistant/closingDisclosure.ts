@@ -10,7 +10,7 @@
 // PDF's own text before offering the figure. Nothing changes on the file until
 // Connor applies it. No Social Security numbers, ever.
 
-export type CdFieldKind = 'money' | 'pct' | 'date' | 'term' | 'text'
+export type CdFieldKind = 'money' | 'pct' | 'date' | 'term' | 'text' | 'address'
 
 /**
  * Where a figure goes when applied. `null` = shown to check only, never saved
@@ -32,8 +32,10 @@ export type CdTarget =
   | 'loans.prepaid_items_amount'
   | 'loans.lender_loan_number'
   | 'loans.lender_id'
+  | 'loans.appraised_value'
   | 'properties.annual_taxes'
   | 'properties.annual_insurance'
+  | 'properties.address'
 
 export interface CdFieldDef {
   key: string
@@ -68,6 +70,9 @@ export const CD_FIELDS = [
   { key: 'broker_compensation', label: 'Broker compensation', kind: 'money', target: null, hint: 'Mortgage broker compensation in section A (page 2): a broker fee paid by the borrower, or the amount in the "Paid by Others" column (lender-paid); not found if none' },
   { key: 'lender_name', label: 'Lender', kind: 'text', target: 'loans.lender_id', hint: 'Lender name (page 1, Transaction Information, or Contact Information on page 5)' },
   { key: 'lender_loan_number', label: "Lender's loan number", kind: 'text', target: 'loans.lender_loan_number', hint: 'Loan ID # (page 1, Loan Information)' },
+  // Connor, 2026-11-23: the CD fills in the home, so taxes and insurance always land and MyHome has the home.
+  { key: 'property_address', label: 'Property address', kind: 'address', target: 'properties.address', hint: 'Property address (page 1, Closing Information), as one line: street, city, state ZIP, e.g. "1420 Oak Ridge Dr, Frisco, TX 75034"' },
+  { key: 'appraised_value', label: 'Appraised value', kind: 'money', target: 'loans.appraised_value', hint: 'Appraised Prop. Value (page 1, Closing Information); not found when the CD shows only a Sale Price' },
 ] as const satisfies readonly CdFieldDef[]
 
 export type CdFieldKey = (typeof CD_FIELDS)[number]['key']
@@ -169,7 +174,34 @@ export function parseCdValue(def: CdFieldDef, text: string): number | string | n
     }
     case 'text':
       return t.length <= 60 ? t : null
+    case 'address':
+      return t.length <= 150 && splitCdAddress(t) ? t.replace(/\s*\n\s*/g, ', ') : null
   }
+}
+
+export interface CdAddress {
+  line: string
+  city: string
+  state: string
+  zip: string | null
+}
+
+/**
+ * "1420 Oak Ridge Dr, Frisco, TX 75034" (or on two lines) → street, city,
+ * state, ZIP. Null when it doesn't end in a city and a two-letter state.
+ */
+export function splitCdAddress(text: string): CdAddress | null {
+  const parts = text
+    .split(/\s*[,\n]\s*/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+  if (parts.length < 3) return null
+  const m = /^([A-Za-z]{2})(?:\s+(\d{5})(?:-\d{4})?)?$/.exec(parts[parts.length - 1])
+  if (!m) return null
+  const city = parts[parts.length - 2]
+  const line = parts.slice(0, -2).join(', ')
+  if (!/\d/.test(line) || !/^[A-Za-z .'-]+$/.test(city)) return null
+  return { line, city, state: m[1].toUpperCase(), zip: m[2] ?? null }
 }
 
 /** Checks Claude's reading. Unreadable values are listed, never guessed. */

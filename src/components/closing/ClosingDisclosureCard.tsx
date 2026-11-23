@@ -223,7 +223,7 @@ function Review({ loan, reading, onApplied }: { loan: LoanProfile; reading: CdRe
   const lender = resolveLender({ programLenderId: file.data.programLenderId, lenderId: file.data.lenderId, lenderNameTyped: file.data.lenderNameTyped }, lenders.data ?? [])
   const revenue = loan.compHidden ? null : loanRevenue(loan.details.loanAmount, loan.details.revenueType, loan.details.revenueValue).amount
   const rows = reviewRows(reading.fields, { values: file.data.values, hasHome: file.data.hasHome, lenderName: lender.name, lenderFromProgram: lender.from === 'program', lenders: lenders.data ?? [], revenue }, quotes)
-  const changes = changesFor(rows, decisions)
+  const changes = changesFor(rows, decisions, file.data.hasHome)
   const open = undecided(rows, decisions)
   const busy = apply.isPending || discard.isPending
 

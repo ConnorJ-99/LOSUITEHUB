@@ -9,7 +9,7 @@
 // The AI never does math: the yearly taxes and insurance are 12 times the
 // monthly escrow, worked out in targetValue().
 
-import { CD_FIELDS, targetValue, type CdField, type CdFieldDef, type CdFieldKey, type CdTarget } from '../../../supabase/functions/assistant/closingDisclosure'
+import { CD_FIELDS, splitCdAddress, targetValue, type CdAddress, type CdField, type CdFieldDef, type CdFieldKey, type CdTarget } from '../../../supabase/functions/assistant/closingDisclosure'
 import { findQuote } from '@/lib/documents/findQuote'
 import { formatIsoDate } from '@/lib/dates'
 import { formatCurrency, formatPercent } from '@/lib/format'
@@ -27,7 +27,7 @@ export const CD_GROUPS: { id: CdGroup; label: string }[] = [
 ]
 
 const GROUP: Record<CdFieldKey, CdGroup> = {
-  loan_amount: 'loan', interest_rate: 'loan', loan_term: 'loan', lender_name: 'loan', lender_loan_number: 'loan',
+  loan_amount: 'loan', interest_rate: 'loan', loan_term: 'loan', lender_name: 'loan', lender_loan_number: 'loan', property_address: 'loan', appraised_value: 'loan',
   date_issued: 'dates', closing_date: 'dates', disbursement_date: 'dates', first_payment_date: 'dates',
   principal_interest: 'payment', monthly_escrow: 'payment', total_monthly_payment: 'payment', tax_monthly: 'payment', insurance_monthly: 'payment',
   discount_points: 'credits', prepaids_total: 'credits', total_closing_costs: 'credits', lender_credits: 'credits', seller_credits: 'credits', cash_to_close: 'credits', broker_compensation: 'credits',
@@ -85,9 +85,13 @@ function display(def: CdFieldDef, value: number | string | null | undefined): st
       return m % 12 === 0 ? `${m / 12} years` : `${m} months`
     }
     case 'text':
+    case 'address':
       return String(value)
   }
 }
+
+/** Two addresses as the same home: case, punctuation and spacing ignored, street suffixes as written. */
+const addressKey = (a: string) => a.toLowerCase().replace(/[.,#]/g, ' ').replace(/\s+/g, ' ').trim()
 
 /** The figure the file keeps, formatted (yearly for escrow). */
 function displayTarget(def: CdFieldDef, value: number | string | null | undefined): string {
@@ -158,9 +162,29 @@ export function reviewRows(fields: readonly CdField[], file: CdFileNow, quotes: 
         next = match.id
         state = file.values['loans.lender_id'] ? 'replace' : 'fill'
       }
+    } else if (def.target === 'properties.address') {
+      // The CD's property address (Connor, 2026-11-23): makes the subject home when the file has none; never renames one.
+      const now = file.values['properties.address']
+      fileText = typeof now === 'string' && now ? now : '—'
+      if (!file.hasHome) {
+        state = 'fill'
+        next = String(f.value)
+        notes.push('Adds this home to the file as the subject property, so the taxes and insurance have a place to go. Add its county on the Property tab for the MyHome value estimate.')
+      } else if (typeof now === 'string' && addressKey(now).startsWith(addressKey(String(f.value)).split(' ').slice(0, 3).join(' '))) {
+        state = 'same'
+      } else {
+        state = 'check'
+        notes.push("Differs from the file's home. Check the Property tab; the address isn't changed here.")
+      }
     } else if (def.target.startsWith('properties.') && !file.hasHome) {
-      state = 'cannot'
-      notes.push('This file has no subject home for it.')
+      if (byKey.has('property_address')) {
+        next = targetValue(def, f.value)
+        state = 'fill'
+        notes.push('Goes on the home added from the property address (use the address too).')
+      } else {
+        state = 'cannot'
+        notes.push('This file has no subject home for it.')
+      }
     } else {
       next = targetValue(def, f.value)
       const now = file.values[def.target]
@@ -190,17 +214,31 @@ export interface CdChange {
   key: CdFieldKey
   label: string
   target: CdTarget
-  after: number | string
+  after: number | string | CdAddress
 }
 
-/** The changes Apply sends (apply_closing_disclosure). */
-export function changesFor(rows: readonly CdRow[], decisions: Partial<Record<CdFieldKey, Decision>>): CdChange[] {
-  return rows.filter((r) => isUsed(r, decisions) && r.target && r.next != null).map((r) => ({ key: r.key, label: r.label, target: r.target!, after: r.next! }))
+/**
+ * The changes Apply sends (apply_closing_disclosure). The address goes as its
+ * parts. With no home on the file, taxes and insurance go only along with the
+ * address that makes the home.
+ */
+export function changesFor(rows: readonly CdRow[], decisions: Partial<Record<CdFieldKey, Decision>>, hasHome = true): CdChange[] {
+  const used = rows.filter((r) => isUsed(r, decisions) && r.target && r.next != null)
+  const makesHome = used.some((r) => r.target === 'properties.address')
+  return used
+    .filter((r) => hasHome || makesHome || !r.target!.startsWith('properties.'))
+    // The address first: it makes the home the taxes and insurance go on.
+    .sort((a, b) => Number(b.target === 'properties.address') - Number(a.target === 'properties.address'))
+    .map((r) => ({ key: r.key, label: r.label, target: r.target!, after: r.target === 'properties.address' ? (splitCdAddress(String(r.next)) ?? r.next!) : r.next! }))
 }
 
 /** A saved value as the file shows it (yearly for the home's taxes and insurance), for the applied list. */
 export function formatCdSaved(key: string, value: unknown): string {
   const def = (CD_FIELDS as readonly CdFieldDef[]).find((d) => d.key === key)
+  if (def?.kind === 'address' && value && typeof value === 'object') {
+    const v = value as Partial<CdAddress>
+    return [v.line, v.city, [v.state, v.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '—'
+  }
   if (!def || (value !== null && typeof value !== 'number' && typeof value !== 'string')) return '—'
   return displayTarget(def, value)
 }
