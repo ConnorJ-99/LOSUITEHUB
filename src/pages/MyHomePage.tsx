@@ -8,14 +8,17 @@
 // Signed in, it shows every file the person is on as chips (open, getting
 // ready, closed) with their loan officer. An open file (Stage 2) shows what
 // the borrower portal shows: where the loan stands, their documents with
-// uploads, published letters and estimates, and Request numbers. Getting-ready
-// and closed views come in later stages.
+// uploads, published letters and estimates, and Request numbers. A closed file
+// (closed view Step A) shows the home and loan: Connor's value or a way to ask
+// for one, Zillow and the county appraisal district, payment and key dates, and
+// the documents he published. The getting-ready view comes later.
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { HomeIcon, Loader2Icon, LockIcon, LogOutIcon } from 'lucide-react'
-import { fetchFile, fetchMe, fileCall, hasSession, putMyHomeUpload, signIn, signOut, type MyHomeFileView } from '@/lib/myhome/api'
+import { CheckIcon, ExternalLinkIcon, FileTextIcon, HomeIcon, Loader2Icon, LockIcon, LogOutIcon } from 'lucide-react'
+import { formatCurrency } from '@/lib/format'
+import { askLo, closedDocumentUrl, fetchClosed, fetchFile, fetchMe, fileCall, hasSession, putMyHomeUpload, signIn, signOut, type MyHomeFileView } from '@/lib/myhome/api'
 import { isSupabaseConfigured } from '@/lib/supabase'
-import { CODE_LENGTH, INVITE_TOKEN, cleanCode, emailLooksValid, type MyHomeMe } from '../../supabase/functions/myhome/rules'
+import { CODE_LENGTH, INVITE_TOKEN, cleanCode, emailLooksValid, type MyHomeClosed, type MyHomeMe } from '../../supabase/functions/myhome/rules'
 import { Items, LoCard } from './PublicUploadPage'
 import { LettersAndHomes, PortalHeader } from './PublicPortal'
 
@@ -230,15 +233,198 @@ function OpenFile({ loanId, onGone, onSignedOut }: { loanId: string; onGone: () 
 }
 
 // ---------------------------------------------------------------------------
+// A closed file (closed view, Step A)
+// ---------------------------------------------------------------------------
+
+type ClosedScreen = { kind: 'loading' } | { kind: 'error'; message: string } | { kind: 'open'; view: MyHomeClosed }
+
+const card = 'rounded-xl border bg-white p-5 shadow-soft'
+const shortDate = (iso: string) => new Date(iso.length === 10 ? `${iso}T12:00:00` : iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+const monthDay = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
+/**
+ * Their home and loan after closing: the value Connor has on file (or a way to
+ * ask for one), Zillow and the county appraisal district, the loan's payment
+ * and key dates, the documents he published, and that loan's officer. The
+ * automatic index estimate (Step B) and the equity card (Step C) come next.
+ */
+function ClosedFile({ loanId, onGone, onSignedOut }: { loanId: string; onGone: () => void; onSignedOut: () => void }) {
+  const [screen, setScreen] = useState<ClosedScreen>({ kind: 'loading' })
+
+  const load = async (opened: boolean) => {
+    const r = await fetchClosed(loanId, opened)
+    if (r.status === 200 && r.body.lo && r.body.links) return setScreen({ kind: 'open', view: r.body as MyHomeClosed })
+    if (r.status === 401) return onSignedOut()
+    if (r.status === 403 || r.status === 404 || r.status === 409) return onGone()
+    setScreen({ kind: 'error', message: r.body.error ?? 'Your home could not load. Try again.' })
+  }
+
+  useEffect(() => {
+    void load(true)
+    // Once per loan (the parent remounts this for another loan).
+  }, [])
+
+  if (screen.kind === 'loading')
+    return (
+      <p className="flex items-center justify-center gap-2 rounded-xl border bg-white py-12 text-sm text-muted-foreground shadow-soft">
+        <Loader2Icon className="size-4 animate-spin" /> Loading your home…
+      </p>
+    )
+  if (screen.kind === 'error')
+    return (
+      <section className={`${card} text-center`}>
+        <p className="text-sm text-muted-foreground">{screen.message}</p>
+        <button type="button" onClick={() => void load(false)} className="mt-3 h-10 rounded-lg border px-4 text-sm font-medium">
+          Try again
+        </button>
+      </section>
+    )
+  const v = screen.view
+  const loFirst = v.lo.name.split(/\s+/)[0] || 'your loan officer'
+  return (
+    <>
+      <HomeValue loanId={loanId} view={v} loFirst={loFirst} onAsked={(at) => setScreen({ kind: 'open', view: { ...v, asked: { ...v.asked, value_check: at } } })} onGone={onGone} />
+      <MyLoan loanId={loanId} view={v} onGone={onGone} />
+      <LoCard lo={v.lo} />
+    </>
+  )
+}
+
+function HomeValue({ loanId, view, loFirst, onAsked, onGone }: { loanId: string; view: MyHomeClosed; loFirst: string; onAsked: (at: string) => void; onGone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const asked = view.asked.value_check ?? null
+  const askNow = async () => {
+    setBusy(true)
+    setError(null)
+    const r = await askLo(loanId, 'value_check')
+    setBusy(false)
+    if (r.status === 200 && r.body.askedAt) return onAsked(r.body.askedAt)
+    if (r.status === 401 || r.status === 404 || r.status === 409) return onGone()
+    setError(r.body.error ?? 'That did not go through. Try again.')
+  }
+  return (
+    <section className={card} aria-labelledby="myhome-value">
+      <h2 id="myhome-value" className="text-lg font-bold tracking-tight">
+        My home's value
+      </h2>
+      {view.value ? (
+        <>
+          <p className="mt-2 text-4xl font-extrabold tracking-tight">{formatCurrency(view.value.amount)}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {loFirst}'s estimate{view.value.on ? ` · ${monthYear(view.value.on)}` : ''}
+          </p>
+        </>
+      ) : (
+        <p className="mt-1 text-sm text-muted-foreground">Want to know what your home is worth today? {loFirst} can take a look for you.</p>
+      )}
+      {view.links.length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {view.links.map((l) => (
+            <a key={l.label} href={l.url} target="_blank" rel="noopener noreferrer" className="flex h-10 items-center gap-1 rounded-lg border px-3 text-sm font-semibold text-primary">
+              {l.label}
+              <ExternalLinkIcon className="size-3.5" />
+            </a>
+          ))}
+        </div>
+      )}
+      {asked ? (
+        <p className="mt-4 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800">
+          <CheckIcon className="size-4 shrink-0" />
+          Asked {shortDate(asked)}. {loFirst} will get back to you.
+        </p>
+      ) : (
+        <button type="button" onClick={() => void askNow()} disabled={busy} className="mt-4 h-12 w-full rounded-lg border-2 border-primary text-base font-semibold text-primary disabled:opacity-60">
+          {busy ? 'Sending…' : `Ask ${loFirst} to check my value`}
+        </button>
+      )}
+      {error && <p className="mt-1.5 text-sm text-destructive">{error}</p>}
+      <p className="mt-3 text-xs text-muted-foreground">Estimates only. Not an appraisal.</p>
+    </section>
+  )
+}
+
+function MyLoan({ loanId, view, onGone }: { loanId: string; view: MyHomeClosed; onGone: () => void }) {
+  const [opening, setOpening] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const open = async (id: string) => {
+    setOpening(id)
+    setError(null)
+    // Open the tab first (phones block pop-ups that open after a wait), then point it at the file.
+    const tab = window.open('', '_blank')
+    const r = await closedDocumentUrl(loanId, id)
+    setOpening(null)
+    if (r.status !== 200 || !r.body.url) {
+      tab?.close()
+      if (r.status === 401 || r.status === 409) return onGone()
+      return setError(r.body.error ?? 'The document could not open. Try again.')
+    }
+    if (tab) tab.location.href = r.body.url
+    else window.location.href = r.body.url
+  }
+  const facts: [string, string][] = [
+    ['Monthly payment', view.monthlyPayment != null ? formatCurrency(view.monthlyPayment) : '—'],
+    ['Insurance renews', view.insuranceRenewsOn ? shortDate(view.insuranceRenewsOn) : '—'],
+    ['Homestead filed', view.homesteadFiled == null ? '—' : view.homesteadFiled ? 'Yes' : 'Not yet'],
+    ['Home anniversary', view.closedOn ? monthDay(view.closedOn) : '—'],
+  ]
+  return (
+    <section className={card} aria-labelledby="myhome-loan">
+      <h2 id="myhome-loan" className="text-lg font-bold tracking-tight">
+        My loan
+      </h2>
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
+        {facts.map(([label, value]) => (
+          <div key={label}>
+            <dt className="text-sm text-muted-foreground">{label}</dt>
+            <dd className={`text-lg font-bold ${value === 'Yes' ? 'text-emerald-700' : ''}`}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {view.documents.length > 0 && (
+        <div className="mt-4 border-t pt-3">
+          <h3 className="text-sm font-semibold">My closing documents</h3>
+          <ul className="mt-1 divide-y">
+            {view.documents.map((d) => (
+              <li key={d.id}>
+                <button type="button" onClick={() => void open(d.id)} disabled={opening != null} className="flex w-full items-center gap-3 py-2.5 text-left disabled:opacity-60">
+                  {opening === d.id ? <Loader2Icon className="size-5 shrink-0 animate-spin text-primary" /> : <FileTextIcon className="size-5 shrink-0 text-primary" />}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{d.name}</span>
+                    <span className="block text-xs text-muted-foreground">Shared {shortDate(d.publishedAt)}</span>
+                  </span>
+                  <span className="text-sm font-medium text-primary">Open</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+        </div>
+      )}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Signed in
 // ---------------------------------------------------------------------------
 
 const HEADLINE = { active: "Here's where your loan stands.", nurture: "You're getting ready.", closed: 'Welcome home.' } as const
 
+/** "connor" → "Connor" (names are sometimes typed in lower case). */
+const firstNameOf = (name: string) => (name ? name.charAt(0).toUpperCase() + name.slice(1) : '')
+
+/** "March 2021" from "2021-03-19". */
+const monthYear = (iso: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : null)
+
 function Home({ me, onSignOut, onReload }: { me: MyHomeMe; onSignOut: () => void; onReload: () => void }) {
   const [picked, setPicked] = useState(me.files[0]?.loanId ?? null)
   const file = me.files.find((f) => f.loanId === picked) ?? me.files[0] ?? null
-  const initials = me.firstName.slice(0, 1).toUpperCase() || 'M'
+  const first = firstNameOf(me.firstName)
+  const initials = first.slice(0, 1) || 'M'
+  // A closed home: "Welcome home, Jordan" over its address and "Closed March 2021 · Conventional 30-year".
+  const closedHome = file?.view === 'closed' && file.address ? [file.address, file.city].filter(Boolean).join(', ') : null
+  const closedLine = file?.view === 'closed' ? [monthYear(file.closingDate) && `Closed ${monthYear(file.closingDate)}`, file.loanLine].filter(Boolean).join(' · ') : ''
   return (
     <div className="min-h-screen bg-[#F4F7FB] text-foreground">
       <header className="bg-navy px-4 pt-5 pb-14">
@@ -251,8 +437,19 @@ function Home({ me, onSignOut, onReload }: { me: MyHomeMe; onSignOut: () => void
               <span className="sr-only">Sign out</span>
             </button>
           </div>
-          <p className="mt-6 text-white/75">{me.firstName ? `Hi ${me.firstName},` : 'Hi,'}</p>
-          <h1 className="text-3xl leading-tight font-extrabold tracking-tight text-white">{file ? HEADLINE[file.view] : 'Welcome to MyHome.'}</h1>
+          {closedHome ? (
+            <>
+              <p className="mt-6 text-white/75">{first ? `Welcome home, ${first}` : 'Welcome home'}</p>
+              <h1 className="text-3xl leading-tight font-extrabold tracking-tight text-white">{closedHome}</h1>
+              {closedLine && <p className="mt-1 text-white/75">{closedLine}</p>}
+            </>
+          ) : (
+            <>
+              <p className="mt-6 text-white/75">{first ? `Hi ${first},` : 'Hi,'}</p>
+              <h1 className="text-3xl leading-tight font-extrabold tracking-tight text-white">{file ? HEADLINE[file.view] : 'Welcome to MyHome.'}</h1>
+              {file?.view === 'closed' && closedLine && <p className="mt-1 text-white/75">{closedLine}</p>}
+            </>
+          )}
           {me.files.length > 1 && (
             <div className="mt-4 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Your loans">
               {me.files.map((f) => (
@@ -275,13 +472,15 @@ function Home({ me, onSignOut, onReload }: { me: MyHomeMe; onSignOut: () => void
         {file?.view === 'active' ? (
           // key: picking another loan starts its view fresh.
           <OpenFile key={file.loanId} loanId={file.loanId} onGone={onReload} onSignedOut={onSignOut} />
+        ) : file?.view === 'closed' ? (
+          <ClosedFile key={file.loanId} loanId={file.loanId} onGone={onReload} onSignedOut={onSignOut} />
         ) : (
           <>
             <section className="rounded-xl border bg-white p-5 shadow-soft">
               {file ? (
                 <>
                   <h2 className="text-lg font-bold tracking-tight">{file.label}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{file.view === 'nurture' ? 'Your numbers and your readiness plan will show here.' : "Your home's estimated value and equity will show here."}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Your numbers and your readiness plan will show here.</p>
                 </>
               ) : (
                 <>

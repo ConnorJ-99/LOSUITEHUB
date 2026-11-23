@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { INVITE_TOKEN, cleanCode, emailLooksValid, fileLabel, isLocked, orderFiles, pickAccount, sameCode, viewFor, type MyHomeFile } from './rules'
+import { INVITE_TOKEN, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type MyHomeFile } from './rules'
 
 describe('emails and codes', () => {
   it('compares codes exactly', () => {
@@ -67,5 +67,32 @@ describe('files', () => {
     const f = (loanId: string, view: MyHomeFile['view'], closingDate: string | null, createdAt: string) => ({ loanId, view, closingDate, createdAt })
     const out = orderFiles([f('c-old', 'closed', '2021-03-19', '2021-01-01'), f('n', 'nurture', null, '2026-08-01'), f('c-new', 'closed', '2024-05-01', '2024-01-01'), f('a-old', 'active', null, '2026-01-01'), f('a-new', 'active', null, '2026-10-01')])
     expect(out.map((x) => x.loanId)).toEqual(['a-new', 'a-old', 'n', 'c-new', 'c-old'])
+  })
+})
+
+describe('closed view', () => {
+  const line = (purpose: string, mortgageType: string | null, termMonths: number | null, programName: string | null = null) => loanLine({ purpose, mortgageType, termMonths, programName })
+  it('says the loan in a few words', () => {
+    expect(line('purchase', 'conventional', 360)).toBe('Conventional 30-year')
+    expect(line('refinance_rate_term', 'fha', 180)).toBe('FHA 15-year')
+    expect(line('purchase', 'usda_rural', 360)).toBe('USDA 30-year')
+    expect(line('purchase', 'other', 360, 'DSCR')).toBe('DSCR 30-year')
+    expect(line('heloc', null, 360)).toBe('Home equity line')
+    expect(line('heloan', null, 120)).toBe('Home equity loan 10-year')
+    expect(line('purchase', null, 84)).toBe('7-year loan')
+    expect(line('purchase', null, 90)).toBe('90-month loan')
+    expect(line('purchase', null, null)).toBeNull()
+  })
+  it('reads the county however it was typed', () => {
+    expect(countyName('Collin County')).toBe('Collin')
+    expect(countyName(' collin ')).toBe('Collin')
+    expect(countyName('TARRANT CO.')).toBe('Tarrant')
+    expect(countyName('Hood')).toBe('Hood')
+    expect(countyName('Travis')).toBeNull()
+    expect(countyName(null)).toBeNull()
+  })
+  it('opens Zillow on the address', () => {
+    expect(zillowUrl({ line: '88 Willow Bend Ct', city: 'McKinney', state: 'TX', zip: '75071' })).toBe('https://www.zillow.com/homes/88%20Willow%20Bend%20Ct%2C%20McKinney%2C%20TX%2075071_rb/')
+    expect(zillowUrl({ line: '88 Willow Bend Ct', city: null, state: null, zip: null })).toBe('https://www.zillow.com/homes/88%20Willow%20Bend%20Ct_rb/')
   })
 })

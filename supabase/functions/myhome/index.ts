@@ -22,11 +22,18 @@
 //              then the upload recorded on the Documents tab and the item received
 //   pdf        a one-minute link to a published letter or estimate PDF
 //   home_request "Request numbers" for a home (submit_myhome_request())
+// Closed view, Step A (a closed file; Connor 2026-11-20):
+//   closed     the home, closed date and loan type/term, monthly payment,
+//              insurance renewal, homestead, Connor's own value with its date,
+//              Zillow and the county appraisal district, the documents Connor
+//              published on the file, open asks, and that file's loan officer
+//   closed_pdf a one-minute link to one of those documents
+//   ask        "Ask Connor to check my value" (myhome_ask(): a note and his notice)
 // Never sends anything: the code and link reach the borrower only through
 // Connor's GHL email ("Send MyHome code to GHL", the ghl function).
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0'
-import { CODE_LENGTH, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, cleanCode, emailLooksValid, fileLabel, isLocked, normEmail, orderFiles, pickAccount, sameCode, viewFor, type AccountMatch, type AccountStatus, type MyHomeFile, type MyHomeLo, type MyHomeMe } from './rules.ts'
+import { ASK_KINDS, CODE_LENGTH, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, normEmail, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type AccountMatch, type AccountStatus, type AskKind, type MyHomeClosed, type MyHomeFile, type MyHomeLo, type MyHomeMe, type MyHomeView } from './rules.ts'
 import { groupByHome, homeRequestProblem, portalStep, stepMessage, type HomeRequestInput, type PortalDoc, type PortalMilestone, type PortalStage, type PortalView, type RequestStatus } from '../document-upload/portal.ts'
 import { canUpload, fileProblem, safeFileName, type UploadItem } from '../document-upload/rules.ts'
 
@@ -190,6 +197,9 @@ interface LoanRow {
   created_at: string
   assigned_lo_id: string | null
   subject_property_id: string | null
+  mortgage_type: string | null
+  term_months: number | null
+  program_name: string | null
 }
 
 async function me(db: SupabaseClient, account: AccountRow, fresh: boolean): Promise<MyHomeMe> {
@@ -206,7 +216,7 @@ async function me(db: SupabaseClient, account: AccountRow, fresh: boolean): Prom
   ])
   const loanIds = ((on.data ?? []) as { loan_id: string }[]).map((x) => x.loan_id)
   const loans = loanIds.length
-    ? ((await db.from('loans').select('id, stage, purpose, closing_date, created_at, assigned_lo_id, subject_property_id').in('id', loanIds).eq('organization_id', account.organization_id)).data ?? []) as LoanRow[]
+    ? ((await db.from('loans').select('id, stage, purpose, closing_date, created_at, assigned_lo_id, subject_property_id, mortgage_type, term_months, program_name').in('id', loanIds).eq('organization_id', account.organization_id)).data ?? []) as LoanRow[]
     : []
   const homeIds = loans.map((l) => l.subject_property_id).filter((x): x is string => !!x)
   const homes = homeIds.length ? (((await db.from('properties').select('id, address_line, city').in('id', homeIds)).data ?? []) as { id: string; address_line: string; city: string | null }[]) : []
@@ -216,7 +226,7 @@ async function me(db: SupabaseClient, account: AccountRow, fresh: boolean): Prom
       const view = viewFor(l.stage)
       if (!view) return []
       const home = homes.find((h) => h.id === l.subject_property_id) ?? null
-      return [{ loanId: l.id, view, purpose: l.purpose, stage: l.stage, address: home?.address_line ?? null, city: home?.city ?? null, closingDate: l.closing_date, createdAt: l.created_at, lo: l.assigned_lo_id }]
+      return [{ loanId: l.id, view, purpose: l.purpose, stage: l.stage, address: home?.address_line ?? null, city: home?.city ?? null, closingDate: l.closing_date, createdAt: l.created_at, loanLine: loanLine({ purpose: l.purpose, mortgageType: l.mortgage_type, termMonths: l.term_months, programName: l.program_name }), lo: l.assigned_lo_id }]
     }),
   )
   const lo = files.length ? await loCard(db, account.organization_id, files[0].lo) : null
@@ -242,8 +252,8 @@ interface OpenFile {
   assigned_lo_id: string | null
 }
 
-/** The file in the request, when the signed-in person is a borrower on it and it's open (not nurture, closed or lost). */
-async function openFile(db: SupabaseClient, account: AccountRow, loanId: unknown): Promise<OpenFile | Response> {
+/** The file in the request, when the signed-in person is a borrower on it and it has the view asked for (open: not nurture, closed or lost). */
+async function fileFor(db: SupabaseClient, account: AccountRow, loanId: unknown, want: MyHomeView): Promise<OpenFile | Response> {
   if (typeof loanId !== 'string' || !UUID.test(loanId)) return reply(404, { error: NOT_YOURS })
   const [on, loan] = await Promise.all([
     db.from('loan_borrowers').select('loan_id').eq('loan_id', loanId).eq('contact_id', account.contact_id).maybeSingle(),
@@ -253,7 +263,7 @@ async function openFile(db: SupabaseClient, account: AccountRow, loanId: unknown
   if (loan.error) throw new Error(loan.error.message)
   const l = loan.data as OpenFile | null
   if (!on.data || !l || !viewFor(l.stage)) return reply(404, { error: NOT_YOURS })
-  if (viewFor(l.stage) !== 'active') return reply(409, { error: NOT_OPEN, state: 'not_open' })
+  if (viewFor(l.stage) !== want) return reply(409, { error: NOT_OPEN, state: 'not_open' })
   return l
 }
 
@@ -405,7 +415,78 @@ async function upload(db: SupabaseClient, account: AccountRow, l: OpenFile, body
   return reply(200, { ok: true })
 }
 
+// ---------------------------------------------------------------------------
+// Closed view, Step A: the home, the loan, Connor's value, links, published documents, asks
+// ---------------------------------------------------------------------------
+
+async function closedView(db: SupabaseClient, account: AccountRow, l: OpenFile, opened: boolean): Promise<MyHomeClosed> {
+  const loan = await db.from('loans').select('closing_date, funding_date, purpose, mortgage_type, term_months, program_name, monthly_payment, subject_property_id').eq('id', l.id).single()
+  if (loan.error) throw new Error(loan.error.message)
+  const ln = loan.data as { closing_date: string | null; funding_date: string | null; purpose: string; mortgage_type: string | null; term_months: number | null; program_name: string | null; monthly_payment: number | null; subject_property_id: string | null }
+  const dayAgo = new Date(Date.now() - 86_400_000).toISOString()
+  const [home, docs, asks, lo] = await Promise.all([
+    ln.subject_property_id
+      ? db.from('properties').select('address_line, city, state, zip, county, insurance_renewal_date, homestead_filed, estimated_value, estimated_value_on').eq('id', ln.subject_property_id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    db.from('loan_documents').select('id, file_name, published_at').eq('loan_id', l.id).not('published_at', 'is', null).order('published_at', { ascending: false }),
+    db.from('myhome_events').select('kind, created_at').eq('account_id', account.id).eq('loan_id', l.id).in('kind', ASK_KINDS.map((k) => `${k}_requested`)).is('handled_at', null).gte('created_at', dayAgo),
+    loCard(db, l.organization_id, l.assigned_lo_id),
+  ])
+  if (home.error) throw new Error(home.error.message)
+  const h = home.data as { address_line: string; city: string | null; state: string | null; zip: string | null; county: string | null; insurance_renewal_date: string | null; homestead_filed: boolean | null; estimated_value: number | null; estimated_value_on: string | null } | null
+  const county = countyName(h?.county)
+  const links: MyHomeClosed['links'] = []
+  if (h) links.push({ label: 'Zillow', url: zillowUrl({ line: h.address_line, city: h.city, state: h.state, zip: h.zip }) })
+  if (county) {
+    // The county's appraisal district, from Quick Links.
+    const cad = await db.from('quick_links').select('url').eq('organization_id', l.organization_id).eq('category', 'county_tax').eq('name', county).maybeSingle()
+    const url = (cad.data as { url: string | null } | null)?.url
+    if (url && url.startsWith('https://')) links.push({ label: `${county} CAD`, url })
+  }
+  const asked: MyHomeClosed['asked'] = {}
+  for (const a of (asks.data ?? []) as { kind: string; created_at: string }[]) {
+    const k = a.kind.replace(/_requested$/, '') as AskKind
+    const prior = asked[k]
+    if (!prior || prior < a.created_at) asked[k] = a.created_at
+  }
+  if (opened) await event(db, account, 'opened', {}, l.id)
+  return {
+    home: h ? { line: h.address_line, city: h.city, state: h.state, zip: h.zip, county } : null,
+    closedOn: ln.closing_date ?? ln.funding_date,
+    loanLine: loanLine({ purpose: ln.purpose, mortgageType: ln.mortgage_type, termMonths: ln.term_months, programName: ln.program_name }),
+    monthlyPayment: ln.monthly_payment == null ? null : Number(ln.monthly_payment),
+    insuranceRenewsOn: h?.insurance_renewal_date ?? null,
+    homesteadFiled: h?.homestead_filed ?? null,
+    value: h?.estimated_value != null && Number(h.estimated_value) > 0 ? { amount: Number(h.estimated_value), on: h.estimated_value_on } : null,
+    links,
+    documents: ((docs.data ?? []) as { id: string; file_name: string; published_at: string }[]).map((d) => ({ id: d.id, name: d.file_name, publishedAt: d.published_at })),
+    asked,
+    lo,
+  }
+}
+
+/** A one-minute link to a document Connor published on the closed file. */
+async function closedPdf(db: SupabaseClient, account: AccountRow, l: OpenFile, documentId: unknown): Promise<Response> {
+  if (typeof documentId !== 'string' || !UUID.test(documentId)) return reply(400, { error: 'That document is not available.' })
+  const doc = await db.from('loan_documents').select('storage_path').eq('id', documentId).eq('loan_id', l.id).not('published_at', 'is', null).maybeSingle()
+  const path = (doc.data as { storage_path: string } | null)?.storage_path
+  if (!path) return reply(404, { error: 'That document is not available.' })
+  const signed = await db.storage.from('loan-files').createSignedUrl(path, 60)
+  if (signed.error || !signed.data) return reply(500, { error: 'The document could not open. Try again.' })
+  await event(db, account, 'pdf', { documentId }, l.id)
+  return reply(200, { url: signed.data.signedUrl })
+}
+
+/** "Ask Connor to …": a note on the file and his notice (myhome_ask()); the same ask within a day only returns the first. */
+async function ask(db: SupabaseClient, account: AccountRow, l: OpenFile, kind: unknown): Promise<Response> {
+  if (typeof kind !== 'string' || !ASK_KINDS.includes(kind as AskKind)) return reply(400, { error: 'Unknown request.' })
+  const r = await db.rpc('myhome_ask', { p_account: account.id, p_loan: l.id, p_kind: kind })
+  if (r.error) return reply(400, { error: r.error.message })
+  return reply(200, { askedAt: r.data })
+}
+
 const FILE_ACTIONS = ['file', 'pdf', 'home_request', 'upload_url', 'uploaded']
+const CLOSED_ACTIONS = ['closed', 'closed_pdf', 'ask']
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: CORS })
@@ -422,12 +503,21 @@ Deno.serve(async (request) => {
     if (typeof body.action === 'string' && FILE_ACTIONS.includes(body.action)) {
       const account = await signedIn(db, request)
       if (account instanceof Response) return account
-      const l = await openFile(db, account, body.loanId)
+      const l = await fileFor(db, account, body.loanId, 'active')
       if (l instanceof Response) return l
       if (body.action === 'file') return reply(200, await fileView(db, account, l, body.opened === true))
       if (body.action === 'pdf') return await pdf(db, account, l, body.documentId)
       if (body.action === 'home_request') return await homeRequest(db, account, l, body.request)
       return await upload(db, account, l, body)
+    }
+    if (typeof body.action === 'string' && CLOSED_ACTIONS.includes(body.action)) {
+      const account = await signedIn(db, request)
+      if (account instanceof Response) return account
+      const l = await fileFor(db, account, body.loanId, 'closed')
+      if (l instanceof Response) return l
+      if (body.action === 'closed') return reply(200, await closedView(db, account, l, body.opened === true))
+      if (body.action === 'closed_pdf') return await closedPdf(db, account, l, body.documentId)
+      return await ask(db, account, l, body.kind)
     }
     return reply(400, { error: 'Unknown action.' })
   } catch (e) {

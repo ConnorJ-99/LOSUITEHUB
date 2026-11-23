@@ -6,7 +6,7 @@ import { putSignedUpload, type PortalCall, type UploadReply } from '@/lib/api/do
 import { createMyHomeClient } from '@/lib/supabase'
 import type { PortalView } from '../../../supabase/functions/document-upload/portal'
 import type { UploadItem, UploadLo } from '../../../supabase/functions/document-upload/rules'
-import type { MyHomeMe } from '../../../supabase/functions/myhome/rules'
+import type { AskKind, MyHomeClosed, MyHomeMe } from '../../../supabase/functions/myhome/rules'
 
 let client: SupabaseClient | null | undefined
 
@@ -69,6 +69,15 @@ export const fileCall =
     const r = await call<UploadReply['body']>({ ...body, loanId })
     return { status: r.status === 409 ? 410 : r.status, body: r.body as UploadReply['body'] }
   }
+
+/** A closed file's view (closed view Step A). `opened` = the borrower just picked it. */
+export const fetchClosed = (loanId: string, opened: boolean) => call<Partial<MyHomeClosed>>({ action: 'closed', loanId, opened })
+
+/** A one-minute link to a document published on the closed file. */
+export const closedDocumentUrl = (loanId: string, documentId: string) => call<{ url?: string }>({ action: 'closed_pdf', loanId, documentId })
+
+/** "Ask {LO} to check my value" (and, later, refi and equity checks). Returns when it was asked. */
+export const askLo = (loanId: string, kind: AskKind) => call<{ askedAt?: string }>({ action: 'ask', loanId, kind })
 
 /** Uploads go through MyHome's own client, never the staff one. */
 export const putMyHomeUpload = (path: string, token: string, file: File) => {

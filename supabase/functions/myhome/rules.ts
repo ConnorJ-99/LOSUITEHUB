@@ -89,6 +89,62 @@ export interface MyHomeFile {
   city: string | null
   closingDate: string | null
   createdAt: string
+  /** "Conventional 30-year" (closed files' header), or null. */
+  loanLine?: string | null
+}
+
+const MORTGAGE_WORDS: Record<string, string> = { conventional: 'Conventional', fha: 'FHA', va: 'VA', usda_rural: 'USDA' }
+
+/**
+ * The loan in a few words: "Conventional 30-year", "FHA 15-year", a home equity
+ * line, or the program's name for anything else ("DSCR 30-year"). Null when
+ * nothing is known. (Connor, 2026-11-20: closed borrowers see their own loan
+ * type and term.)
+ */
+export function loanLine(v: { purpose: string; mortgageType: string | null; termMonths: number | null; programName: string | null }): string | null {
+  if (v.purpose === 'heloc') return 'Home equity line'
+  const term = v.termMonths && v.termMonths % 12 === 0 ? `${v.termMonths / 12}-year` : v.termMonths ? `${v.termMonths}-month` : null
+  const kind = (v.mortgageType && MORTGAGE_WORDS[v.mortgageType]) || v.programName?.trim() || (v.purpose === 'heloan' ? 'Home equity loan' : null)
+  if (!kind) return term ? `${term} loan` : null
+  return term ? `${kind} ${term}` : kind
+}
+
+/** The 13 counties Quick Links has an appraisal district for. */
+const COUNTIES = ['Dallas', 'Tarrant', 'Collin', 'Denton', 'Rockwall', 'Kaufman', 'Ellis', 'Johnson', 'Parker', 'Wise', 'Hood', 'Hunt', 'Grayson']
+
+/** "Collin County", " collin ", "COLLIN CO." → "Collin"; anything else → null. */
+export function countyName(raw: string | null | undefined): string | null {
+  const t = (raw ?? '').trim().toLowerCase().replace(/\.$/, '').replace(/\s+(county|co)$/, '').trim()
+  return COUNTIES.find((c) => c.toLowerCase() === t) ?? null
+}
+
+/** Zillow's search for the home's address (opens their page for it, or the closest match). */
+export function zillowUrl(a: { line: string; city: string | null; state: string | null; zip: string | null }): string {
+  const full = [a.line, a.city, [a.state, a.zip].filter(Boolean).join(' ')].filter((x) => x && x.trim()).join(', ')
+  return `https://www.zillow.com/homes/${encodeURIComponent(full)}_rb/`
+}
+
+/** Asks from a closed file. "Ask Connor to check my value" is Step A; refi and equity checks come in Step C. */
+export type AskKind = 'value_check' | 'refi_check' | 'equity_check'
+export const ASK_KINDS: AskKind[] = ['value_check', 'refi_check', 'equity_check']
+
+/** What `closed` returns for a closed file. */
+export interface MyHomeClosed {
+  home: { line: string; city: string | null; state: string | null; zip: string | null; county: string | null } | null
+  /** The day it closed (closing date, else funding date). */
+  closedOn: string | null
+  loanLine: string | null
+  monthlyPayment: number | null
+  insuranceRenewsOn: string | null
+  homesteadFiled: boolean | null
+  /** Connor's own figure on the home, and the day he set it (null when unknown). */
+  value: { amount: number; on: string | null } | null
+  links: { label: string; url: string }[]
+  /** Documents Connor published on the closed file. */
+  documents: { id: string; name: string; publishedAt: string }[]
+  /** When each ask was last made and not yet handled (within a day, asking again does nothing new). */
+  asked: Partial<Record<AskKind, string>>
+  lo: MyHomeLo
 }
 
 /** The chip on the file switcher: "Purchase · 1420 Oak Ridge Dr", "88 Willow Bend Ct · Closed", "Getting ready to buy". */
@@ -133,7 +189,7 @@ export const LINK_GONE = 'This MyHome link is no longer active. Ask your loan of
 export const NOT_SIGNED_IN = 'Please sign in again.'
 /** A file that isn't theirs (or doesn't exist): the same words either way. */
 export const NOT_YOURS = "That loan isn't in your MyHome."
-/** Stage 2 serves open files only; nurture and closed views come later. */
-export const NOT_OPEN = "This loan isn't open anymore. Refresh the page to see where it stands."
+/** A file asked for in one view (open, closed) that is now in another. */
+export const NOT_OPEN = "This loan has moved on. Refresh the page to see where it stands."
 export const TURNED_OFF = 'This MyHome account is turned off. Contact your loan officer to turn it back on.'
 export const STAFF_EMAIL = 'That email is an MPS-HQ team login. Ask your loan officer to use your personal email for MyHome.'

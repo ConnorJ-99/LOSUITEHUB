@@ -58,6 +58,16 @@ Status: Stage 0 approved by Connor 2026-11-19 ("Approve, start Stage 1"). Stage 
 - Not in MyHome yet: the portal's "Your mortgage application" card (the application runs on a portal link; Stage 5's "Start something new" brings it signed in).
 - **Set up on tlsq 2026-11-20 by Claude:** script run ("MPS HQ MyHome active files installed", functions 1), `myhome` and `document-upload` redeployed, `myhome` checked (refuses a request that isn't signed in). Not tried signed in yet: that needs a TEST borrower's MyHome login.
 
+
+## Closed view (Connor 2026-11-20: before Nurture; built in Steps A–C, his OK after each)
+- **Step A — home, loan, Connor's value, asks (built 2026-11-20, not committed):**
+  - Header for a closed file: "Welcome home, {first}", the address, "Closed March 2021 · Conventional 30-year" (`loanLine`: mortgage type + term, a home equity line, or the program name; tested). First names show with a capital letter.
+  - **My home's value:** Connor's own `properties.estimated_value` with the month he set it (`estimated_value_on`, new, set by trigger), else "{LO} can take a look for you"; Zillow (address search) and the county appraisal district from Quick Links (`countyName` reads "Collin County", "collin"…; tested); **Ask {LO} to check my value** → `myhome_ask()`: a `value_check_requested` event, a note "(MyHome)" and the new `myhome_request` notice (Settings → Notifications); asking again within a day returns the first ask, and the page shows "Asked {date}". No Redfin button: Redfin has no dependable address-search link.
+  - **My loan:** monthly payment, insurance renewal, homestead filed, home anniversary (the closing date), and **My closing documents** = documents Connor publishes on the closed file (Connor's choice). "Publish to borrower" now shows on every document of a closed file ("Share this in MyHome?"); open files still publish only letters and estimates. The old check constraint became trigger `loan_documents_publish_guard`.
+  - `myhome` actions `closed`, `closed_pdf`, `ask` (the person must be a borrower on the closed file). Script `20270226000000_myhome_closed.sql` (PGlite 20/20). Set up on tlsq 2026-11-20 by Claude ("MPS HQ MyHome closed view installed"; `myhome` redeployed).
+- **Step B — the automatic FHFA estimate** (section 5): `home_price_index`, `hpi-refresh` + monthly pg_cron with FRED backup, admin Refresh now, `loans.appraised_value` (refi base; CD reader fills it), estimate = base × index growth, equity with `mortgageToday()`, Hood County on Fort Worth labeled "nearest area index" (Connor). Connor's newer figure wins.
+- **Step C — equity and Start something new:** cash-out room, "You may be able to save about $X/mo" from Refi Watch benchmarks, Check refi / Check equity asks (`myhome_ask` already takes them), `myhome_settings`, Buy another home / Refinance this home into the application.
+
 ---
 
 ## Stage 0 report (discovery, no code)

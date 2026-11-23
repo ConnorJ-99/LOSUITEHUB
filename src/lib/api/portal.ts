@@ -119,7 +119,8 @@ export function useDraftPortalInvite(loanId: string) {
 // ---------------------------------------------------------------------------
 
 export const PUBLISHABLE_KINDS = ['preapproval_letter', 'fee_worksheet', 'loan_comparison'] as const
-export const isPublishable = (kind: string) => (PUBLISHABLE_KINDS as readonly string[]).includes(kind)
+/** Letters and estimate PDFs on any file; on a closed file, any document (MyHome's "My closing documents", Connor 2026-11-20). */
+export const isPublishable = (kind: string, stage?: string) => stage === 'closed' || (PUBLISHABLE_KINDS as readonly string[]).includes(kind)
 
 /** Published dates for the file's documents (id → when); `ready` is false before the borrower portal script has run. */
 export function usePublished(loanId: string) {
