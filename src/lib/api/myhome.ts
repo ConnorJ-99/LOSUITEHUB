@@ -70,3 +70,64 @@ export function useTurnOffMyHome() {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['myhomeAccounts'] }),
   })
 }
+
+// ---------------------------------------------------------------------------
+// Asks from MyHome on a file (Connor, 2026-11-23)
+// ---------------------------------------------------------------------------
+
+export type MyHomeAskKind = 'value_check' | 'refi_check' | 'equity_check'
+
+export interface MyHomeAsk {
+  id: string
+  kind: MyHomeAskKind
+  createdAt: string
+  handledAt: string | null
+}
+
+export const ASK_LABEL: Record<MyHomeAskKind, string> = {
+  value_check: "Asked you to check their home's value",
+  refi_check: 'Asked you to check their refinance options',
+  equity_check: 'Asked you to check their equity / HELOC options',
+}
+
+const asksKey = (loanId: string) => ['myhomeAsks', loanId] as const
+
+/** The borrower's MyHome asks on this file, newest first (open ones and the last few done). Null before the MyHome script. */
+export function useMyHomeAsks(loanId: string) {
+  return useQuery({
+    queryKey: asksKey(loanId),
+    retry: false,
+    queryFn: async (): Promise<MyHomeAsk[] | null> => {
+      const r = await db()
+        .from('myhome_events')
+        .select('id, kind, created_at, handled_at')
+        .eq('loan_id', loanId)
+        .in('kind', ['value_check_requested', 'refi_check_requested', 'equity_check_requested'])
+        .order('created_at', { ascending: false })
+        .limit(10)
+      if (r.error) return null
+      return (r.data as { id: string; kind: string; created_at: string; handled_at: string | null }[]).map((e) => ({
+        id: e.id,
+        kind: e.kind.replace(/_requested$/, '') as MyHomeAskKind,
+        createdAt: e.created_at,
+        handledAt: e.handled_at,
+      }))
+    },
+  })
+}
+
+/** Marks an ask done (handle_myhome_ask()); with a value, first saves it on the home (dated by the database). */
+export function useHandleMyHomeAsk(loanId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (v: { askId: string; homeId?: string; value?: number }) => {
+      if (v.homeId && v.value != null) unwrap(await db().from('properties').update({ estimated_value: v.value }).eq('id', v.homeId).select('id'))
+      unwrap(await db().rpc('handle_myhome_ask', { p_event: v.askId }))
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: asksKey(loanId) })
+      queryClient.invalidateQueries({ queryKey: ['closedLoans'] })
+      queryClient.invalidateQueries({ queryKey: ['properties', loanId] })
+    },
+  })
+}

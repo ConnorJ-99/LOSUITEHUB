@@ -14,6 +14,7 @@ import { ReviewPanel } from './ReviewPanel'
 import { useAuth } from '@/lib/auth/context'
 import { CopyToLeadDialog } from './CopyToLeadDialog'
 import { MortgageCard } from './MortgageCard'
+import { MyHomeCard } from '@/components/portal/PortalCard'
 import { useLoanTasks } from '@/lib/api/tasks'
 import type { LoanProfile } from '@/lib/api/types'
 import { keyDates } from '@/lib/closed/keyDates'
@@ -36,6 +37,7 @@ export function ClosedLoanCard({ loan }: { loan: LoanProfile }) {
   return (
     <>
       <ClosedLoanDetails key={JSON.stringify(closed.data)} loan={loan} closed={closed.data} />
+      <MyHomeCard loan={loan} person={closed.data.borrower} home={closed.data.home} />
       <MortgageCard closed={closed.data} />
     </>
   )
@@ -55,6 +57,8 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
     lenderName: c.lenderName,
     programName: c.programName,
     monthlyPayment: c.monthlyPayment,
+    appraisedValue: c.appraisedValue,
+    estimatedValue: c.home?.estimatedValue ?? null,
     insuranceCarrier: c.home?.insuranceCarrier ?? null,
     insuranceRenewalDate: c.home?.insuranceRenewalDate ?? null,
     homesteadFiled: c.home?.homesteadFiled ?? null,
@@ -69,7 +73,7 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
   const badScore = Object.values(scores).some((n) => n != null && (!Number.isInteger(n) || n < 300 || n > 850))
   const dirty =
     Object.keys(changedScores).length > 0 ||
-    form.lenderName !== c.lenderName || form.programName !== c.programName || form.monthlyPayment !== c.monthlyPayment ||
+    form.lenderName !== c.lenderName || form.programName !== c.programName || form.monthlyPayment !== c.monthlyPayment || form.appraisedValue !== c.appraisedValue || form.estimatedValue !== (c.home?.estimatedValue ?? null) ||
     form.insuranceCarrier !== (c.home?.insuranceCarrier ?? null) || form.insuranceRenewalDate !== (c.home?.insuranceRenewalDate ?? null) ||
     form.homesteadFiled !== (c.home?.homesteadFiled ?? null) || form.smsConsent !== (c.borrower?.smsConsent ?? null) || form.emailConsent !== (c.borrower?.emailConsent ?? null)
 
@@ -87,7 +91,16 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
     save.mutate(
       {
         loan: { lenderName: form.lenderName?.trim() || null, programName: form.programName?.trim() || null, monthlyPayment: form.monthlyPayment },
-        home: c.home ? { id: c.home.id, insuranceCarrier: form.insuranceCarrier, insuranceRenewalDate: form.insuranceRenewalDate, homesteadFiled: form.homesteadFiled } : null,
+        ...(form.appraisedValue !== c.appraisedValue ? { appraisedValue: form.appraisedValue } : {}),
+        home: c.home
+          ? {
+              id: c.home.id,
+              insuranceCarrier: form.insuranceCarrier,
+              insuranceRenewalDate: form.insuranceRenewalDate,
+              homesteadFiled: form.homesteadFiled,
+              ...(form.estimatedValue !== (c.home.estimatedValue ?? null) ? { estimatedValue: form.estimatedValue } : {}),
+            }
+          : null,
         person: c.borrower ? { id: c.borrower.id, smsConsent: form.smsConsent, emailConsent: form.emailConsent } : null,
         scores: changedScores,
       },
@@ -151,6 +164,13 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
           <Input label="Lender" value={form.lenderName ?? ''} onChange={(v) => set('lenderName')(v || null)} span={2} />
           <Input label="Program" value={form.programName ?? ''} onChange={(v) => set('programName')(v || null)} span={2} />
           <CurrencyInput label="Monthly payment at closing" value={form.monthlyPayment} onChange={set('monthlyPayment')} hint="Principal, interest, taxes, insurance, MI" span={2} />
+          <CurrencyInput
+            label="Appraised value at closing"
+            value={form.appraisedValue}
+            onChange={set('appraisedValue')}
+            hint={c.purpose === 'purchase' ? 'MyHome starts from the purchase price' : "MyHome's home value estimate starts here"}
+            span={2}
+          />
           {people.map((p) => (
             <NumberInput
               key={p.id}
@@ -163,6 +183,13 @@ function ClosedLoanDetails({ loan, closed: c }: { loan: LoanProfile; closed: Clo
           ))}
           {c.home ? (
             <>
+              <CurrencyInput
+                label="Estimated value"
+                value={form.estimatedValue}
+                onChange={set('estimatedValue')}
+                hint={`Shown in MyHome as your estimate${c.home.estimatedValueOn ? ` · set ${formatIsoDate(c.home.estimatedValueOn)}` : ''}`}
+                span={2}
+              />
               <Input label="Insurance carrier" value={form.insuranceCarrier ?? ''} onChange={(v) => set('insuranceCarrier')(v || null)} span={2} />
               <DateInput label="Insurance renewal date" value={form.insuranceRenewalDate} onChange={set('insuranceRenewalDate')} span={2} />
             </>

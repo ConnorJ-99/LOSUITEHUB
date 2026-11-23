@@ -32,6 +32,8 @@ export interface ClosedHome {
   state: string
   zip: string | null
   estimatedValue: number | null
+  /** When the estimated value was last set (null when unknown). */
+  estimatedValueOn: string | null
   insuranceCarrier: string | null
   insuranceRenewalDate: string | null
   homesteadFiled: boolean | null
@@ -50,6 +52,8 @@ export interface ClosedLoan {
   firstPaymentDate: string | null
   loanAmount: number | null
   purchasePrice: number | null
+  /** The appraised value at closing: where MyHome's estimate starts on a refinance. */
+  appraisedValue: number | null
   rate: number | null
   termMonths: number | null
   monthlyPayment: number | null
@@ -89,6 +93,7 @@ interface ClosedRow {
   first_payment_date: string | null
   loan_amount: unknown
   purchase_price: unknown
+  appraised_value: unknown
   note_rate: unknown
   term_months: number | null
   monthly_payment: unknown
@@ -104,6 +109,7 @@ interface ClosedRow {
     state: string
     zip: string | null
     estimated_value: unknown
+    estimated_value_on: string | null
     insurance_carrier: string | null
     insurance_renewal_date: string | null
     homestead_filed: boolean | null
@@ -111,12 +117,12 @@ interface ClosedRow {
 }
 
 const CLOSED_SELECT = `
-  id, purpose, mortgage_type, occupancy, closing_date, funding_date, stage_changed_at, first_payment_date, loan_amount, purchase_price, note_rate, term_months,
+  id, purpose, mortgage_type, occupancy, closing_date, funding_date, stage_changed_at, first_payment_date, loan_amount, purchase_price, appraised_value, note_rate, term_months,
   monthly_payment, lender_name, program_name,
   program:programs!loans_program_id_fkey ( name, lender:lenders ( name ) ),
   lo:profiles!loans_assigned_lo_id_fkey ( id, full_name, email ),
   borrowers:loan_borrowers ( role, estimated_credit_score, contact:contacts!loan_borrowers_contact_id_fkey ( id, first_name, last_name, email, phone, date_of_birth, sms_consent, email_consent, automate_reminders ) ),
-  home:properties!loans_subject_property_id_fkey ( id, address_line, city, state, zip, estimated_value, insurance_carrier, insurance_renewal_date, homestead_filed )
+  home:properties!loans_subject_property_id_fkey ( id, address_line, city, state, zip, estimated_value, estimated_value_on, insurance_carrier, insurance_renewal_date, homestead_filed )
 `
 
 const toPerson = (r: PersonRow, creditScore: number | null = null): ClosedPerson => ({
@@ -152,6 +158,7 @@ function toClosed(r: ClosedRow): ClosedLoan {
     firstPaymentDate: r.first_payment_date,
     loanAmount: num(r.loan_amount),
     purchasePrice: num(r.purchase_price),
+    appraisedValue: num(r.appraised_value),
     rate: num(r.note_rate),
     termMonths: r.term_months,
     monthlyPayment: num(r.monthly_payment),
@@ -171,6 +178,7 @@ function toClosed(r: ClosedRow): ClosedLoan {
           state: r.home.state,
           zip: r.home.zip,
           estimatedValue: num(r.home.estimated_value),
+          estimatedValueOn: r.home.estimated_value_on,
           insuranceCarrier: r.home.insurance_carrier,
           insuranceRenewalDate: r.home.insurance_renewal_date,
           homesteadFiled: r.home.homestead_filed,
@@ -205,7 +213,9 @@ export function useClosedLoan(loanId: string) {
 
 export interface ClosedFactsInput {
   loan: { lenderName: string | null; programName: string | null; monthlyPayment: number | null }
-  home: { id: string; insuranceCarrier: string | null; insuranceRenewalDate: string | null; homesteadFiled: boolean | null } | null
+  /** Only when it changed. */
+  appraisedValue?: number | null
+  home: { id: string; insuranceCarrier: string | null; insuranceRenewalDate: string | null; homesteadFiled: boolean | null; estimatedValue?: number | null } | null
   person: { id: string; smsConsent: boolean | null; emailConsent: boolean | null } | null
   /** Changed credit scores by contact id (null clears it). */
   scores?: Record<string, number | null>
@@ -215,13 +225,14 @@ export interface ClosedFactsInput {
 export function useSaveClosedFacts(loanId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ loan, home, person, scores }: ClosedFactsInput) => {
+    mutationFn: async ({ loan, appraisedValue, home, person, scores }: ClosedFactsInput) => {
       await saveLoanDetails(loanId, loan)
+      if (appraisedValue !== undefined) unwrap(await db().from('loans').update({ appraised_value: appraisedValue }).eq('id', loanId).select('id'))
       if (home) {
         unwrap(
           await db()
             .from('properties')
-            .update({ insurance_carrier: home.insuranceCarrier?.trim() || null, insurance_renewal_date: home.insuranceRenewalDate || null, homestead_filed: home.homesteadFiled })
+            .update({ insurance_carrier: home.insuranceCarrier?.trim() || null, insurance_renewal_date: home.insuranceRenewalDate || null, homestead_filed: home.homesteadFiled, ...(home.estimatedValue !== undefined ? { estimated_value: home.estimatedValue } : {}) })
             .eq('id', home.id)
             .select('id'),
         )

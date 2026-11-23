@@ -33,7 +33,7 @@
 // Connor's GHL email ("Send MyHome code to GHL", the ghl function).
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0'
-import { ASK_KINDS, CODE_LENGTH, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, normEmail, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type AccountMatch, type AccountStatus, type AskKind, type MyHomeClosed, type MyHomeFile, type MyHomeLo, type MyHomeMe, type MyHomeView } from './rules.ts'
+import { ASK_KINDS, CODE_LENGTH, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, areaForCounty, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, normEmail, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type AccountMatch, type AccountStatus, type AskKind, type MyHomeClosed, type MyHomeFile, type MyHomeLo, type MyHomeMe, type MyHomeView } from './rules.ts'
 import { groupByHome, homeRequestProblem, portalStep, stepMessage, type HomeRequestInput, type PortalDoc, type PortalMilestone, type PortalStage, type PortalView, type RequestStatus } from '../document-upload/portal.ts'
 import { canUpload, fileProblem, safeFileName, type UploadItem } from '../document-upload/rules.ts'
 
@@ -419,10 +419,61 @@ async function upload(db: SupabaseClient, account: AccountRow, l: OpenFile, body
 // Closed view, Step A: the home, the loan, Connor's value, links, published documents, asks
 // ---------------------------------------------------------------------------
 
+/**
+ * Step B: the FHFA index for the home's area when it closed and now, with the
+ * starting value (a purchase's price, else the appraised value at closing).
+ * Null outside the covered counties, with no starting value or closing date,
+ * or before the index is loaded. A home that closed after the latest published
+ * quarter starts from that quarter (no growth yet).
+ */
+async function indexFor(db: SupabaseClient, county: string | null, closedOn: string | null, purpose: string, price: number | null, appraised: number | null): Promise<MyHomeClosed['index']> {
+  const area = areaForCounty(county)
+  const purchase = purpose === 'purchase' && Number(price ?? 0) > 0
+  const base = purchase ? Number(price) : Number(appraised ?? 0)
+  if (!area || !closedOn || !(base > 0)) return null
+  const r = await db.from('home_price_index').select('year, quarter, index, loaded_at').eq('series', area.series).order('year', { ascending: false }).order('quarter', { ascending: false })
+  if (r.error) return null
+  const rows = (r.data ?? []) as { year: number; quarter: number; index: number; loaded_at: string }[]
+  const latest = rows[0]
+  if (!latest) return null
+  const year = Number(closedOn.slice(0, 4))
+  const quarter = Math.floor((Number(closedOn.slice(5, 7)) - 1) / 3) + 1
+  const at = rows.find((x) => x.year === year && x.quarter === quarter) ?? (year * 4 + quarter > latest.year * 4 + latest.quarter ? latest : null)
+  if (!at) return null
+  return {
+    base,
+    baseKind: purchase ? 'purchase' : 'appraised',
+    baseIndex: Number(at.index),
+    latestIndex: Number(latest.index),
+    latestQuarter: `${latest.year} Q${latest.quarter}`,
+    loadedOn: latest.loaded_at.slice(0, 10),
+    area: area.area,
+    nearest: area.nearest,
+  }
+}
+
 async function closedView(db: SupabaseClient, account: AccountRow, l: OpenFile, opened: boolean): Promise<MyHomeClosed> {
-  const loan = await db.from('loans').select('closing_date, funding_date, purpose, mortgage_type, term_months, program_name, monthly_payment, subject_property_id').eq('id', l.id).single()
+  const loan = await db
+    .from('loans')
+    .select('closing_date, funding_date, purpose, mortgage_type, term_months, program_name, monthly_payment, subject_property_id, purchase_price, appraised_value, loan_amount, note_rate, first_payment_date')
+    .eq('id', l.id)
+    .single()
   if (loan.error) throw new Error(loan.error.message)
-  const ln = loan.data as { closing_date: string | null; funding_date: string | null; purpose: string; mortgage_type: string | null; term_months: number | null; program_name: string | null; monthly_payment: number | null; subject_property_id: string | null }
+  const ln = loan.data as {
+    closing_date: string | null
+    funding_date: string | null
+    purpose: string
+    mortgage_type: string | null
+    term_months: number | null
+    program_name: string | null
+    monthly_payment: number | null
+    subject_property_id: string | null
+    purchase_price: number | null
+    appraised_value: number | null
+    loan_amount: number | null
+    note_rate: number | null
+    first_payment_date: string | null
+  }
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString()
   const [home, docs, asks, lo] = await Promise.all([
     ln.subject_property_id
@@ -450,9 +501,14 @@ async function closedView(db: SupabaseClient, account: AccountRow, l: OpenFile, 
     if (!prior || prior < a.created_at) asked[k] = a.created_at
   }
   if (opened) await event(db, account, 'opened', {}, l.id)
+  const closedOn = ln.closing_date ?? ln.funding_date
+  const loanAmount = Number(ln.loan_amount ?? 0)
+  const ratePct = Number(ln.note_rate ?? 0)
   return {
     home: h ? { line: h.address_line, city: h.city, state: h.state, zip: h.zip, county } : null,
-    closedOn: ln.closing_date ?? ln.funding_date,
+    closedOn,
+    index: await indexFor(db, county, closedOn, ln.purpose, ln.purchase_price, ln.appraised_value),
+    balance: loanAmount > 0 && ratePct > 0 && ln.term_months ? { loanAmount, ratePct, termMonths: ln.term_months, firstPaymentDate: ln.first_payment_date, closingDate: ln.closing_date } : null,
     loanLine: loanLine({ purpose: ln.purpose, mortgageType: ln.mortgage_type, termMonths: ln.term_months, programName: ln.program_name }),
     monthlyPayment: ln.monthly_payment == null ? null : Number(ln.monthly_payment),
     insuranceRenewsOn: h?.insurance_renewal_date ?? null,

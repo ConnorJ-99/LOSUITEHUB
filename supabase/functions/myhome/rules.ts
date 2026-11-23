@@ -118,6 +118,20 @@ export function countyName(raw: string | null | undefined): string | null {
   return COUNTIES.find((c) => c.toLowerCase() === t) ?? null
 }
 
+/**
+ * The FHFA area for a county (section 5): Fort Worth (23104) for Tarrant,
+ * Johnson, Parker and Wise; Dallas (19124) for Dallas, Collin, Denton, Ellis,
+ * Kaufman, Rockwall and Hunt; Hood has no index of its own and uses Fort
+ * Worth, labeled the nearest area (Connor, 2026-11-20). Anything else: none.
+ */
+export function areaForCounty(county: string | null): { series: '19124' | '23104'; area: 'Dallas' | 'Fort Worth'; nearest: boolean } | null {
+  if (!county) return null
+  if (['Tarrant', 'Johnson', 'Parker', 'Wise'].includes(county)) return { series: '23104', area: 'Fort Worth', nearest: false }
+  if (county === 'Hood') return { series: '23104', area: 'Fort Worth', nearest: true }
+  if (['Dallas', 'Collin', 'Denton', 'Ellis', 'Kaufman', 'Rockwall', 'Hunt'].includes(county)) return { series: '19124', area: 'Dallas', nearest: false }
+  return null
+}
+
 /** Zillow's search for the home's address (opens their page for it, or the closest match). */
 export function zillowUrl(a: { line: string; city: string | null; state: string | null; zip: string | null }): string {
   const full = [a.line, a.city, [a.state, a.zip].filter(Boolean).join(' ')].filter((x) => x && x.trim()).join(', ')
@@ -139,6 +153,23 @@ export interface MyHomeClosed {
   homesteadFiled: boolean | null
   /** Connor's own figure on the home, and the day he set it (null when unknown). */
   value: { amount: number; on: string | null } | null
+  /**
+   * Step B: what the page needs for the index estimate (src/lib/calc/homeValue.ts):
+   * the starting value, the index when it closed and now, and the area. Null
+   * outside the covered counties, or with no purchase price / appraised value.
+   */
+  index: {
+    base: number
+    baseKind: 'purchase' | 'appraised'
+    baseIndex: number
+    latestIndex: number
+    latestQuarter: string
+    loadedOn: string
+    area: 'Dallas' | 'Fort Worth'
+    nearest: boolean
+  } | null
+  /** Step B: the loan's own terms, for its estimated balance today (mortgageToday). Null when any is missing. */
+  balance: { loanAmount: number; ratePct: number; termMonths: number; firstPaymentDate: string | null; closingDate: string | null } | null
   links: { label: string; url: string }[]
   /** Documents Connor published on the closed file. */
   documents: { id: string; name: string; publishedAt: string }[]

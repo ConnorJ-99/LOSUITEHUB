@@ -5,7 +5,7 @@
 // Before the borrower portal script has run, reads come back empty.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { newToken, sha256Hex } from '@/lib/documents/uploadRequests'
-import { numbersReady, portalInvite, portalUrl, readyLinkFor } from '@/lib/portal/messages'
+import { myHomeInvite, numbersReady, portalInvite, portalUrl, readyLinkFor } from '@/lib/portal/messages'
 import { PORTAL_LINK_DAYS, type RequestStatus } from '../../../supabase/functions/document-upload/portal'
 import { db, keys, unwrap } from './client'
 
@@ -108,6 +108,17 @@ export function useDraftPortalInvite(loanId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (v: DraftTo & { firstName: string; loName: string; url: string; isPurchase: boolean; channel: 'text' | 'email' }) => queueDrafts(v, `Borrower portal: ${v.name}`, portalInvite(v), [v.channel]),
+    onSettled: () => {
+      for (const k of [keys.queue(loanId), keys.today]) queryClient.invalidateQueries({ queryKey: k })
+    },
+  })
+}
+
+/** The MyHome invite (MyHome's plain address) as a text or email draft in the Action Queue; open and closed files. */
+export function useDraftMyHomeInvite(loanId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (v: DraftTo & { firstName: string; loName: string; url: string; closed: boolean; channel: 'text' | 'email' }) => queueDrafts(v, `MyHome: ${v.name}`, myHomeInvite(v), [v.channel]),
     onSettled: () => {
       for (const k of [keys.queue(loanId), keys.today]) queryClient.invalidateQueries({ queryKey: k })
     },

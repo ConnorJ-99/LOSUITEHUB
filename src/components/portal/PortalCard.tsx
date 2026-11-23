@@ -1,20 +1,22 @@
 // "Borrower portal" on a file's Overview (Stage 2): each borrower's portal link
 // with Copy, Draft text / Draft email (Action Queue; nothing sends on its
 // own), Renew and Turn off, plus the home requests they sent from the portal.
+import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { CopyIcon, HomeIcon, MailIcon, MessageSquareIcon, PlusIcon, PowerOffIcon, RefreshCwIcon, SendIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
-import { Card, confirmAction } from '@/components/shared'
-import { useMyHomeAccounts, useSendMyHomeCode, useTurnOffMyHome, type MyHomeAccount } from '@/lib/api/myhome'
-import { startNumbersUrl, useDraftPortalInvite, useMakePortalLink, usePortalLinks, usePortalRequests, useSetRequestStatus, useTurnOffPortalLink, type PortalLink, type PortalRequest } from '@/lib/api/portal'
+import { Card, confirmAction, CurrencyInput } from '@/components/shared'
+import { ASK_LABEL, useHandleMyHomeAsk, useMyHomeAccounts, useMyHomeAsks, useSendMyHomeCode, useTurnOffMyHome, type MyHomeAccount, type MyHomeAsk } from '@/lib/api/myhome'
+import { startNumbersUrl, useDraftMyHomeInvite, useDraftPortalInvite, useMakePortalLink, usePortalLinks, usePortalRequests, useSetRequestStatus, useTurnOffPortalLink, type PortalLink, type PortalRequest } from '@/lib/api/portal'
 import { useProfile } from '@/lib/api/settings'
 import type { LoanProfile } from '@/lib/api/types'
 import { useApplication } from '@/lib/api/urla'
 import { useAuth } from '@/lib/auth/context'
 import { formatIsoDate, relativeTime } from '@/lib/dates'
 import { formatCurrency } from '@/lib/format'
+import { myHomeUrl } from '@/lib/portal/messages'
 import { REQUEST_STATUS_LABEL } from '../../../supabase/functions/document-upload/portal'
 
 const copy = (url: string) =>
@@ -106,7 +108,9 @@ export function PortalCard({ loan }: { loan: LoanProfile }) {
                   loanId={loan.id}
                   contactId={b.contactId}
                   name={name}
-                  hasEmail={!!b.person.email}
+                  person={{ firstName: b.person.firstName, phone: b.person.phone, email: b.person.email }}
+                  loName={lo.data?.fullName ?? 'Your loan officer'}
+                  closed={loan.stage === 'closed'}
                   account={accounts.data.find((a) => a.contactId === b.contactId) ?? null}
                   readOnly={loan.stage === 'lost'}
                 />
@@ -134,11 +138,42 @@ export function PortalCard({ loan }: { loan: LoanProfile }) {
  * puts their permanent code and link on their GHL contact and adds the tag
  * that starts Connor's MyHome email workflow (nothing is sent from MPS-HQ
  * itself). New code (the old code and link stop working) and Turn off.
+ * Copy link / Draft text / Draft email (Connor, 2026-11-23): MyHome's plain
+ * address, which carries no code (they sign in with email + code), drafted
+ * into the Action Queue like every file text; on open and closed files.
  */
-function MyHomeLine({ organizationId, loanId, contactId, name, hasEmail, account, readOnly }: { organizationId: string; loanId: string; contactId: string; name: string; hasEmail: boolean; account: MyHomeAccount | null; readOnly: boolean }) {
+export function MyHomeLine({
+  organizationId,
+  loanId,
+  contactId,
+  name,
+  person,
+  loName,
+  closed,
+  account,
+  readOnly,
+}: {
+  organizationId: string
+  loanId: string
+  contactId: string
+  name: string
+  person: { firstName: string; phone: string | null; email: string | null }
+  loName: string
+  closed: boolean
+  account: MyHomeAccount | null
+  readOnly: boolean
+}) {
   const send = useSendMyHomeCode()
   const off = useTurnOffMyHome()
+  const draft = useDraftMyHomeInvite(loanId)
+  const hasEmail = !!person.email
   const live = !!account && account.status !== 'off'
+  const url = myHomeUrl(window.location.origin)
+  const queue = (channel: 'text' | 'email') =>
+    draft.mutate(
+      { organizationId, loanId, contactId, name, phone: person.phone, email: person.email, firstName: person.firstName, loName, url, closed, channel },
+      { onSuccess: () => toast.success(`The ${channel} is waiting in the Action Queue. Nothing is sent until you press Send.`), onError: (e) => toast.error(e.message) },
+    )
   const status = !account
     ? 'Not sent yet'
     : account.status === 'off'
@@ -183,6 +218,28 @@ function MyHomeLine({ organizationId, loanId, contactId, name, hasEmail, account
           </Button>
           {live && (
             <>
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() =>
+                  void navigator.clipboard
+                    ?.writeText(url)
+                    .then(() => toast.success('MyHome link copied. They sign in with their email and MyHome code.'))
+                    .catch(() => toast.error(`Copy did not work. The link is ${url}`))
+                }
+                title={`${url} (no code in it: they sign in with their email and MyHome code)`}
+              >
+                <CopyIcon />
+                Copy link
+              </Button>
+              <Button size="xs" variant="outline" disabled={!person.phone || draft.isPending} title={person.phone ? 'Draft a text with the MyHome link (Action Queue)' : 'No phone on file'} onClick={() => queue('text')}>
+                <MessageSquareIcon />
+                Draft text
+              </Button>
+              <Button size="xs" variant="outline" disabled={!person.email || draft.isPending} title={person.email ? 'Draft an email with the MyHome link (Action Queue)' : 'No email on file'} onClick={() => queue('email')}>
+                <MailIcon />
+                Draft email
+              </Button>
               <Button size="xs" variant="ghost" disabled={send.isPending} onClick={() => void newCode()} title="A new code and link; the old ones stop working">
                 <RefreshCwIcon />
                 New code
@@ -230,6 +287,105 @@ export function RequestRow({ r, readOnly, showName }: { r: PortalRequest; readOn
           </Button>
         )}
       </div>
+    </li>
+  )
+}
+
+/**
+ * A closed file's MyHome card (Connor, 2026-11-23): the borrower portal card
+ * isn't on a closed file's Overview, so the primary borrower's MyHome line
+ * lives here, with its status, Send code to GHL, Copy link and Draft text.
+ */
+export function MyHomeCard({
+  loan,
+  person,
+  home,
+}: {
+  loan: LoanProfile
+  person: { id: string; firstName: string; lastName: string | null; phone: string | null; email: string | null } | null
+  home: { id: string; estimatedValue: number | null; estimatedValueOn: string | null } | null
+}) {
+  const accounts = useMyHomeAccounts(person ? [person.id] : [])
+  const asks = useMyHomeAsks(loan.id)
+  const { state } = useAuth()
+  const me = state.status === 'signedIn' ? state.user.id : null
+  const lo = useProfile(loan.assignedLo?.id ?? me)
+  // Nothing before the MyHome script has run, or with no borrower.
+  if (!person || accounts.data === null || accounts.data === undefined) return null
+  const name = `${person.firstName} ${person.lastName ?? ''}`.trim()
+  return (
+    <Card title="MyHome" description="Their lifelong account: their home's estimated value and equity, their loan and closing documents.">
+      <MyHomeLine
+        organizationId={loan.organizationId}
+        loanId={loan.id}
+        contactId={person.id}
+        name={name}
+        person={{ firstName: person.firstName, phone: person.phone, email: person.email }}
+        loName={lo.data?.fullName ?? 'Your loan officer'}
+        closed={loan.stage === 'closed'}
+        account={accounts.data.find((a) => a.contactId === person.id) ?? null}
+        readOnly={loan.stage === 'lost'}
+      />
+      {(asks.data?.length ?? 0) > 0 && (
+        <div className="mt-3 border-t pt-3">
+          <p className="mb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Asked from MyHome</p>
+          <ul className="space-y-2">
+            {asks.data!.map((a) => (
+              <AskRow key={a.id} loanId={loan.id} ask={a} home={home} firstName={person.firstName} />
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/**
+ * One ask from MyHome: what and when, and Mark done. A value check also takes
+ * the new value (saved on the home, dated, and shown to them in MyHome as
+ * your estimate) with "Save value & mark done".
+ */
+function AskRow({ loanId, ask, home, firstName }: { loanId: string; ask: MyHomeAsk; home: { id: string; estimatedValue: number | null; estimatedValueOn: string | null } | null; firstName: string }) {
+  const handle = useHandleMyHomeAsk(loanId)
+  const [value, setValue] = useState<number | null>(home?.estimatedValue ?? null)
+  const done = !!ask.handledAt
+  const finish = (withValue: boolean) =>
+    handle.mutate(
+      withValue && home && value != null ? { askId: ask.id, homeId: home.id, value } : { askId: ask.id },
+      {
+        onSuccess: () => toast.success(withValue ? `Saved. ${firstName} sees ${formatCurrency(value)} as your estimate in MyHome.` : 'Marked done'),
+        onError: (e) => toast.error(e.message),
+      },
+    )
+  return (
+    <li className={cn('text-sm', done && 'text-muted-foreground')}>
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-medium">{ASK_LABEL[ask.kind]}</span>
+        <span className="text-xs text-muted-foreground">
+          {relativeTime(ask.createdAt)}
+          {done && ` · done ${relativeTime(ask.handledAt!)}`}
+        </span>
+      </div>
+      {!done && (
+        <div className="mt-1.5 flex flex-wrap items-end gap-2">
+          {ask.kind === 'value_check' &&
+            (home ? (
+              <>
+                <div className="w-44">
+                  <CurrencyInput label="Their home's value" value={value} onChange={setValue} />
+                </div>
+                <Button size="sm" disabled={handle.isPending || value == null || value <= 0} onClick={() => finish(true)}>
+                  Save value & mark done
+                </Button>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">Add the home on the Property tab (as the subject property) to give them a value.</p>
+            ))}
+          <Button size="sm" variant="ghost" disabled={handle.isPending} onClick={() => finish(false)}>
+            Mark done
+          </Button>
+        </div>
+      )}
     </li>
   )
 }

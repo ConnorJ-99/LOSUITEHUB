@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { myHomeUrl, numbersReady, portalInvite, portalUrl, readyLinkFor } from './messages'
+import { myHomeInvite, myHomeUrl, numbersReady, portalInvite, portalUrl, readyLinkFor } from './messages'
 
 const url = portalUrl('https://app.mps.mortgage/', 'a'.repeat(64))
 
@@ -17,6 +17,12 @@ describe('portal messages', () => {
     const m = numbersReady({ firstName: 'Maya', loName: 'Connor Jacquart', url, address: '123 Main St' })
     expect(m.text).toBe(`Hi Maya, your numbers for 123 Main St are ready. View them here: ${url} - Connor`)
     expect(m.subject).toBe('Your numbers for 123 Main St')
+  })
+  it('the MyHome invite carries the plain MyHome address and never the code', () => {
+    const m = myHomeInvite({ firstName: 'Maya', loName: 'Connor Jacquart', url: myHomeUrl('https://app.mps.mortgage'), closed: true })
+    expect(m.text).toBe("Hi Maya, here's MyHome, your account with MPS Mortgage. You can keep an eye on your home's value and equity, and find your closing documents: https://app.mps.mortgage/myhome Sign in with your email and the 6-digit MyHome code from our email. - Connor")
+    expect(m.subject).toBe('Your MyHome account')
+    expect(myHomeInvite({ firstName: 'Maya', loName: 'Connor', url: 'u', closed: false }).text).toContain('track your loan and send documents')
   })
   it('numbers ready points to MyHome once they use it, else the portal link, else nowhere', () => {
     const token = 'a'.repeat(64)

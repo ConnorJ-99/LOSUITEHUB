@@ -10,6 +10,30 @@ export const portalUrl = (origin: string, token: string) => `${origin.replace(/\
 export const myHomeUrl = (origin: string) => `${origin.replace(/\/$/, '')}/myhome`
 
 /**
+ * The MyHome invite, texted or emailed from a file (Connor, 2026-11-23, so he
+ * can text it to closed clients too). The link is MyHome's plain address; they
+ * sign in with their email and the 6-digit code from the MyHome email his GHL
+ * workflow sends, so the code is never in this message.
+ */
+export function myHomeInvite(v: { firstName: string; loName: string; url: string; closed: boolean }) {
+  const me = firstOf(v.loName)
+  const what = v.closed ? "keep an eye on your home's value and equity, and find your closing documents" : 'track your loan and send documents'
+  const text = `Hi ${v.firstName}, here's MyHome, your account with MPS Mortgage. You can ${what}: ${v.url} Sign in with your email and the 6-digit MyHome code from our email. - ${me}`
+  const email = [
+    `Hi ${v.firstName},`,
+    '',
+    `Here's MyHome, your account with MPS Mortgage. You can ${what}:`,
+    v.url,
+    '',
+    "Sign in with your email and the 6-digit MyHome code from our MyHome email. Can't find it? Just reply and I'll send it again.",
+    '',
+    'Thanks,',
+    v.loName,
+  ].join('\n')
+  return { text, subject: 'Your MyHome account', email }
+}
+
+/**
  * Where "your numbers are ready" points: MyHome once they've signed in to it
  * (an active account), else their portal link, else nowhere (no draft).
  */

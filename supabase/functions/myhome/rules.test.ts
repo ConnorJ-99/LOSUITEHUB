@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { INVITE_TOKEN, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type MyHomeFile } from './rules'
+import { INVITE_TOKEN, areaForCounty, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type MyHomeFile } from './rules'
 
 describe('emails and codes', () => {
   it('compares codes exactly', () => {
@@ -94,5 +94,15 @@ describe('closed view', () => {
   it('opens Zillow on the address', () => {
     expect(zillowUrl({ line: '88 Willow Bend Ct', city: 'McKinney', state: 'TX', zip: '75071' })).toBe('https://www.zillow.com/homes/88%20Willow%20Bend%20Ct%2C%20McKinney%2C%20TX%2075071_rb/')
     expect(zillowUrl({ line: '88 Willow Bend Ct', city: null, state: null, zip: null })).toBe('https://www.zillow.com/homes/88%20Willow%20Bend%20Ct_rb/')
+  })
+})
+
+describe('home value area', () => {
+  it('maps counties to the FHFA areas, Hood to Fort Worth as the nearest', () => {
+    expect(areaForCounty('Collin')).toEqual({ series: '19124', area: 'Dallas', nearest: false })
+    expect(areaForCounty('Tarrant')).toEqual({ series: '23104', area: 'Fort Worth', nearest: false })
+    expect(areaForCounty('Hood')).toEqual({ series: '23104', area: 'Fort Worth', nearest: true })
+    expect(areaForCounty('Grayson')).toBeNull()
+    expect(areaForCounty(null)).toBeNull()
   })
 })

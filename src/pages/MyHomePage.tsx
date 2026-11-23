@@ -15,6 +15,9 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { CheckIcon, ExternalLinkIcon, FileTextIcon, HomeIcon, Loader2Icon, LockIcon, LogOutIcon } from 'lucide-react'
+import { mortgageToday } from '@/lib/calc/amortization'
+import { homeValue } from '@/lib/calc/homeValue'
+import { todayIso } from '@/lib/dates'
 import { formatCurrency } from '@/lib/format'
 import { askLo, closedDocumentUrl, fetchClosed, fetchFile, fetchMe, fileCall, hasSession, putMyHomeUpload, signIn, signOut, type MyHomeFileView } from '@/lib/myhome/api'
 import { isSupabaseConfigured } from '@/lib/supabase'
@@ -303,17 +306,50 @@ function HomeValue({ loanId, view, loFirst, onAsked, onGone }: { loanId: string;
     if (r.status === 401 || r.status === 404 || r.status === 409) return onGone()
     setError(r.body.error ?? 'That did not go through. Try again.')
   }
+  // The value: Connor's figure when it's as new as the index, else the FHFA estimate (src/lib/calc/homeValue.ts).
+  const ix = view.index
+  const value = homeValue(view.value, ix ? { base: ix.base, baseIndex: ix.baseIndex, latestIndex: ix.latestIndex, loadedOn: ix.loadedOn } : null)
+  // The estimated balance today from the loan's own terms, and the equity (src/lib/calc/amortization.ts).
+  const today = view.balance ? mortgageToday(view.balance, todayIso(), value?.amount ?? null) : null
+  const balance = today?.balance ?? null
+  const equity = today?.equity ?? null
+  const since = ix?.baseKind === 'appraised' ? 'since your appraisal' : 'since you bought'
   return (
     <section className={card} aria-labelledby="myhome-value">
-      <h2 id="myhome-value" className="text-lg font-bold tracking-tight">
-        My home's value
-      </h2>
-      {view.value ? (
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 id="myhome-value" className="text-lg font-bold tracking-tight">
+          My home's value
+        </h2>
+        {value?.by === 'index' && <span className="text-sm text-muted-foreground">Updated {ix!.latestQuarter}</span>}
+      </div>
+      {value ? (
         <>
-          <p className="mt-2 text-4xl font-extrabold tracking-tight">{formatCurrency(view.value.amount)}</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {loFirst}'s estimate{view.value.on ? ` · ${monthYear(view.value.on)}` : ''}
-          </p>
+          <p className="mt-2 text-4xl font-extrabold tracking-tight">{formatCurrency(value.amount)}</p>
+          {value.by === 'index' ? (
+            <p className={`mt-1 text-sm font-semibold ${value.gain > 0 ? 'text-emerald-700' : 'text-muted-foreground'}`}>
+              Estimated{value.gain !== 0 ? ` · ${value.gain > 0 ? '+' : '−'}${formatCurrency(Math.abs(value.gain))} ${since}` : ''}
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {loFirst}'s estimate{value.on ? ` · ${monthYear(value.on)}` : ''}
+            </p>
+          )}
+          {balance != null && equity != null && (
+            <div className="mt-4">
+              <div className="flex h-3 overflow-hidden rounded-full bg-muted" role="img" aria-label={`Loan balance about ${formatCurrency(balance)}, equity about ${formatCurrency(equity)}`}>
+                <div className="bg-slate-400" style={{ width: `${Math.min(100, Math.max(0, (balance / value.amount) * 100))}%` }} />
+                <div className="flex-1 bg-emerald-600" />
+              </div>
+              <div className="mt-1.5 flex justify-between gap-2 text-sm">
+                <span className="text-muted-foreground">
+                  Loan balance ≈ <strong className="text-foreground">{formatCurrency(Math.round(balance / 100) * 100)}</strong>
+                </span>
+                <span className="text-muted-foreground">
+                  Equity ≈ <strong className={equity > 0 ? 'text-emerald-700' : 'text-foreground'}>{formatCurrency(Math.round(equity / 100) * 100)}</strong>
+                </span>
+              </div>
+            </div>
+          )}
         </>
       ) : (
         <p className="mt-1 text-sm text-muted-foreground">Want to know what your home is worth today? {loFirst} can take a look for you.</p>
@@ -339,7 +375,11 @@ function HomeValue({ loanId, view, loFirst, onAsked, onGone }: { loanId: string;
         </button>
       )}
       {error && <p className="mt-1.5 text-sm text-destructive">{error}</p>}
-      <p className="mt-3 text-xs text-muted-foreground">Estimates only. Not an appraisal.</p>
+      <p className="mt-3 text-xs text-muted-foreground">
+        {value?.by === 'index'
+          ? `Estimate from the FHFA ${ix!.area} home price index${ix!.nearest ? ' (the nearest area index for your county)' : ''}, updated quarterly. The loan balance assumes on-time payments. Not an appraisal.`
+          : 'Estimates only. Not an appraisal.'}
+      </p>
     </section>
   )
 }
