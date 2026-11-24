@@ -35,6 +35,10 @@
 //                savings goals that follow it catch up)
 //   asset_remove hide one (its history stays)
 //   goal_follow  which accounts a savings goal counts (Nurture files only)
+// My budget (Phase 3; optional, on the person, any file view):
+//   budget       settings, income and expense items, entries (13 months)
+//   budget_settings / budget_item_save / budget_item_remove /
+//   budget_entry_save / budget_entry_remove   (the myhome_budget_* functions)
 // Preview (Connor, 2026-11-24: "allow the loan officers to view the borrower's
 // view of MyHome on the MyHome tab"):
 //   preview    a team login (not a MyHome one) who can see the file under RLS
@@ -46,7 +50,7 @@
 // Connor's GHL email ("Send MyHome code to GHL", the ghl function).
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0'
-import { ASK_KINDS, ASSET_CATEGORIES, CODE_LENGTH, GOAL_UPDATE_KINDS, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, areaForCounty, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, normEmail, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type AccountMatch, type AccountStatus, type AskKind, type AssetCategory, type MyHomeAssets, type GoalUpdateKind, type MyHomeClosed, type MyHomeFile, type MyHomeGoal, type MyHomeLo, type MyHomeMe, type MyHomeNurture, type MyHomeView } from './rules.ts'
+import { ASK_KINDS, ASSET_CATEGORIES, BUDGET_SCHEDULE_VALUES, CODE_LENGTH, GOAL_UPDATE_KINDS, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, areaForCounty, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, normEmail, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type AccountMatch, type AccountStatus, type AskKind, type AssetCategory, type BudgetSchedule, type MyHomeAssets, type MyHomeBudget, type GoalUpdateKind, type MyHomeClosed, type MyHomeFile, type MyHomeGoal, type MyHomeLo, type MyHomeMe, type MyHomeNurture, type MyHomeView } from './rules.ts'
 import { groupByHome, homeRequestProblem, portalStep, stepMessage, type HomeRequestInput, type PortalDoc, type PortalMilestone, type PortalStage, type PortalView, type RequestStatus } from '../document-upload/portal.ts'
 import { canUpload, fileProblem, safeFileName, type UploadItem } from '../document-upload/rules.ts'
 
@@ -567,6 +571,7 @@ const FILE_ACTIONS = ['file', 'pdf', 'home_request', 'upload_url', 'uploaded']
 const CLOSED_ACTIONS = ['closed', 'closed_pdf', 'ask', 'extra_payment', 'remove_payment']
 const NURTURE_ACTIONS = ['nurture', 'goal_update', 'goal_follow']
 const ASSET_ACTIONS = ['assets', 'asset_save', 'asset_remove']
+const BUDGET_ACTIONS = ['budget', 'budget_settings', 'budget_item_save', 'budget_item_remove', 'budget_entry_save', 'budget_entry_remove']
 
 // ---------------------------------------------------------------------------
 // Nurture goals (Phase 1, docs/plans/nurture-goals.md)
@@ -686,6 +691,86 @@ async function goalFollow(db: SupabaseClient, account: AccountRow, l: OpenFile, 
   return reply(200, { ok: true })
 }
 
+// ---------------------------------------------------------------------------
+// My budget (Phase 3)
+// ---------------------------------------------------------------------------
+
+async function budgetView(db: SupabaseClient, account: AccountRow): Promise<MyHomeBudget> {
+  const since = new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10)
+  const [settings, items, entries] = await Promise.all([
+    db.from('budget_settings').select('starting_cash, starting_on, monthly_savings').eq('contact_id', account.contact_id).maybeSingle(),
+    db.from('budget_items').select('id, kind, name, amount, schedule, every_days, next_on, category, notes, paused').eq('contact_id', account.contact_id).is('archived_at', null).order('kind').order('sort_order'),
+    db.from('budget_entries').select('id, item_id, kind, name, amount, happened_on, planned_on').eq('contact_id', account.contact_id).is('removed_at', null).gte('happened_on', since).order('happened_on', { ascending: false }).limit(1000),
+  ])
+  if (items.error) throw new Error(items.error.message)
+  const st = settings.data as { starting_cash: number | null; starting_on: string | null; monthly_savings: number | null } | null
+  const n = (v: unknown) => (v == null ? null : Number(v))
+  return {
+    startingCash: n(st?.starting_cash),
+    startingOn: st?.starting_on ?? null,
+    monthlySavings: n(st?.monthly_savings),
+    items: (items.data as Record<string, unknown>[]).map((i) => ({
+      id: i.id as string,
+      kind: i.kind as 'income' | 'expense',
+      name: i.name as string,
+      amount: Number(i.amount),
+      schedule: i.schedule as BudgetSchedule,
+      everyDays: n(i.every_days),
+      nextOn: (i.next_on as string | null) ?? null,
+      category: (i.category as string | null) ?? null,
+      notes: (i.notes as string | null) ?? null,
+      paused: i.paused as boolean,
+    })),
+    entries: ((entries.data ?? []) as Record<string, unknown>[]).map((e) => ({
+      id: e.id as string,
+      itemId: (e.item_id as string | null) ?? null,
+      kind: e.kind as 'income' | 'expense',
+      name: e.name as string,
+      amount: Number(e.amount),
+      on: e.happened_on as string,
+      plannedOn: (e.planned_on as string | null) ?? null,
+    })),
+  }
+}
+
+/** The budget's saves: each checked again by its myhome_budget_* function. */
+async function budgetSave(db: SupabaseClient, account: AccountRow, body: Record<string, unknown>): Promise<Response> {
+  const money = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 100) / 100 : null)
+  const date = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null)
+  const id = (v: unknown) => (typeof v === 'string' && UUID.test(v) ? v : null)
+  const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : null)
+  const kind = body.kind === 'income' || body.kind === 'expense' ? body.kind : null
+  let r
+  if (body.action === 'budget_settings') {
+    r = await db.rpc('myhome_budget_settings_save', { p_account: account.id, p_starting_cash: money(body.startingCash), p_starting_on: date(body.startingOn), p_monthly_savings: money(body.monthlySavings) })
+  } else if (body.action === 'budget_item_save') {
+    const schedule = typeof body.schedule === 'string' && BUDGET_SCHEDULE_VALUES.includes(body.schedule as BudgetSchedule) ? body.schedule : null
+    if (!kind || !schedule) return reply(400, { error: 'Pick income or expense and how often it comes.' })
+    const every = typeof body.everyDays === 'number' && Number.isInteger(body.everyDays) ? body.everyDays : null
+    r = await db.rpc('myhome_budget_item_save', {
+      p_account: account.id,
+      p_item: id(body.itemId),
+      p_kind: kind,
+      p_name: str(body.name, 200) ?? '',
+      p_amount: money(body.amount),
+      p_schedule: schedule,
+      p_every_days: every,
+      p_next_on: date(body.nextOn),
+      p_category: str(body.category, 40),
+      p_notes: str(body.notes, 600),
+      p_paused: body.paused === true,
+    })
+  } else if (body.action === 'budget_item_remove') {
+    r = await db.rpc('myhome_budget_item_remove', { p_account: account.id, p_item: id(body.itemId) })
+  } else if (body.action === 'budget_entry_save') {
+    r = await db.rpc('myhome_budget_entry_save', { p_account: account.id, p_item: id(body.itemId), p_planned_on: date(body.plannedOn), p_kind: kind ?? 'expense', p_name: str(body.name, 200), p_amount: money(body.amount), p_on: date(body.on) })
+  } else {
+    r = await db.rpc('myhome_budget_entry_remove', { p_account: account.id, p_entry: id(body.entryId) })
+  }
+  if (r.error) return reply(400, { error: r.error.message })
+  return reply(200, { id: r.data ?? null })
+}
+
 /** "I made an extra payment": logged with its date and amount (myhome_record_payment(): checks and a note on the file). */
 async function extraPayment(db: SupabaseClient, account: AccountRow, l: OpenFile, body: Record<string, unknown>): Promise<Response> {
   const paidOn = typeof body.paidOn === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.paidOn) ? body.paidOn : null
@@ -707,7 +792,7 @@ async function removePayment(db: SupabaseClient, account: AccountRow, paymentId:
 // Preview: a team member sees the file the way its primary borrower does
 // ---------------------------------------------------------------------------
 
-const PREVIEW_READS: Record<string, MyHomeView | 'me' | 'assets'> = { me: 'me', assets: 'assets', file: 'active', pdf: 'active', closed: 'closed', closed_pdf: 'closed', nurture: 'nurture' }
+const PREVIEW_READS: Record<string, MyHomeView | 'me' | 'assets' | 'budget'> = { me: 'me', assets: 'assets', budget: 'budget', file: 'active', pdf: 'active', closed: 'closed', closed_pdf: 'closed', nurture: 'nurture' }
 const PREVIEW_ONLY = "This is a preview. The borrower can do this in their own MyHome; nothing changes from here."
 const NOBODY = '00000000-0000-0000-0000-000000000000'
 
@@ -735,6 +820,7 @@ async function preview(db: SupabaseClient, request: Request, body: Record<string
 
   if (want === 'me') return reply(200, await me(db, account, false, loanId))
   if (want === 'assets') return reply(200, await assetsView(db, account))
+  if (want === 'budget') return reply(200, await budgetView(db, account))
   const l = await fileFor(db, account, loanId, want)
   if (l instanceof Response) return l
   if (body.inner === 'file') return reply(200, await fileView(db, account, l, false))
@@ -793,6 +879,12 @@ Deno.serve(async (request) => {
       if (body.action === 'assets') return reply(200, await assetsView(db, account))
       if (body.action === 'asset_save') return await assetSave(db, account, body)
       return await assetRemove(db, account, body.assetId)
+    }
+    if (typeof body.action === 'string' && BUDGET_ACTIONS.includes(body.action)) {
+      const account = await signedIn(db, request)
+      if (account instanceof Response) return account
+      if (body.action === 'budget') return reply(200, await budgetView(db, account))
+      return await budgetSave(db, account, body)
     }
     return reply(400, { error: 'Unknown action.' })
   } catch (e) {

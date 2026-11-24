@@ -8,7 +8,8 @@
 // credit report. Math in src/lib/calc/goals.ts.
 // Phase 2: My assets shows here too, and a savings goal can follow the
 // accounts the borrower ticks (its balance is their total, kept up to date
-// whenever one of them gets a new balance).
+// whenever one of them gets a new balance). Phase 3: My budget below them,
+// its savings plan measured against the first open savings goal.
 import { useEffect, useState } from 'react'
 import { CheckCircle2Icon, Loader2Icon, PauseIcon } from 'lucide-react'
 import { fetchNurture, followAssets, sendGoalUpdate } from '@/lib/myhome/api'
@@ -17,6 +18,7 @@ import { todayIso } from '@/lib/dates'
 import { formatCurrency } from '@/lib/format'
 import type { GoalUpdateKind, MyHomeAsset, MyHomeGoal, MyHomeNurture } from '../../supabase/functions/myhome/rules'
 import { MyAssets, assetsTotal, useMyAssets } from './MyHomeAssets'
+import { MyBudget } from './MyHomeBudget'
 import { LoCard } from './PublicUploadPage'
 
 const card = 'rounded-xl border bg-white p-5 shadow-soft'
@@ -64,6 +66,9 @@ export function NurtureFile({ loanId, onGone, onSignedOut }: { loanId: string; o
   const assets = mine.state.kind === 'open' ? mine.state.assets : []
   // The combined total leads only when there's a savings goal to measure it against.
   const showTotal = assets.length > 0 && goals.some((g) => g.kind === 'savings')
+  // The budget's savings plan measures against the first open savings goal.
+  const sg = goals.find((g) => g.kind === 'savings' && g.status !== 'verified_complete' && !g.paused)
+  const savingsGoal = sg ? { label: sg.label, remaining: goalProgress({ kind: sg.kind, start: sg.start, target: sg.target, current: sg.current }).remaining } : null
   const changed = () => {
     void mine.reload()
     void load(false)
@@ -88,6 +93,7 @@ export function NurtureFile({ loanId, onGone, onSignedOut }: { loanId: string; o
         <GoalCard key={g.id} loanId={loanId} goal={g} assets={assets} loFirst={loFirst} onChanged={() => void load(false)} onGone={onGone} />
       ))}
       <MyAssets state={mine.state} onChanged={changed} loFirst={loFirst} />
+      <MyBudget savingsGoal={savingsGoal} loFirst={loFirst} />
       <LoCard lo={lo} />
     </>
   )

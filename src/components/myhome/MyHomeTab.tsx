@@ -19,6 +19,7 @@ import type { LoanProfile } from '@/lib/api/types'
 import { formatIsoDate, relativeTime } from '@/lib/dates'
 import { formatCurrency } from '@/lib/format'
 import { AssetsCard } from './AssetsCard'
+import { BudgetCard } from './BudgetCard'
 import { GoalsCard } from './GoalsCard'
 
 // The borrower's MyHome screens load only when the preview is opened.
@@ -70,6 +71,7 @@ export function MyHomeTab({ loan }: { loan: LoanProfile }) {
       />
       <GoalsCard loan={loan} />
       <AssetsCard loan={loan} />
+      <BudgetCard loan={loan} />
       {(paid.data?.length ?? 0) > 0 && (
         <Card title="Extra payments they reported" description="Logged in MyHome. The balance on the Overview's Mortgage today card counts them.">
           <ul className="divide-y text-sm">

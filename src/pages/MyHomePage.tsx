@@ -24,6 +24,7 @@ import { isSupabaseConfigured } from '@/lib/supabase'
 import { CODE_LENGTH, INVITE_TOKEN, cleanCode, emailLooksValid, type MyHomeClosed, type MyHomeMe } from '../../supabase/functions/myhome/rules'
 import { Items, LoCard } from './PublicUploadPage'
 import { MyAssetsSection } from './MyHomeAssets'
+import { MyBudget } from './MyHomeBudget'
 import { NurtureFile } from './MyHomeGoals'
 import { LettersAndHomes, PortalHeader } from './PublicPortal'
 
@@ -833,6 +834,7 @@ function Home({ me, preview, onSignOut, onReload }: { me: MyHomeMe; preview?: bo
         )}
         {/* My assets are the person's, on every file (a Nurture file shows them with its goals). */}
         {file && file.view !== 'nurture' && <MyAssetsSection key={file.loanId} />}
+        {file && file.view !== 'nurture' && <MyBudget key={`budget-${file.loanId}`} />}
       </main>
       <Footer />
     </div>

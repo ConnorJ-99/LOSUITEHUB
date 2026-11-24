@@ -6,7 +6,7 @@ import { putSignedUpload, type PortalCall, type UploadReply } from '@/lib/api/do
 import { createMyHomeClient, supabase } from '@/lib/supabase'
 import type { PortalView } from '../../../supabase/functions/document-upload/portal'
 import type { UploadItem, UploadLo } from '../../../supabase/functions/document-upload/rules'
-import type { AskKind, AssetInput, GoalUpdateKind, MyHomeAssets, MyHomeClosed, MyHomeMe, MyHomeNurture } from '../../../supabase/functions/myhome/rules'
+import type { AskKind, AssetInput, GoalUpdateKind, MyHomeAssets, MyHomeBudget, MyHomeBudgetItem, MyHomeClosed, MyHomeMe, MyHomeNurture } from '../../../supabase/functions/myhome/rules'
 
 let client: SupabaseClient | null | undefined
 
@@ -115,6 +115,22 @@ export const saveAsset = (v: AssetInput & { assetId?: string | null }) => call<{
 
 /** Removes an account from MyHome (its history stays). */
 export const removeAsset = (assetId: string) => call<{ ok?: boolean }>({ action: 'asset_remove', assetId })
+
+/** My budget (Phase 3): settings, items and entries. */
+export const fetchBudget = () => call<Partial<MyHomeBudget>>({ action: 'budget' })
+
+export const saveBudgetSettings = (v: { startingCash: number | null; startingOn: string | null; monthlySavings: number | null }) => call<{ id?: null }>({ action: 'budget_settings', ...v })
+
+/** Adds (no itemId) or changes an income or expense. */
+export const saveBudgetItem = (v: Omit<MyHomeBudgetItem, 'id'> & { itemId?: string | null }) => call<{ id?: string }>({ action: 'budget_item_save', ...v })
+
+export const removeBudgetItem = (itemId: string) => call<{ id?: null }>({ action: 'budget_item_remove', itemId })
+
+/** What really happened: for a scheduled date (itemId + plannedOn) or something unplanned (kind + name). */
+export const saveBudgetEntry = (v: { itemId: string | null; plannedOn: string | null; kind: 'income' | 'expense'; name: string | null; amount: number; on: string | null }) =>
+  call<{ id?: string }>({ action: 'budget_entry_save', ...v })
+
+export const removeBudgetEntry = (entryId: string) => call<{ id?: null }>({ action: 'budget_entry_remove', entryId })
 
 /** Uploads go through MyHome's own client, never the staff one. */
 export const putMyHomeUpload = (path: string, token: string, file: File) => {

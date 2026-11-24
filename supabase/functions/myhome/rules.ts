@@ -321,3 +321,44 @@ export function assetProblem(a: AssetInput, today: string): string | null {
   if ((a.notes ?? '').length > 500) return 'Keep the note under 500 characters.'
   return null
 }
+
+// ---------------------------------------------------------------------------
+// My budget (nurture goals Phase 3): the same shapes the forecast math uses
+// (src/lib/calc/budget.ts)
+// ---------------------------------------------------------------------------
+
+export type BudgetKind = 'income' | 'expense'
+export type BudgetSchedule = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly' | 'annual' | 'every_n_days' | 'one_time' | 'irregular'
+export const BUDGET_SCHEDULE_VALUES: BudgetSchedule[] = ['weekly', 'biweekly', 'semimonthly', 'monthly', 'annual', 'every_n_days', 'one_time', 'irregular']
+
+export interface MyHomeBudgetItem {
+  id: string
+  kind: BudgetKind
+  name: string
+  amount: number
+  schedule: BudgetSchedule
+  everyDays: number | null
+  nextOn: string | null
+  category: string | null
+  notes: string | null
+  paused: boolean
+}
+
+export interface MyHomeBudgetEntry {
+  id: string
+  itemId: string | null
+  kind: BudgetKind
+  name: string
+  amount: number
+  on: string
+  plannedOn: string | null
+}
+
+/** What the budget action returns (the last 13 months of entries). */
+export interface MyHomeBudget {
+  startingCash: number | null
+  startingOn: string | null
+  monthlySavings: number | null
+  items: MyHomeBudgetItem[]
+  entries: MyHomeBudgetEntry[]
+}

@@ -34,7 +34,9 @@ Rules: savings progress = the latest reported balance (not the sum of contributi
 
 `borrower_assets` (person-level, so it survives Nurture → Closed and the next loan) + `borrower_asset_balances` (history). Nickname/institution, category (checking, savings, cash, investment, retirement, other), reported balance, date, notes; no account numbers, no logins. MyHome shows **My assets** with the combined reported total (prominent on the nurture dashboard only when a savings goal exists). MPS-HQ shows three columns: borrower-reported, verified (1003 assets), eligible for qualifying (what the Max Approval math counts). A savings goal can follow the accounts the borrower ticks.
 
-## Phase 3 — Income, expenses & savings planner (optional for the borrower)
+## Phase 3 — Income, expenses & savings planner (optional for the borrower) — built 2026-11-24 (`20270305000000_budget_planner.sql`, `myhome` redeploy)
+
+Built as: `budget_settings` (one per person), `budget_items`, `budget_entries` (one confirmation per scheduled date; 0 = didn't happen; unplanned ones have no item), all on the person and written only by MyHome's `myhome_budget_*` functions; staff read all of it. MyHome's **My budget** (optional: "Start my budget") is on every file, below My assets; a Nurture file's savings plan measures against its first open savings goal. The MyHome tab's **Budget** card shows it read only. Math in `src/lib/calc/budget.ts` (tested).
 
 `budget_items` (income or expense, name, amount, schedule: weekly / biweekly / semimonthly / monthly / annual / every N days / one-time / irregular, next date, category, notes, paused), `budget_entries` (actual paid/received, replacing the projected one for that date so nothing counts twice), a starting cash balance and desired monthly savings. MyHome: 7 / 30 / 90-day rolling forecast and monthly summary, projected vs confirmed, savings plan tied to the savings goal ("about 6 months at $650 a month"). Projected savings never count as saved.
 
