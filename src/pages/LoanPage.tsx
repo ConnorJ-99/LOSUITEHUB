@@ -21,6 +21,7 @@ import {
   PencilIcon,
   ReceiptIcon,
   SearchXIcon,
+  SmartphoneIcon,
   StarIcon,
   Trash2Icon,
   TriangleAlertIcon,
@@ -32,6 +33,7 @@ import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Card, EmptyState, confirmAction } from '@/components/shared'
 import { ClosedLoanCard } from '@/components/closed/ClosedLoanCard'
 import { LoansTab } from '@/components/closed/LoansTab'
+import { MyHomeTab } from '@/components/myhome/MyHomeTab'
 import { ConditionsTab } from '@/components/conditions/ConditionsTab'
 import { ContractTab } from '@/components/contract/ContractTab'
 import { DocumentsTab } from '@/components/documents/DocumentsTab'
@@ -84,13 +86,13 @@ import { useFileRole } from '@/lib/api/fileRole'
 import type { PipelineStage } from '@/lib/pipeline/stages'
 import { canProcess } from '@/lib/team/secondaryRoles'
 
-const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions'] as const
+const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions', 'myhome'] as const
 type Section = (typeof SECTIONS)[number]
-const READY: Section[] = ['overview', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions']
+const READY: Section[] = ['overview', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions', 'myhome']
 /** A closed file's profile: the closed loan (Overview), its 1003, the home, documents, notes and messages. */
 // A file in Nurture shows the nurture view and no lender, pricing, estimate or closing tabs (Connor, 2026-11-16).
-const NURTURE_SECTIONS: Section[] = ['overview', '1003', 'documents', 'notes', 'messages', 'properties']
-const CLOSED_SECTIONS: Section[] = ['overview', 'loans', '1003', 'properties', 'estimates', 'documents', 'notes', 'messages']
+const NURTURE_SECTIONS: Section[] = ['overview', 'myhome', '1003', 'documents', 'notes', 'messages', 'properties']
+const CLOSED_SECTIONS: Section[] = ['overview', 'myhome', 'loans', '1003', 'properties', 'estimates', 'documents', 'notes', 'messages']
 
 /** Team roles shown in the header, in order. The loan officer is the file's Assigned LO. */
 const TEAM: { role: TeamRole | 'loan_officer'; label: string; group: string; purchaseOnly?: boolean; company?: boolean }[] = [
@@ -278,6 +280,8 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     { id: 'messages', label: 'Messages', icon: MessagesSquareIcon, marker: unread ? { type: 'count', value: unread } : undefined },
     { id: 'properties', label: 'Properties', icon: HomeIcon },
     ...(isPurchase ? [{ id: 'letters', label: 'Letters', icon: MailIcon }] : []),
+    // The primary borrower's MyHome: account, asks, reported payments and (nurture) goals.
+    { id: 'myhome', label: 'MyHome', icon: SmartphoneIcon },
     // Closed files only: every loan this person is on.
     ...(closedFile ? [{ id: 'loans', label: 'Loans', icon: LayersIcon }] : []),
   ]
@@ -503,6 +507,7 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
           {section === 'messages' && <MessagesTab loan={loan} />}
           {section === 'properties' && <PropertiesTab loan={loan} />}
           {section === 'loans' && closedFile && <LoansTab loan={loan} />}
+          {section === 'myhome' && <MyHomeTab loan={loan} />}
         </div>
       </div>
 

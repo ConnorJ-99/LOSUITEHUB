@@ -37,7 +37,6 @@ export function PortalCard({ loan }: { loan: LoanProfile }) {
   const lo = useProfile(loan.assignedLo?.id ?? me)
   const readOnly = loan.stage === 'closed' || loan.stage === 'lost'
   const people = app.data?.borrowers ?? []
-  const accounts = useMyHomeAccounts(people.map((b) => b.contactId))
   if (links.data === null) return null // The borrower portal script hasn't run yet.
   const fail = (e: Error) => toast.error(e.message)
 
@@ -101,19 +100,6 @@ export function PortalCard({ loan }: { loan: LoanProfile }) {
                     </Button>
                   )}
                 </div>
-              )}
-              {b.role === 'primary' && accounts.data !== null && accounts.data !== undefined && (
-                <MyHomeLine
-                  organizationId={loan.organizationId}
-                  loanId={loan.id}
-                  contactId={b.contactId}
-                  name={name}
-                  person={{ firstName: b.person.firstName, phone: b.person.phone, email: b.person.email }}
-                  loName={lo.data?.fullName ?? 'Your loan officer'}
-                  closed={loan.stage === 'closed'}
-                  account={accounts.data.find((a) => a.contactId === b.contactId) ?? null}
-                  readOnly={loan.stage === 'lost'}
-                />
               )}
             </li>
           )
@@ -292,9 +278,9 @@ export function RequestRow({ r, readOnly, showName }: { r: PortalRequest; readOn
 }
 
 /**
- * A closed file's MyHome card (Connor, 2026-11-23): the borrower portal card
- * isn't on a closed file's Overview, so the primary borrower's MyHome line
- * lives here, with its status, Send code to GHL, Copy link and Draft text.
+ * The MyHome card on a file's MyHome tab (Connor, 2026-11-24: its own tab, off
+ * the Overview): the primary borrower's MyHome line (status, Send code to GHL,
+ * Copy link, Draft text) and what they asked for from MyHome.
  */
 export function MyHomeCard({
   loan,
@@ -314,7 +300,7 @@ export function MyHomeCard({
   if (!person || accounts.data === null || accounts.data === undefined) return null
   const name = `${person.firstName} ${person.lastName ?? ''}`.trim()
   return (
-    <Card title="MyHome" description="Their lifelong account: their home's estimated value and equity, their loan and closing documents.">
+    <Card title="MyHome" description="Their lifelong account: loan status and documents while the loan is open, goals while they get ready, and their home's value, equity and loan after closing.">
       <MyHomeLine
         organizationId={loan.organizationId}
         loanId={loan.id}

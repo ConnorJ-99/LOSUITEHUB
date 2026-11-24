@@ -14,7 +14,6 @@ import { ReviewPanel } from './ReviewPanel'
 import { useAuth } from '@/lib/auth/context'
 import { CopyToLeadDialog } from './CopyToLeadDialog'
 import { MortgageCard } from './MortgageCard'
-import { MyHomeCard } from '@/components/portal/PortalCard'
 import { useLoanTasks } from '@/lib/api/tasks'
 import type { LoanProfile } from '@/lib/api/types'
 import { keyDates } from '@/lib/closed/keyDates'
@@ -37,7 +36,6 @@ export function ClosedLoanCard({ loan }: { loan: LoanProfile }) {
   return (
     <>
       <ClosedLoanDetails key={JSON.stringify(closed.data)} loan={loan} closed={closed.data} />
-      <MyHomeCard loan={loan} person={closed.data.borrower} home={closed.data.home} />
       <MortgageCard closed={closed.data} />
     </>
   )
