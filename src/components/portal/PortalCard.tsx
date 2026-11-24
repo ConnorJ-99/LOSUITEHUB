@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import { cn } from 'cn'
 import { Button } from '@/components/ui/button'
 import { Card, confirmAction, CurrencyInput } from '@/components/shared'
-import { ASK_LABEL, useHandleMyHomeAsk, useMyHomeAccounts, useMyHomeAsks, useSendMyHomeCode, useTurnOffMyHome, type MyHomeAccount, type MyHomeAsk } from '@/lib/api/myhome'
+import { askLabel, useHandleMyHomeAsk, useMyHomeAccounts, useMyHomeAsks, useSendMyHomeCode, useTurnOffMyHome, type MyHomeAccount, type MyHomeAsk } from '@/lib/api/myhome'
 import { startNumbersUrl, useDraftMyHomeInvite, useDraftPortalInvite, useMakePortalLink, usePortalLinks, usePortalRequests, useSetRequestStatus, useTurnOffPortalLink, type PortalLink, type PortalRequest } from '@/lib/api/portal'
 import { useProfile } from '@/lib/api/settings'
 import type { LoanProfile } from '@/lib/api/types'
@@ -346,7 +346,7 @@ function AskRow({ loanId, ask, home, firstName }: { loanId: string; ask: MyHomeA
   return (
     <li className={cn('text-sm', done && 'text-muted-foreground')}>
       <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className="font-medium">{ASK_LABEL[ask.kind]}</span>
+        <span className="font-medium">{askLabel(ask)}</span>
         <span className="text-xs text-muted-foreground">
           {relativeTime(ask.createdAt)}
           {done && ` · done ${relativeTime(ask.handledAt!)}`}

@@ -26,3 +26,14 @@ describe('home value estimate', () => {
     expect(quarterOf('2025-12-31')).toEqual({ year: 2025, quarter: 4 })
   })
 })
+
+describe('cashOutRoom', () => {
+  it('80% of the value less the balance, rounded down to $1,000', async () => {
+    const { cashOutRoom } = await import('./homeValue')
+    expect(cashOutRoom(426_000, 250_400)).toBe(90_000)
+    expect(cashOutRoom(426_000, 340_800)).toBe(0)
+    expect(cashOutRoom(426_000, 400_000)).toBe(0)
+    expect(cashOutRoom(0, 100_000)).toBe(0)
+    expect(cashOutRoom(500_000, 0)).toBe(400_000)
+  })
+})

@@ -41,3 +41,13 @@ export function homeValue(connor: { amount: number; on: string | null } | null, 
 export function quarterOf(isoDate: string): { year: number; quarter: number } {
   return { year: Number(isoDate.slice(0, 4)), quarter: Math.floor((Number(isoDate.slice(5, 7)) - 1) / 3) + 1 }
 }
+
+/**
+ * Cash-out room (MyHome Step C): what they could borrow against the home,
+ * up to 80% of its value (Texas home equity's limit) less what they owe, to
+ * the nearest $1,000 below; never under $0.
+ */
+export function cashOutRoom(value: number, balance: number, maxLtvPct = 80): number {
+  if (!(value > 0)) return 0
+  return Math.max(0, Math.floor((value * (maxLtvPct / 100) - Math.max(0, balance)) / 1000) * 1000)
+}

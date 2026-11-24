@@ -29,6 +29,15 @@
 //              published on the file, open asks, and that file's loan officer
 //   closed_pdf a one-minute link to one of those documents
 //   ask        "Ask Connor to check my value" (myhome_ask(): a note and his notice)
+// Closed view, Step C (Connor 2026-11-24):
+//   closed     also sends options: which cards show (myhome_settings) and
+//              "You may be able to save about $X/mo" (refi.ts: the loan against
+//              the latest Refi Watch benchmark; no rate ever leaves here)
+//   ask        also refi_check and equity_check
+//   start_new  "Start something new": a standalone application prefilled with
+//              their name, email, phone and what they picked, assigned to the
+//              file's LO (myhome_start_application()); returns the resume code
+//              the /apply page keeps on the device
 // My assets (nurture goals Phase 2; any file view, the accounts are the person's):
 //   assets       their accounts with balance history
 //   asset_save   add or change one (myhome_asset_save(): no account numbers;
@@ -50,9 +59,11 @@
 // Connor's GHL email ("Send MyHome code to GHL", the ghl function).
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0'
-import { ASK_KINDS, ASSET_CATEGORIES, BUDGET_SCHEDULE_VALUES, CODE_LENGTH, GOAL_UPDATE_KINDS, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, areaForCounty, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, normEmail, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type AccountMatch, type AccountStatus, type AskKind, type AssetCategory, type BudgetSchedule, type MyHomeAssets, type MyHomeBudget, type GoalUpdateKind, type MyHomeClosed, type MyHomeFile, type MyHomeGoal, type MyHomeLo, type MyHomeMe, type MyHomeNurture, type MyHomeView } from './rules.ts'
+import { ASK_KINDS, ASSET_CATEGORIES, BUDGET_SCHEDULE_VALUES, START_GOALS, CODE_LENGTH, GOAL_UPDATE_KINDS, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, areaForCounty, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, normEmail, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type AccountMatch, type AccountStatus, type AskKind, type AssetCategory, type BudgetSchedule, type StartGoal, type MyHomeAssets, type MyHomeBudget, type GoalUpdateKind, type MyHomeClosed, type MyHomeFile, type MyHomeGoal, type MyHomeLo, type MyHomeMe, type MyHomeNurture, type MyHomeView } from './rules.ts'
 import { groupByHome, homeRequestProblem, portalStep, stepMessage, type HomeRequestInput, type PortalDoc, type PortalMilestone, type PortalStage, type PortalView, type RequestStatus } from '../document-upload/portal.ts'
 import { canUpload, fileProblem, safeFileName, type UploadItem } from '../document-upload/rules.ts'
+import { STEPS, blankAnswers, withPurpose } from '../apply/form.ts'
+import { pricingStale, refiSavings, valueNow, type RefiBenchmarkRow } from './refi.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -525,12 +536,15 @@ async function closedView(db: SupabaseClient, account: AccountRow, l: OpenFile, 
   }
   if (opened) await event(db, account, 'opened', {}, l.id)
   const closedOn = ln.closing_date ?? ln.funding_date
+  const index = await indexFor(db, county, closedOn, ln.purpose, ln.purchase_price, ln.appraised_value)
+  const extraPaid = ((paid.data ?? []) as { amount: number }[]).reduce((sum, x) => sum + Number(x.amount), 0)
+  const options = await closedOptions(db, account, l, ln, h, index, extraPaid)
   const loanAmount = Number(ln.loan_amount ?? 0)
   const ratePct = Number(ln.note_rate ?? 0)
   return {
     home: h ? { line: h.address_line, city: h.city, state: h.state, zip: h.zip, county } : null,
     closedOn,
-    index: await indexFor(db, county, closedOn, ln.purpose, ln.purchase_price, ln.appraised_value),
+    index,
     balance: loanAmount > 0 && ratePct > 0 && ln.term_months ? { loanAmount, ratePct, termMonths: ln.term_months, firstPaymentDate: ln.first_payment_date, closingDate: ln.closing_date } : null,
     loanLine: loanLine({ purpose: ln.purpose, mortgageType: ln.mortgage_type, termMonths: ln.term_months, programName: ln.program_name }),
     monthlyPayment: ln.monthly_payment == null ? null : Number(ln.monthly_payment),
@@ -543,8 +557,77 @@ async function closedView(db: SupabaseClient, account: AccountRow, l: OpenFile, 
     extraPaid: ((paid.data ?? []) as { id: string; paid_on: string; amount: number }[]).map((x) => ({ id: x.id, paidOn: x.paid_on, amount: Number(x.amount) })),
     documents: ((docs.data ?? []) as { id: string; file_name: string; published_at: string }[]).map((d) => ({ id: d.id, name: d.file_name, publishedAt: d.published_at })),
     asked,
+    options,
     lo,
   }
+}
+
+/** Step C: which cards show, and the refinance savings line (worked out here so no rate reaches the page). */
+async function closedOptions(
+  db: SupabaseClient,
+  account: AccountRow,
+  l: OpenFile,
+  ln: { purpose: string; mortgage_type: string | null; term_months: number | null; loan_amount: number | null; note_rate: number | null; first_payment_date: string | null },
+  h: { estimated_value: number | null; estimated_value_on: string | null } | null,
+  index: MyHomeClosed['index'],
+  extraPaid: number,
+): Promise<MyHomeClosed['options']> {
+  const st = await db.from('myhome_settings').select('refi_card, equity_card, start_new, min_monthly_savings').eq('organization_id', l.organization_id).maybeSingle()
+  const set = st.data as { refi_card: boolean; equity_card: boolean; start_new: boolean; min_monthly_savings: number } | null
+  const options = { refiCard: set?.refi_card ?? true, equityCard: set?.equity_card ?? true, startNew: set?.start_new ?? true, refiMonthly: null as number | null }
+  if (!options.refiCard || !ln.note_rate || !ln.term_months || !ln.loan_amount) return options
+  const [scenarios, prices, runs, score] = await Promise.all([
+    db.from('refi_benchmark_scenarios').select('id, program, purpose, fico, ltv, active').eq('organization_id', l.organization_id),
+    db.from('refi_benchmarks').select('scenario_id, rate, benchmark_date, created_at').eq('organization_id', l.organization_id).order('created_at', { ascending: false }).limit(300),
+    db.from('refi_benchmark_runs').select('status, created_at').eq('organization_id', l.organization_id).order('created_at', { ascending: false }).limit(20),
+    db.from('loan_borrowers').select('estimated_credit_score').eq('loan_id', l.id).eq('contact_id', account.contact_id).maybeSingle(),
+  ])
+  if (scenarios.error || prices.error) return options
+  const latest = new Map<string, { rate: number; on: string }>()
+  for (const p of (prices.data ?? []) as { scenario_id: string; rate: number; benchmark_date: string }[]) if (!latest.has(p.scenario_id)) latest.set(p.scenario_id, { rate: Number(p.rate), on: p.benchmark_date })
+  const rows: RefiBenchmarkRow[] = ((scenarios.data ?? []) as { id: string; program: 'conventional' | 'fha'; purpose: 'rate_term' | 'streamline'; fico: number; ltv: number | null; active: boolean }[]).map((x) => ({
+    program: x.program,
+    purpose: x.purpose,
+    fico: Number(x.fico),
+    ltv: x.ltv == null ? null : Number(x.ltv),
+    active: x.active,
+    rate: latest.get(x.id)?.rate ?? null,
+    pricedOn: latest.get(x.id)?.on ?? null,
+  }))
+  const value = valueNow(h?.estimated_value != null && Number(h.estimated_value) > 0 ? { amount: Number(h.estimated_value), on: h.estimated_value_on } : null, index)
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
+  const stale = pricingStale(((runs.data ?? []) as { status: string; created_at: string }[]).map((r) => ({ status: r.status, createdAt: r.created_at })))
+  options.refiMonthly = refiSavings(
+    {
+      mortgageType: ln.mortgage_type,
+      purpose: ln.purpose,
+      ratePct: Number(ln.note_rate),
+      termMonths: ln.term_months,
+      loanAmount: Number(ln.loan_amount),
+      firstPaymentDate: ln.first_payment_date,
+      extraPaid,
+      value,
+      creditScore: (score.data as { estimated_credit_score: number | null } | null)?.estimated_credit_score ?? null,
+    },
+    rows,
+    { today, stale, minimum: Number(set?.min_monthly_savings ?? 100) },
+  )
+  return options
+}
+
+/** "Start something new": a prefilled standalone application for the file's LO; the page gets the resume code (only its hash is kept). */
+async function startNew(db: SupabaseClient, account: AccountRow, l: OpenFile, goal: unknown): Promise<Response> {
+  if (typeof goal !== 'string' || !START_GOALS.includes(goal as StartGoal)) return reply(400, { error: "Pick what you'd like to do." })
+  const c = await db.from('contacts').select('first_name, last_name, email, phone').eq('id', account.contact_id).single()
+  const p = c.data as { first_name: string; last_name: string | null; email: string | null; phone: string | null } | null
+  const answers = blankAnswers()
+  answers.borrower = { ...answers.borrower, firstName: p?.first_name ?? '', lastName: p?.last_name ?? '', email: p?.email ?? '', phone: p?.phone ?? '' }
+  answers.loan = withPurpose({ ...answers.loan, goal: goal === 'purchase' ? 'purchase' : goal === 'refinance' ? 'refinance_rate_term' : 'equity' })
+  const resume = Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, '0')).join('')
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(resume))), (b) => b.toString(16).padStart(2, '0')).join('')
+  const r = await db.rpc('myhome_start_application', { p_account: account.id, p_loan: l.id, p_goal: goal, p_resume_hash: hash, p_answers: answers, p_step: STEPS[0].id })
+  if (r.error) return reply(400, { error: r.error.message })
+  return reply(200, { resume })
 }
 
 /** A one-minute link to a document Connor published on the closed file. */
@@ -568,7 +651,7 @@ async function ask(db: SupabaseClient, account: AccountRow, l: OpenFile, kind: u
 }
 
 const FILE_ACTIONS = ['file', 'pdf', 'home_request', 'upload_url', 'uploaded']
-const CLOSED_ACTIONS = ['closed', 'closed_pdf', 'ask', 'extra_payment', 'remove_payment']
+const CLOSED_ACTIONS = ['closed', 'closed_pdf', 'ask', 'extra_payment', 'remove_payment', 'start_new']
 const NURTURE_ACTIONS = ['nurture', 'goal_update', 'goal_follow']
 const ASSET_ACTIONS = ['assets', 'asset_save', 'asset_remove']
 const BUDGET_ACTIONS = ['budget', 'budget_settings', 'budget_item_save', 'budget_item_remove', 'budget_entry_save', 'budget_entry_remove']
@@ -862,6 +945,7 @@ Deno.serve(async (request) => {
       if (body.action === 'closed_pdf') return await closedPdf(db, account, l, body.documentId)
       if (body.action === 'extra_payment') return await extraPayment(db, account, l, body)
       if (body.action === 'remove_payment') return await removePayment(db, account, body.paymentId)
+      if (body.action === 'start_new') return await startNew(db, account, l, body.goal)
       return await ask(db, account, l, body.kind)
     }
     if (typeof body.action === 'string' && NURTURE_ACTIONS.includes(body.action)) {

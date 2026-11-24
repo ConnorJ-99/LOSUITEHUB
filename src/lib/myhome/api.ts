@@ -6,7 +6,7 @@ import { putSignedUpload, type PortalCall, type UploadReply } from '@/lib/api/do
 import { createMyHomeClient, supabase } from '@/lib/supabase'
 import type { PortalView } from '../../../supabase/functions/document-upload/portal'
 import type { UploadItem, UploadLo } from '../../../supabase/functions/document-upload/rules'
-import type { AskKind, AssetInput, GoalUpdateKind, MyHomeAssets, MyHomeBudget, MyHomeBudgetItem, MyHomeClosed, MyHomeMe, MyHomeNurture } from '../../../supabase/functions/myhome/rules'
+import type { AskKind, AssetInput, GoalUpdateKind, MyHomeAssets, MyHomeBudget, MyHomeBudgetItem, MyHomeClosed, MyHomeMe, MyHomeNurture, StartGoal } from '../../../supabase/functions/myhome/rules'
 
 let client: SupabaseClient | null | undefined
 
@@ -90,6 +90,9 @@ export const closedDocumentUrl = (loanId: string, documentId: string) => call<{ 
 
 /** "Ask {LO} to check my value" (and, later, refi and equity checks). Returns when it was asked. */
 export const askLo = (loanId: string, kind: AskKind) => call<{ askedAt?: string }>({ action: 'ask', loanId, kind })
+
+/** "Start something new" (Step C): a prefilled application; returns the resume code /apply keeps on this device. */
+export const startNew = (loanId: string, goal: StartGoal) => call<{ resume?: string }>({ action: 'start_new', loanId, goal })
 
 /** "I made an extra payment": logs it (date and amount) on the closed loan. */
 export const recordExtraPayment = (loanId: string, paidOn: string, amount: number) => call<{ id?: string }>({ action: 'extra_payment', loanId, paidOn, amount })

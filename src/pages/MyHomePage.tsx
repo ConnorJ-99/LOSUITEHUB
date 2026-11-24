@@ -11,7 +11,8 @@
 // uploads, published letters and estimates, and Request numbers. A closed file
 // (closed view Step A) shows the home and loan: Connor's value or a way to ask
 // for one, Zillow and the county appraisal district, payment and key dates, and
-// the documents he published. The getting-ready view comes later.
+// the documents he published. Step C adds Options for my home (equity, the
+// refinance savings line, refi / equity asks, Start something new).
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { CheckIcon, ExternalLinkIcon, FileTextIcon, HomeIcon, Loader2Icon, LockIcon, LogOutIcon } from 'lucide-react'
@@ -25,6 +26,7 @@ import { CODE_LENGTH, INVITE_TOKEN, cleanCode, emailLooksValid, type MyHomeClose
 import { Items, LoCard } from './PublicUploadPage'
 import { MyAssetsSection } from './MyHomeAssets'
 import { MyBudget } from './MyHomeBudget'
+import { HomeOptions } from './MyHomeOptions'
 import { NurtureFile } from './MyHomeGoals'
 import { LettersAndHomes, PortalHeader } from './PublicPortal'
 
@@ -320,6 +322,7 @@ function ClosedFile({ loanId, onGone, onSignedOut }: { loanId: string; onGone: (
     <>
       <HomeValue loanId={loanId} view={v} loFirst={loFirst} onAsked={(at) => setScreen({ kind: 'open', view: { ...v, asked: { ...v.asked, value_check: at } } })} onGone={onGone} />
       <MyLoan loanId={loanId} view={v} onGone={onGone} />
+      <HomeOptions loanId={loanId} view={v} loFirst={loFirst} onAsked={(kind, at) => setScreen({ kind: 'open', view: { ...v, asked: { ...v.asked, [kind]: at } } })} onGone={onGone} />
       {v.balance && <LoanSchedule loanId={loanId} balance={v.balance} extraPaid={v.extraPaid ?? []} onChanged={() => void load(false)} />}
       <LoCard lo={v.lo} />
     </>

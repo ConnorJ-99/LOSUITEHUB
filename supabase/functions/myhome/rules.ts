@@ -180,8 +180,17 @@ export interface MyHomeClosed {
   documents: { id: string; name: string; publishedAt: string }[]
   /** When each ask was last made and not yet handled (within a day, asking again does nothing new). */
   asked: Partial<Record<AskKind, string>>
+  /**
+   * Step C: which cards show (myhome_settings; all on with no row), and "You may
+   * be able to save about $X/mo" worked out by the function (refi.ts), or null.
+   */
+  options: { refiCard: boolean; equityCard: boolean; startNew: boolean; refiMonthly: number | null }
   lo: MyHomeLo
 }
+
+/** "Start something new" from a closed file: what they'd like to do next. */
+export type StartGoal = 'purchase' | 'refinance' | 'equity'
+export const START_GOALS: StartGoal[] = ['purchase', 'refinance', 'equity']
 
 /** The chip on the file switcher: "Purchase · 1420 Oak Ridge Dr", "88 Willow Bend Ct · Closed", "Getting ready to buy". */
 export function fileLabel(f: Pick<MyHomeFile, 'view' | 'purpose' | 'address'>): string {

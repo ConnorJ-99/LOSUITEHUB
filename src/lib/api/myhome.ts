@@ -75,20 +75,30 @@ export function useTurnOffMyHome() {
 // Asks from MyHome on a file (Connor, 2026-11-23)
 // ---------------------------------------------------------------------------
 
-export type MyHomeAskKind = 'value_check' | 'refi_check' | 'equity_check'
+export type MyHomeAskKind = 'value_check' | 'refi_check' | 'equity_check' | 'start_new'
 
 export interface MyHomeAsk {
   id: string
   kind: MyHomeAskKind
   createdAt: string
   handledAt: string | null
+  /** Start something new: what they picked (purchase, refinance, equity). */
+  goal?: string | null
 }
 
 export const ASK_LABEL: Record<MyHomeAskKind, string> = {
   value_check: "Asked you to check their home's value",
   refi_check: 'Asked you to check their refinance options',
   equity_check: 'Asked you to check their equity / HELOC options',
+  start_new: 'Started a new application from MyHome',
 }
+
+const START_WORDS: Record<string, string> = { purchase: 'buy another home', refinance: 'refinance their home', equity: 'borrow against their equity' }
+
+/** What an ask says ("Started a new application from MyHome to buy another home"). */
+export const askLabel = (ask: Pick<MyHomeAsk, 'kind' | 'goal'>) => (ask.kind === 'start_new' && ask.goal && START_WORDS[ask.goal] ? `${ASK_LABEL.start_new} to ${START_WORDS[ask.goal]}` : ASK_LABEL[ask.kind])
+
+const ASK_EVENTS = ['value_check_requested', 'refi_check_requested', 'equity_check_requested', 'start_new_requested']
 
 const asksKey = (loanId: string) => ['myhomeAsks', loanId] as const
 
@@ -100,17 +110,18 @@ export function useMyHomeAsks(loanId: string) {
     queryFn: async (): Promise<MyHomeAsk[] | null> => {
       const r = await db()
         .from('myhome_events')
-        .select('id, kind, created_at, handled_at')
+        .select('id, kind, created_at, handled_at, detail')
         .eq('loan_id', loanId)
-        .in('kind', ['value_check_requested', 'refi_check_requested', 'equity_check_requested'])
+        .in('kind', ASK_EVENTS)
         .order('created_at', { ascending: false })
         .limit(10)
       if (r.error) return null
-      return (r.data as { id: string; kind: string; created_at: string; handled_at: string | null }[]).map((e) => ({
+      return (r.data as { id: string; kind: string; created_at: string; handled_at: string | null; detail: { goal?: string } | null }[]).map((e) => ({
         id: e.id,
         kind: e.kind.replace(/_requested$/, '') as MyHomeAskKind,
         createdAt: e.created_at,
         handledAt: e.handled_at,
+        goal: e.detail?.goal ?? null,
       }))
     },
   })
@@ -167,10 +178,10 @@ export function useMyHomeActivity() {
     queryFn: async (): Promise<MyHomeActivity[]> => {
       const since = new Date(Date.now() - 60 * 86_400_000).toISOString()
       const [asks, goals] = await Promise.all([
-        db().from('myhome_events').select('id, kind, created_at, loan_id, contact_id').in('kind', ['value_check_requested', 'refi_check_requested', 'equity_check_requested']).is('handled_at', null).gte('created_at', since).order('created_at', { ascending: false }).limit(20),
+        db().from('myhome_events').select('id, kind, created_at, loan_id, contact_id, detail').in('kind', ASK_EVENTS).is('handled_at', null).gte('created_at', since).order('created_at', { ascending: false }).limit(20),
         db().from('nurture_updates').select('id, loan_id, contact_id, summary, created_at').eq('source', 'myhome').eq('status', 'unverified').order('created_at', { ascending: false }).limit(20),
       ])
-      const a = asks.error ? [] : (asks.data as { id: string; kind: string; created_at: string; loan_id: string | null; contact_id: string }[]).filter((x) => x.loan_id)
+      const a = asks.error ? [] : (asks.data as { id: string; kind: string; created_at: string; loan_id: string | null; contact_id: string; detail: { goal?: string } | null }[]).filter((x) => x.loan_id)
       const g = goals.error ? [] : (goals.data as { id: string; loan_id: string; contact_id: string | null; summary: string | null; created_at: string }[])
       const ids = [...new Set([...a.map((x) => x.contact_id), ...g.map((x) => x.contact_id).filter((x): x is string => !!x)])]
       const people = ids.length ? (((await db().from('contacts').select('id, first_name, last_name').in('id', ids)).data ?? []) as { id: string; first_name: string; last_name: string | null }[]) : []
@@ -179,7 +190,7 @@ export function useMyHomeActivity() {
         return p ? [p.first_name, p.last_name].filter(Boolean).join(' ') : 'A borrower'
       }
       return [
-        ...a.map((x) => ({ id: x.id, loanId: x.loan_id!, name: nameOf(x.contact_id), what: ASK_LABEL[x.kind.replace(/_requested$/, '') as MyHomeAskKind], at: x.created_at, kind: 'ask' as const })),
+        ...a.map((x) => ({ id: x.id, loanId: x.loan_id!, name: nameOf(x.contact_id), what: askLabel({ kind: x.kind.replace(/_requested$/, '') as MyHomeAskKind, goal: x.detail?.goal ?? null }), at: x.created_at, kind: 'ask' as const })),
         // The summary starts with the person's name ("Maya TEST added $700 to savings…"); show what they did.
         ...g.map((x) => {
           const name = nameOf(x.contact_id)

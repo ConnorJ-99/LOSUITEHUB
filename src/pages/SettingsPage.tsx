@@ -20,6 +20,7 @@ import { ariveTemplateProblem } from '@/lib/arive'
 import { ariveLoginProblem } from '@/lib/quicklinks/links'
 import { CompensationCard } from '@/components/settings/CompensationCard'
 import { HomeValueIndexCard } from '@/components/settings/HomeValueIndexCard'
+import { MyHomeSettingsCard } from '@/components/settings/MyHomeSettingsCard'
 import { LeadFollowupsCard } from '@/components/settings/LeadFollowupsCard'
 import { NurtureFollowupsCard } from '@/components/settings/NurtureFollowupsCard'
 import { ReviewsCard } from '@/components/settings/ReviewsCard'
@@ -227,6 +228,7 @@ export function SettingsPage() {
         <ReviewsCard canEdit={canEditCompany} />
         <PortalSettingsCard canEdit={canEditCompany} organizationId={me?.organizationId ?? null} />
         <HomeValueIndexCard canEdit={canEditCompany} />
+        <MyHomeSettingsCard canEdit={canEditCompany} />
         <RefiScenariosCard canEdit={canEditCompany} />
         {me && <TeamCard me={me} />}
         {canEditCompany && <GhlCard members={members.data ?? []} />}
