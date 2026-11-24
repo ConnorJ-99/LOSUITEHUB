@@ -30,7 +30,7 @@ MPS-HQ (nurture view): a **Goals** card (add savings / credit / debt goal, edit 
 MyHome (Nurture loan): **My goals**: one card per goal with a progress bar, "You're $1,200 away", Update button (a few taps), history, and "I reached this goal". A completion check shows only after the LO verifies. A note under credit: self-reported scores are for tracking; qualifying needs a mortgage credit report.
 Rules: savings progress = the latest reported balance (not the sum of contributions); debt progress = (start − current) ÷ (start − target); credit = (current − start) ÷ (target − start); completion never changes the stage or pre-approval.
 
-## Phase 2 — My assets (every borrower, every stage)
+## Phase 2 — My assets (every borrower, every stage) — built 2026-11-24 (`20270304000000_borrower_assets.sql`, `myhome` redeploy)
 
 `borrower_assets` (person-level, so it survives Nurture → Closed and the next loan) + `borrower_asset_balances` (history). Nickname/institution, category (checking, savings, cash, investment, retirement, other), reported balance, date, notes; no account numbers, no logins. MyHome shows **My assets** with the combined reported total (prominent on the nurture dashboard only when a savings goal exists). MPS-HQ shows three columns: borrower-reported, verified (1003 assets), eligible for qualifying (what the Max Approval math counts). A savings goal can follow the accounts the borrower ticks.
 

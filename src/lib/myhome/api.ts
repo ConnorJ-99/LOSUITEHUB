@@ -6,7 +6,7 @@ import { putSignedUpload, type PortalCall, type UploadReply } from '@/lib/api/do
 import { createMyHomeClient, supabase } from '@/lib/supabase'
 import type { PortalView } from '../../../supabase/functions/document-upload/portal'
 import type { UploadItem, UploadLo } from '../../../supabase/functions/document-upload/rules'
-import type { AskKind, GoalUpdateKind, MyHomeClosed, MyHomeMe, MyHomeNurture } from '../../../supabase/functions/myhome/rules'
+import type { AskKind, AssetInput, GoalUpdateKind, MyHomeAssets, MyHomeClosed, MyHomeMe, MyHomeNurture } from '../../../supabase/functions/myhome/rules'
 
 let client: SupabaseClient | null | undefined
 
@@ -103,6 +103,18 @@ export const fetchNurture = (loanId: string, opened: boolean) => call<Partial<My
 /** A goal update: a balance, contribution, score, payment, note, or "I reached this goal". Returns the goal's new value. */
 export const sendGoalUpdate = (loanId: string, v: { goalId: string; kind: GoalUpdateKind; amount?: number | null; on?: string | null; note?: string | null }) =>
   call<{ value?: number }>({ action: 'goal_update', loanId, ...v })
+
+/** Which of their accounts a savings goal counts (empty = they type the balance). */
+export const followAssets = (loanId: string, goalId: string, assetIds: string[]) => call<{ ok?: boolean }>({ action: 'goal_follow', loanId, goalId, assetIds })
+
+/** My assets (Phase 2): their own accounts, the same on every file. */
+export const fetchAssets = () => call<Partial<MyHomeAssets>>({ action: 'assets' })
+
+/** Adds an account (no assetId) or changes one. */
+export const saveAsset = (v: AssetInput & { assetId?: string | null }) => call<{ id?: string }>({ action: 'asset_save', ...v })
+
+/** Removes an account from MyHome (its history stays). */
+export const removeAsset = (assetId: string) => call<{ ok?: boolean }>({ action: 'asset_remove', assetId })
 
 /** Uploads go through MyHome's own client, never the staff one. */
 export const putMyHomeUpload = (path: string, token: string, file: File) => {

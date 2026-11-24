@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { INVITE_TOKEN, areaForCounty, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type MyHomeFile } from './rules'
+import { INVITE_TOKEN, areaForCounty, assetProblem, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type MyHomeFile } from './rules'
 
 describe('emails and codes', () => {
   it('compares codes exactly', () => {
@@ -105,4 +105,21 @@ describe('home value area', () => {
     expect(areaForCounty('Grayson')).toBeNull()
     expect(areaForCounty(null)).toBeNull()
   })
+})
+
+describe('assetProblem (My assets)', () => {
+  const ok = { nickname: 'Chase savings', institution: 'Chase', category: 'savings' as const, balance: 1500, balanceOn: '2026-11-20', notes: null }
+  it('takes a plain account', () => expect(assetProblem(ok, '2026-11-24')).toBeNull())
+  it('needs a name', () => expect(assetProblem({ ...ok, nickname: '  ' }, '2026-11-24')).toMatch(/name/))
+  it('refuses account numbers anywhere, but last 4 is fine', () => {
+    expect(assetProblem({ ...ok, nickname: 'Chase 123456789' }, '2026-11-24')).toMatch(/account numbers/)
+    expect(assetProblem({ ...ok, notes: 'acct 44001' }, '2026-11-24')).toMatch(/account numbers/)
+    expect(assetProblem({ ...ok, nickname: 'Chase 1234' }, '2026-11-24')).toBeNull()
+  })
+  it('needs a balance of zero or more and a past date', () => {
+    expect(assetProblem({ ...ok, balance: -1 }, '2026-11-24')).toMatch(/balance/)
+    expect(assetProblem({ ...ok, balance: 0 }, '2026-11-24')).toBeNull()
+    expect(assetProblem({ ...ok, balanceOn: '2026-11-25' }, '2026-11-24')).toMatch(/earlier date/)
+  })
+  it('needs a known kind', () => expect(assetProblem({ ...ok, category: 'crypto' as never }, '2026-11-24')).toMatch(/kind/))
 })

@@ -23,6 +23,7 @@ import { askLo, closedDocumentUrl, fetchClosed, fetchFile, fetchMe, fileCall, ha
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { CODE_LENGTH, INVITE_TOKEN, cleanCode, emailLooksValid, type MyHomeClosed, type MyHomeMe } from '../../supabase/functions/myhome/rules'
 import { Items, LoCard } from './PublicUploadPage'
+import { MyAssetsSection } from './MyHomeAssets'
 import { NurtureFile } from './MyHomeGoals'
 import { LettersAndHomes, PortalHeader } from './PublicPortal'
 
@@ -830,6 +831,8 @@ function Home({ me, preview, onSignOut, onReload }: { me: MyHomeMe; preview?: bo
             {me.lo && <LoCard lo={me.lo} />}
           </>
         )}
+        {/* My assets are the person's, on every file (a Nurture file shows them with its goals). */}
+        {file && file.view !== 'nurture' && <MyAssetsSection key={file.loanId} />}
       </main>
       <Footer />
     </div>

@@ -179,6 +179,7 @@ function GoalRow({ loanId, goal: g, history }: { loanId: string; goal: NurtureGo
           <p className="text-xs text-muted-foreground">
             {show(g.kind, g.start)} → {show(g.kind, g.target)}
             {g.targetDate && ` · by ${formatIsoDate(g.targetDate)}`}
+            {g.followsAssets.length > 0 && ` · follows ${g.followsAssets.length} of their MyHome account${g.followsAssets.length === 1 ? '' : 's'}`}
           </p>
         </div>
         <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', done ? 'bg-emerald-50 text-emerald-700' : g.status === 'reported_complete' ? 'bg-amber-50 text-amber-800' : 'bg-muted text-muted-foreground')}>

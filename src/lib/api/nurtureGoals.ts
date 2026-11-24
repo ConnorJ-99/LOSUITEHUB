@@ -43,6 +43,8 @@ export interface NurtureGoal {
   targetDate: string | null
   status: GoalStatus
   paused: boolean
+  /** A savings goal's accounts from the borrower's My assets (Phase 2); empty = typed by them. */
+  followsAssets: string[]
 }
 
 export interface GoalUpdate {
@@ -89,6 +91,7 @@ export function useNurtureGoals(loanId: string) {
           targetDate: (r.target_date as string | null) ?? null,
           status: r.status as GoalStatus,
           paused: r.paused as boolean,
+          followsAssets: (r.follows_assets as string[] | null) ?? [],
         })),
         updates: (u.data as Record<string, unknown>[]).map((r) => ({
           id: r.id as string,

@@ -255,6 +255,8 @@ export interface MyHomeGoal {
   targetDate: string | null
   status: GoalStatus
   paused: boolean
+  /** A savings goal's accounts from My assets (its balance is their total); empty = typed by the borrower. */
+  followsAssets: string[]
   history: { kind: string; amount: number | null; after: number | null; note: string | null; on: string; byBorrower: boolean }[]
 }
 
@@ -262,4 +264,60 @@ export interface MyHomeGoal {
 export interface MyHomeNurture {
   goals: MyHomeGoal[]
   lo: MyHomeLo
+}
+
+// ---------------------------------------------------------------------------
+// My assets (nurture goals Phase 2): the borrower's own accounts and balances
+// ---------------------------------------------------------------------------
+
+export type AssetCategory = 'checking' | 'savings' | 'cash' | 'investment' | 'retirement' | 'other'
+export const ASSET_CATEGORIES: { value: AssetCategory; label: string }[] = [
+  { value: 'checking', label: 'Checking' },
+  { value: 'savings', label: 'Savings' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'investment', label: 'Investment' },
+  { value: 'retirement', label: 'Retirement' },
+  { value: 'other', label: 'Other' },
+]
+
+export interface MyHomeAsset {
+  id: string
+  nickname: string
+  institution: string | null
+  category: AssetCategory
+  balance: number
+  balanceOn: string
+  notes: string | null
+  /** Earlier balances, newest first (the current one not repeated). */
+  history: { balance: number; on: string }[]
+}
+
+/** What the assets action returns: their accounts on MyHome, whichever file is open. */
+export interface MyHomeAssets {
+  assets: MyHomeAsset[]
+}
+
+export interface AssetInput {
+  nickname: string
+  institution: string | null
+  category: AssetCategory
+  balance: number
+  balanceOn: string | null
+  notes: string | null
+}
+
+/** Five or more digits in a row look like an account number; MyHome never takes those. */
+export const looksLikeAccountNumber = (s: string | null | undefined) => /[0-9]{5,}/.test(s ?? '')
+
+/** What's wrong with an account typed in MyHome, or null. The database checks the same things. */
+export function assetProblem(a: AssetInput, today: string): string | null {
+  if (!a.nickname.trim()) return 'Give the account a name, like "Chase savings".'
+  if (a.nickname.trim().length > 80 || (a.institution ?? '').length > 80) return 'Keep the name under 80 characters.'
+  if (looksLikeAccountNumber(a.nickname) || looksLikeAccountNumber(a.institution) || looksLikeAccountNumber(a.notes)) return "Please don't enter account numbers. A name like \"Chase savings\" is enough."
+  if (!ASSET_CATEGORIES.some((c) => c.value === a.category)) return 'Pick what kind of account it is.'
+  if (!Number.isFinite(a.balance) || a.balance < 0) return 'Enter the balance.'
+  if (a.balance >= 1_000_000_000) return 'That balance looks too large. Check the number.'
+  if (a.balanceOn && a.balanceOn > today) return 'Use today or an earlier date.'
+  if ((a.notes ?? '').length > 500) return 'Keep the note under 500 characters.'
+  return null
 }

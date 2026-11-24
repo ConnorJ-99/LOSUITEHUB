@@ -29,6 +29,12 @@
 //              published on the file, open asks, and that file's loan officer
 //   closed_pdf a one-minute link to one of those documents
 //   ask        "Ask Connor to check my value" (myhome_ask(): a note and his notice)
+// My assets (nurture goals Phase 2; any file view, the accounts are the person's):
+//   assets       their accounts with balance history
+//   asset_save   add or change one (myhome_asset_save(): no account numbers;
+//                savings goals that follow it catch up)
+//   asset_remove hide one (its history stays)
+//   goal_follow  which accounts a savings goal counts (Nurture files only)
 // Preview (Connor, 2026-11-24: "allow the loan officers to view the borrower's
 // view of MyHome on the MyHome tab"):
 //   preview    a team login (not a MyHome one) who can see the file under RLS
@@ -40,7 +46,7 @@
 // Connor's GHL email ("Send MyHome code to GHL", the ghl function).
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0'
-import { ASK_KINDS, CODE_LENGTH, GOAL_UPDATE_KINDS, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, areaForCounty, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, normEmail, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type AccountMatch, type AccountStatus, type AskKind, type GoalUpdateKind, type MyHomeClosed, type MyHomeFile, type MyHomeGoal, type MyHomeLo, type MyHomeMe, type MyHomeNurture, type MyHomeView } from './rules.ts'
+import { ASK_KINDS, ASSET_CATEGORIES, CODE_LENGTH, GOAL_UPDATE_KINDS, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, areaForCounty, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, normEmail, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type AccountMatch, type AccountStatus, type AskKind, type AssetCategory, type MyHomeAssets, type GoalUpdateKind, type MyHomeClosed, type MyHomeFile, type MyHomeGoal, type MyHomeLo, type MyHomeMe, type MyHomeNurture, type MyHomeView } from './rules.ts'
 import { groupByHome, homeRequestProblem, portalStep, stepMessage, type HomeRequestInput, type PortalDoc, type PortalMilestone, type PortalStage, type PortalView, type RequestStatus } from '../document-upload/portal.ts'
 import { canUpload, fileProblem, safeFileName, type UploadItem } from '../document-upload/rules.ts'
 
@@ -559,7 +565,8 @@ async function ask(db: SupabaseClient, account: AccountRow, l: OpenFile, kind: u
 
 const FILE_ACTIONS = ['file', 'pdf', 'home_request', 'upload_url', 'uploaded']
 const CLOSED_ACTIONS = ['closed', 'closed_pdf', 'ask', 'extra_payment', 'remove_payment']
-const NURTURE_ACTIONS = ['nurture', 'goal_update']
+const NURTURE_ACTIONS = ['nurture', 'goal_update', 'goal_follow']
+const ASSET_ACTIONS = ['assets', 'asset_save', 'asset_remove']
 
 // ---------------------------------------------------------------------------
 // Nurture goals (Phase 1, docs/plans/nurture-goals.md)
@@ -590,6 +597,7 @@ async function nurtureView(db: SupabaseClient, account: AccountRow, l: OpenFile,
       targetDate: (g.target_date as string | null) ?? null,
       status: g.status as MyHomeGoal['status'],
       paused: g.paused as boolean,
+      followsAssets: (g.follows_assets as string[] | null) ?? [],
       history: hist
         .filter((h) => h.goal_id === g.id && h.kind !== 'created')
         .map((h) => ({ kind: h.kind, amount: n(h.amount), after: n(h.after_value), note: h.note, on: h.happened_on, byBorrower: h.account_id != null })),
@@ -613,6 +621,71 @@ async function goalUpdate(db: SupabaseClient, account: AccountRow, l: OpenFile, 
   return reply(200, { value: r.data })
 }
 
+// ---------------------------------------------------------------------------
+// My assets (Phase 2): on the person, so every file view shows the same ones
+// ---------------------------------------------------------------------------
+
+async function assetsView(db: SupabaseClient, account: AccountRow): Promise<MyHomeAssets> {
+  const [rows, hist] = await Promise.all([
+    db.from('borrower_assets').select('id, nickname, institution, category, balance, balance_on, notes').eq('contact_id', account.contact_id).is('archived_at', null).order('sort_order').order('created_at'),
+    db.from('borrower_asset_balances').select('asset_id, balance, balance_on').eq('contact_id', account.contact_id).order('balance_on', { ascending: false }).order('created_at', { ascending: false }).limit(500),
+  ])
+  if (rows.error) throw new Error(rows.error.message)
+  const h = (hist.data ?? []) as { asset_id: string; balance: number; balance_on: string }[]
+  return {
+    assets: (rows.data as { id: string; nickname: string; institution: string | null; category: AssetCategory; balance: number; balance_on: string; notes: string | null }[]).map((a) => ({
+      id: a.id,
+      nickname: a.nickname,
+      institution: a.institution,
+      category: a.category,
+      balance: Number(a.balance),
+      balanceOn: a.balance_on,
+      notes: a.notes,
+      // The first history row is the current balance.
+      history: h.filter((x) => x.asset_id === a.id).slice(1, 13).map((x) => ({ balance: Number(x.balance), on: x.balance_on })),
+    })),
+  }
+}
+
+async function assetSave(db: SupabaseClient, account: AccountRow, body: Record<string, unknown>): Promise<Response> {
+  const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : null)
+  const category = typeof body.category === 'string' && ASSET_CATEGORIES.some((c) => c.value === body.category) ? body.category : null
+  const balance = typeof body.balance === 'number' && Number.isFinite(body.balance) ? Math.round(body.balance * 100) / 100 : null
+  if (!category || balance == null) return reply(400, { error: 'Enter the account name, kind and balance.' })
+  const assetId = typeof body.assetId === 'string' && UUID.test(body.assetId) ? body.assetId : null
+  const on = typeof body.balanceOn === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.balanceOn) ? body.balanceOn : null
+  const r = await db.rpc('myhome_asset_save', {
+    p_account: account.id,
+    p_asset: assetId,
+    p_nickname: str(body.nickname, 200) ?? '',
+    p_institution: str(body.institution, 200),
+    p_category: category,
+    p_balance: balance,
+    p_on: on,
+    p_notes: str(body.notes, 600),
+  })
+  if (r.error) return reply(400, { error: r.error.message })
+  return reply(200, { id: r.data })
+}
+
+async function assetRemove(db: SupabaseClient, account: AccountRow, assetId: unknown): Promise<Response> {
+  if (typeof assetId !== 'string' || !UUID.test(assetId)) return reply(400, { error: "That account isn't in your MyHome." })
+  const r = await db.rpc('myhome_asset_remove', { p_account: account.id, p_asset: assetId })
+  if (r.error) return reply(400, { error: r.error.message })
+  return reply(200, { ok: true })
+}
+
+/** Which accounts a savings goal counts (myhome_goal_follow()). */
+async function goalFollow(db: SupabaseClient, account: AccountRow, l: OpenFile, body: Record<string, unknown>): Promise<Response> {
+  const ids = Array.isArray(body.assetIds) ? body.assetIds.filter((x): x is string => typeof x === 'string' && UUID.test(x)).slice(0, 25) : null
+  if (typeof body.goalId !== 'string' || !UUID.test(body.goalId) || !ids) return reply(400, { error: 'Pick one of your goals.' })
+  const g = await db.from('nurture_goals').select('id').eq('id', body.goalId).eq('loan_id', l.id).maybeSingle()
+  if (!g.data) return reply(404, { error: 'Pick one of your goals.' })
+  const r = await db.rpc('myhome_goal_follow', { p_account: account.id, p_goal: body.goalId, p_assets: ids })
+  if (r.error) return reply(400, { error: r.error.message })
+  return reply(200, { ok: true })
+}
+
 /** "I made an extra payment": logged with its date and amount (myhome_record_payment(): checks and a note on the file). */
 async function extraPayment(db: SupabaseClient, account: AccountRow, l: OpenFile, body: Record<string, unknown>): Promise<Response> {
   const paidOn = typeof body.paidOn === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.paidOn) ? body.paidOn : null
@@ -634,7 +707,7 @@ async function removePayment(db: SupabaseClient, account: AccountRow, paymentId:
 // Preview: a team member sees the file the way its primary borrower does
 // ---------------------------------------------------------------------------
 
-const PREVIEW_READS: Record<string, MyHomeView | 'me'> = { me: 'me', file: 'active', pdf: 'active', closed: 'closed', closed_pdf: 'closed', nurture: 'nurture' }
+const PREVIEW_READS: Record<string, MyHomeView | 'me' | 'assets'> = { me: 'me', assets: 'assets', file: 'active', pdf: 'active', closed: 'closed', closed_pdf: 'closed', nurture: 'nurture' }
 const PREVIEW_ONLY = "This is a preview. The borrower can do this in their own MyHome; nothing changes from here."
 const NOBODY = '00000000-0000-0000-0000-000000000000'
 
@@ -661,6 +734,7 @@ async function preview(db: SupabaseClient, request: Request, body: Record<string
   const account: AccountRow = { id: a?.id ?? NOBODY, organization_id: p.organization_id, contact_id: p.contact_id, user_id: null, status: a?.status ?? 'invited', preview: true }
 
   if (want === 'me') return reply(200, await me(db, account, false, loanId))
+  if (want === 'assets') return reply(200, await assetsView(db, account))
   const l = await fileFor(db, account, loanId, want)
   if (l instanceof Response) return l
   if (body.inner === 'file') return reply(200, await fileView(db, account, l, false))
@@ -710,7 +784,15 @@ Deno.serve(async (request) => {
       const l = await fileFor(db, account, body.loanId, 'nurture')
       if (l instanceof Response) return l
       if (body.action === 'nurture') return reply(200, await nurtureView(db, account, l, body.opened === true))
+      if (body.action === 'goal_follow') return await goalFollow(db, account, l, body)
       return await goalUpdate(db, account, l, body)
+    }
+    if (typeof body.action === 'string' && ASSET_ACTIONS.includes(body.action)) {
+      const account = await signedIn(db, request)
+      if (account instanceof Response) return account
+      if (body.action === 'assets') return reply(200, await assetsView(db, account))
+      if (body.action === 'asset_save') return await assetSave(db, account, body)
+      return await assetRemove(db, account, body.assetId)
     }
     return reply(400, { error: 'Unknown action.' })
   } catch (e) {
