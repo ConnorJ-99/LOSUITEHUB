@@ -29,6 +29,13 @@
 //              published on the file, open asks, and that file's loan officer
 //   closed_pdf a one-minute link to one of those documents
 //   ask        "Ask Connor to check my value" (myhome_ask(): a note and his notice)
+// Preview (Connor, 2026-11-24: "allow the loan officers to view the borrower's
+// view of MyHome on the MyHome tab"):
+//   preview    a team login (not a MyHome one) who can see the file under RLS
+//              reads what its primary borrower sees on it: inner = me (this
+//              file only), file, closed, nurture, pdf or closed_pdf. Read only:
+//              nothing is recorded (no opened/pdf events, no sign-in) and every
+//              other action is refused.
 // Never sends anything: the code and link reach the borrower only through
 // Connor's GHL email ("Send MyHome code to GHL", the ghl function).
 
@@ -53,10 +60,14 @@ interface AccountRow {
   contact_id: string
   user_id: string | null
   status: AccountStatus
+  /** A team member's read-only preview: nothing is recorded. */
+  preview?: boolean
 }
 
-const event = (db: SupabaseClient, a: Pick<AccountRow, 'id' | 'organization_id' | 'contact_id'>, kind: string, detail: Record<string, unknown> = {}, loanId: string | null = null) =>
-  db.from('myhome_events').insert({ organization_id: a.organization_id, account_id: a.id, contact_id: a.contact_id, loan_id: loanId, kind, detail })
+const event = async (db: SupabaseClient, a: Pick<AccountRow, 'id' | 'organization_id' | 'contact_id' | 'preview'>, kind: string, detail: Record<string, unknown> = {}, loanId: string | null = null) => {
+  if (a.preview) return
+  await db.from('myhome_events').insert({ organization_id: a.organization_id, account_id: a.id, contact_id: a.contact_id, loan_id: loanId, kind, detail })
+}
 
 /** The loan officer's card: name, NMLS, phone, email, and the headshot from Pages if there is one. */
 async function loCard(db: SupabaseClient, organizationId: string, loId: string | null): Promise<MyHomeLo> {
@@ -202,10 +213,11 @@ interface LoanRow {
   program_name: string | null
 }
 
-async function me(db: SupabaseClient, account: AccountRow, fresh: boolean): Promise<MyHomeMe> {
+/** The borrower and their files; a preview (onlyLoan) shows that one file and records nothing. */
+async function me(db: SupabaseClient, account: AccountRow, fresh: boolean, onlyLoan: string | null = null): Promise<MyHomeMe> {
   const now = new Date().toISOString()
-  if (account.status === 'invited') await db.from('borrower_accounts').update({ status: 'active', activated_at: now }).eq('id', account.id)
-  if (fresh) {
+  if (account.status === 'invited' && !account.preview) await db.from('borrower_accounts').update({ status: 'active', activated_at: now }).eq('id', account.id)
+  if (fresh && !account.preview) {
     await db.from('borrower_accounts').update({ last_signed_in_at: now }).eq('id', account.id)
     await event(db, account, 'signed_in')
   }
@@ -214,7 +226,7 @@ async function me(db: SupabaseClient, account: AccountRow, fresh: boolean): Prom
     db.from('contacts').select('first_name').eq('id', account.contact_id).single(),
     db.from('loan_borrowers').select('loan_id').eq('contact_id', account.contact_id),
   ])
-  const loanIds = ((on.data ?? []) as { loan_id: string }[]).map((x) => x.loan_id)
+  const loanIds = ((on.data ?? []) as { loan_id: string }[]).map((x) => x.loan_id).filter((id) => !onlyLoan || id === onlyLoan)
   const loans = loanIds.length
     ? ((await db.from('loans').select('id, stage, purpose, closing_date, created_at, assigned_lo_id, subject_property_id, mortgage_type, term_months, program_name').in('id', loanIds).eq('organization_id', account.organization_id)).data ?? []) as LoanRow[]
     : []
@@ -618,6 +630,46 @@ async function removePayment(db: SupabaseClient, account: AccountRow, paymentId:
   return reply(200, { ok: true })
 }
 
+// ---------------------------------------------------------------------------
+// Preview: a team member sees the file the way its primary borrower does
+// ---------------------------------------------------------------------------
+
+const PREVIEW_READS: Record<string, MyHomeView | 'me'> = { me: 'me', file: 'active', pdf: 'active', closed: 'closed', closed_pdf: 'closed', nurture: 'nurture' }
+const PREVIEW_ONLY = "This is a preview. The borrower can do this in their own MyHome; nothing changes from here."
+const NOBODY = '00000000-0000-0000-0000-000000000000'
+
+async function preview(db: SupabaseClient, request: Request, body: Record<string, unknown>): Promise<Response> {
+  const jwt = (request.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
+  const u = jwt ? await db.auth.getUser(jwt) : null
+  const user = u?.data.user
+  if (!user) return reply(401, { error: 'Sign in to MPS-HQ to preview MyHome.' })
+  if (user.app_metadata?.myhome === true) return reply(403, { error: 'Only the MPS-HQ team can preview MyHome.' })
+  const loanId = body.loanId
+  if (typeof loanId !== 'string' || !UUID.test(loanId)) return reply(404, { error: "You can't see this file." })
+  // The file rule decides, as the signed-in team member (RLS), never the service role.
+  const staff = createClient(URL_, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: `Bearer ${jwt}` } }, auth: { persistSession: false } })
+  const seen = await staff.from('loans').select('id').eq('id', loanId).maybeSingle()
+  if (!seen.data) return reply(404, { error: "You can't see this file." })
+  const want = typeof body.inner === 'string' ? PREVIEW_READS[body.inner] : undefined
+  if (!want) return reply(403, { error: PREVIEW_ONLY })
+
+  const prim = await db.from('loan_borrowers').select('contact_id, organization_id').eq('loan_id', loanId).eq('role', 'primary').maybeSingle()
+  const p = prim.data as { contact_id: string; organization_id: string } | null
+  if (!p) return reply(404, { error: 'This file has no primary borrower yet.' })
+  const acct = await db.from('borrower_accounts').select('id, status').eq('contact_id', p.contact_id).maybeSingle()
+  const a = acct.data as { id: string; status: AccountStatus } | null
+  const account: AccountRow = { id: a?.id ?? NOBODY, organization_id: p.organization_id, contact_id: p.contact_id, user_id: null, status: a?.status ?? 'invited', preview: true }
+
+  if (want === 'me') return reply(200, await me(db, account, false, loanId))
+  const l = await fileFor(db, account, loanId, want)
+  if (l instanceof Response) return l
+  if (body.inner === 'file') return reply(200, await fileView(db, account, l, false))
+  if (body.inner === 'pdf') return await pdf(db, account, l, body.documentId)
+  if (body.inner === 'closed') return reply(200, await closedView(db, account, l, false))
+  if (body.inner === 'closed_pdf') return await closedPdf(db, account, l, body.documentId)
+  return reply(200, await nurtureView(db, account, l, false))
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (request.method !== 'POST') return reply(405, { error: 'Use POST.' })
@@ -625,6 +677,7 @@ Deno.serve(async (request) => {
   const db = admin()
   try {
     if (body.action === 'sign_in') return await signIn(db, body)
+    if (body.action === 'preview') return await preview(db, request, body)
     if (body.action === 'me') {
       const account = await signedIn(db, request)
       if (account instanceof Response) return account

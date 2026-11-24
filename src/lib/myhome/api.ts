@@ -3,7 +3,7 @@
 // code reaches the borrower only through Connor's GHL email.
 import type { EmailOtpType, SupabaseClient } from '@supabase/supabase-js'
 import { putSignedUpload, type PortalCall, type UploadReply } from '@/lib/api/documentUpload'
-import { createMyHomeClient } from '@/lib/supabase'
+import { createMyHomeClient, supabase } from '@/lib/supabase'
 import type { PortalView } from '../../../supabase/functions/document-upload/portal'
 import type { UploadItem, UploadLo } from '../../../supabase/functions/document-upload/rules'
 import type { AskKind, GoalUpdateKind, MyHomeClosed, MyHomeMe, MyHomeNurture } from '../../../supabase/functions/myhome/rules'
@@ -21,8 +21,20 @@ export interface MyHomeReply<T> {
   body: T & { error?: string; state?: string }
 }
 
+let previewLoan: string | null = null
+
+/**
+ * The MyHome tab's "See what they see" (Connor, 2026-11-24): while set, every
+ * call goes to the function's read-only `preview` action on the TEAM login,
+ * for this file's primary borrower. Writes come back refused with a note.
+ */
+export function setMyHomePreview(loanId: string | null) {
+  previewLoan = loanId
+}
+
 async function call<T>(body: Record<string, unknown>): Promise<MyHomeReply<T>> {
-  const c = myHomeClient()
+  const c = previewLoan ? supabase : myHomeClient()
+  if (previewLoan && c) body = { action: 'preview', loanId: previewLoan, inner: body.action, documentId: body.documentId }
   if (!c) return { status: 0, body: { error: 'MyHome is not set up yet.' } as T & { error: string } }
   const { data, error } = await c.functions.invoke('myhome', { body })
   if (!error) return { status: 200, body: (data ?? {}) as MyHomeReply<T>['body'] }

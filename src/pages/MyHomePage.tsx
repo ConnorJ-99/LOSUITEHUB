@@ -19,7 +19,7 @@ import { amortization, loggedExtras, mortgageToday } from '@/lib/calc/amortizati
 import { homeValue } from '@/lib/calc/homeValue'
 import { todayIso } from '@/lib/dates'
 import { formatCurrency } from '@/lib/format'
-import { askLo, closedDocumentUrl, fetchClosed, fetchFile, fetchMe, fileCall, hasSession, putMyHomeUpload, recordExtraPayment, removeExtraPayment, signIn, signOut, type MyHomeFileView } from '@/lib/myhome/api'
+import { askLo, closedDocumentUrl, fetchClosed, fetchFile, fetchMe, fileCall, hasSession, putMyHomeUpload, recordExtraPayment, removeExtraPayment, setMyHomePreview, signIn, signOut, type MyHomeFileView } from '@/lib/myhome/api'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { CODE_LENGTH, INVITE_TOKEN, cleanCode, emailLooksValid, type MyHomeClosed, type MyHomeMe } from '../../supabase/functions/myhome/rules'
 import { Items, LoCard } from './PublicUploadPage'
@@ -75,6 +75,35 @@ export function MyHomePage() {
       />
     )
   return <SignIn note={screen.kind === 'off' ? screen.message : screen.note} onSignedIn={() => void load(true)} />
+}
+
+/**
+ * The MyHome tab's "See what they see" (Connor, 2026-11-24): this file the way
+ * its primary borrower sees it in MyHome, on the team login, read only (the
+ * function's preview action refuses every change and records nothing).
+ * Opened in MPS-HQ, so it is loaded only when asked for.
+ */
+export function MyHomePreview({ loanId }: { loanId: string }) {
+  const [screen, setScreen] = useState<{ kind: 'loading' } | { kind: 'error'; message: string } | { kind: 'home'; me: MyHomeMe }>({ kind: 'loading' })
+  const load = async () => {
+    const r = await fetchMe(false)
+    if (r.status === 200 && r.body.files) return setScreen({ kind: 'home', me: { firstName: r.body.firstName ?? '', files: r.body.files, lo: r.body.lo ?? null } })
+    setScreen({ kind: 'error', message: r.body.error ?? 'The preview could not load. Try again.' })
+  }
+  useEffect(() => {
+    setMyHomePreview(loanId)
+    void load()
+    return () => setMyHomePreview(null)
+    // Once per file.
+  }, [loanId])
+  if (screen.kind === 'loading')
+    return (
+      <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+        <Loader2Icon className="size-4 animate-spin" /> Loading their MyHome…
+      </div>
+    )
+  if (screen.kind === 'error') return <p className="py-16 text-center text-sm text-muted-foreground">{screen.message}</p>
+  return <Home me={screen.me} preview onSignOut={() => undefined} onReload={() => void load()} />
 }
 
 function Brand({ small }: { small?: boolean }) {
@@ -722,7 +751,7 @@ const firstNameOf = (name: string) => (name ? name.charAt(0).toUpperCase() + nam
 /** "March 2021" from "2021-03-19". */
 const monthYear = (iso: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : null)
 
-function Home({ me, onSignOut, onReload }: { me: MyHomeMe; onSignOut: () => void; onReload: () => void }) {
+function Home({ me, preview, onSignOut, onReload }: { me: MyHomeMe; preview?: boolean; onSignOut: () => void; onReload: () => void }) {
   const [picked, setPicked] = useState(me.files[0]?.loanId ?? null)
   const file = me.files.find((f) => f.loanId === picked) ?? me.files[0] ?? null
   const first = firstNameOf(me.firstName)
@@ -731,16 +760,18 @@ function Home({ me, onSignOut, onReload }: { me: MyHomeMe; onSignOut: () => void
   const closedHome = file?.view === 'closed' && file.address ? [file.address, file.city].filter(Boolean).join(', ') : null
   const closedLine = file?.view === 'closed' ? [monthYear(file.closingDate) && `Closed ${monthYear(file.closingDate)}`, file.loanLine].filter(Boolean).join(' · ') : ''
   return (
-    <div className="min-h-screen bg-[#F4F7FB] text-foreground">
+    <div className={`${preview ? '' : 'min-h-screen '}bg-[#F4F7FB] text-foreground`}>
       <header className="bg-navy px-4 pt-5 pb-14">
         <div className="mx-auto max-w-2xl">
           <div className="flex items-center justify-between">
             <Brand small />
-            <button type="button" onClick={onSignOut} className="flex h-9 items-center gap-1.5 rounded-full border border-white/25 px-3 text-sm font-medium text-white" title="Sign out on this device">
-              <span className="flex size-6 items-center justify-center rounded-full bg-white/15 text-xs font-bold">{initials}</span>
-              <LogOutIcon className="size-4" />
-              <span className="sr-only">Sign out</span>
-            </button>
+            {!preview && (
+              <button type="button" onClick={onSignOut} className="flex h-9 items-center gap-1.5 rounded-full border border-white/25 px-3 text-sm font-medium text-white" title="Sign out on this device">
+                <span className="flex size-6 items-center justify-center rounded-full bg-white/15 text-xs font-bold">{initials}</span>
+                <LogOutIcon className="size-4" />
+                <span className="sr-only">Sign out</span>
+              </button>
+            )}
           </div>
           {closedHome ? (
             <>

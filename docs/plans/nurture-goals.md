@@ -18,7 +18,7 @@ Connor's spec "MyHome with MPS — Nurture Goals & Financial Planning System" (p
 Changes from the earlier MyHome plan (docs/plans/myhome.md, Stage 3 "Update my numbers"): borrowers no longer edit the 1003 rows directly. Their numbers stay borrower-reported, apart from the LO's verified figures, as this spec requires.
 
 ## MyHome tab on every file (Connor, 2026-11-24, built)
-A **MyHome** tab in every file's side menu (open, nurture and closed; `?tab=myhome`, `MyHomeTab`), taken off the Overview: the account line (status, Send code to GHL, Copy link, Draft text/email, New code, Turn off), "Asked from MyHome" with Save value & mark done, and the extra payments they reported. Goals (Phase 1), assets (Phase 2) and the budget (Phase 3) are built into this tab.
+A **MyHome** tab in every file's side menu (open, nurture and closed; `?tab=myhome`, `MyHomeTab`), taken off the Overview: the account line (status, Send code to GHL, Copy link, Draft text/email, New code, Turn off), "Asked from MyHome" with Save value & mark done, and the extra payments they reported. **See their MyHome** (2026-11-24) opens the file as its primary borrower sees it in MyHome, read only: the `myhome` function's `preview` action, for a team login that can see the file under RLS, refuses every change and records nothing (no opened/pdf events). Goals (Phase 1), assets (Phase 2) and the budget (Phase 3) are built into this tab.
 
 ## Phase 1 — Nurture goals (savings, credit, debt) — built 2026-11-24 (`20270303000000_nurture_goals.sql`, `myhome` redeploy)
 
