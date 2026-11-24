@@ -107,6 +107,10 @@ export const fetchNurture = (loanId: string, opened: boolean) => call<Partial<My
 export const sendGoalUpdate = (loanId: string, v: { goalId: string; kind: GoalUpdateKind; amount?: number | null; on?: string | null; note?: string | null }) =>
   call<{ value?: number }>({ action: 'goal_update', loanId, ...v })
 
+/** "Homes I like" on a Nurture purchase file: saves a home to the file (no numbers requested). */
+export const addHome = (loanId: string, v: { address: string; city: string | null; zip: string | null; price: number | null; link: string | null; notes: string | null }) =>
+  call<{ id?: string }>({ action: 'home_add', loanId, ...v })
+
 /** Which of their accounts a savings goal counts (empty = they type the balance). */
 export const followAssets = (loanId: string, goalId: string, assetIds: string[]) => call<{ ok?: boolean }>({ action: 'goal_follow', loanId, goalId, assetIds })
 

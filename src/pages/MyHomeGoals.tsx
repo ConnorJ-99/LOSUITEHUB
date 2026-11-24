@@ -9,7 +9,8 @@
 // Phase 2: My assets shows here too, and a savings goal can follow the
 // accounts the borrower ticks (its balance is their total, kept up to date
 // whenever one of them gets a new balance). Phase 3: My budget below them,
-// its savings plan measured against the first open savings goal.
+// its savings plan measured against the first open savings goal. On a
+// purchase file, Homes I like (MyHomeHomes.tsx) comes after the goals.
 import { useEffect, useState } from 'react'
 import { CheckCircle2Icon, Loader2Icon, PauseIcon } from 'lucide-react'
 import { fetchNurture, followAssets, sendGoalUpdate } from '@/lib/myhome/api'
@@ -19,6 +20,7 @@ import { formatCurrency } from '@/lib/format'
 import type { GoalUpdateKind, MyHomeAsset, MyHomeGoal, MyHomeNurture } from '../../supabase/functions/myhome/rules'
 import { MyAssets, assetsTotal, useMyAssets } from './MyHomeAssets'
 import { MyBudget } from './MyHomeBudget'
+import { HomesILike } from './MyHomeHomes'
 import { LoCard } from './PublicUploadPage'
 
 const card = 'rounded-xl border bg-white p-5 shadow-soft'
@@ -92,6 +94,7 @@ export function NurtureFile({ loanId, onGone, onSignedOut }: { loanId: string; o
       {goals.map((g) => (
         <GoalCard key={g.id} loanId={loanId} goal={g} assets={assets} loFirst={loFirst} onChanged={() => void load(false)} onGone={onGone} />
       ))}
+      {screen.view.isPurchase && <HomesILike loanId={loanId} homes={screen.view.homes ?? []} loFirst={loFirst} onChanged={() => void load(false)} onGone={onGone} />}
       <MyAssets state={mine.state} onChanged={changed} loFirst={loFirst} />
       <MyBudget savingsGoal={savingsGoal} loFirst={loFirst} />
       <LoCard lo={lo} />

@@ -272,6 +272,9 @@ export interface MyHomeGoal {
 /** What the nurture action returns for a Nurture file. */
 export interface MyHomeNurture {
   goals: MyHomeGoal[]
+  /** "Homes I like" (purchase files): the homes on the file they're interested in, newest first. */
+  isPurchase: boolean
+  homes: { id: string; address: string; city: string | null; price: number | null; link: string | null; status: string }[]
   lo: MyHomeLo
 }
 

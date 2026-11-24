@@ -48,6 +48,10 @@
 //   budget       settings, income and expense items, entries (13 months)
 //   budget_settings / budget_item_save / budget_item_remove /
 //   budget_entry_save / budget_entry_remove   (the myhome_budget_* functions)
+// Homes I like (Connor, 2026-11-24; Nurture purchase files):
+//   nurture      also sends the homes on the file they're interested in
+//   home_add     saves a home they like (myhome_add_home(): Properties as
+//                interested, a note, a notice; no numbers are requested)
 // Preview (Connor, 2026-11-24: "allow the loan officers to view the borrower's
 // view of MyHome on the MyHome tab"):
 //   preview    a team login (not a MyHome one) who can see the file under RLS
@@ -652,7 +656,7 @@ async function ask(db: SupabaseClient, account: AccountRow, l: OpenFile, kind: u
 
 const FILE_ACTIONS = ['file', 'pdf', 'home_request', 'upload_url', 'uploaded']
 const CLOSED_ACTIONS = ['closed', 'closed_pdf', 'ask', 'extra_payment', 'remove_payment', 'start_new']
-const NURTURE_ACTIONS = ['nurture', 'goal_update', 'goal_follow']
+const NURTURE_ACTIONS = ['nurture', 'goal_update', 'goal_follow', 'home_add']
 const ASSET_ACTIONS = ['assets', 'asset_save', 'asset_remove']
 const BUDGET_ACTIONS = ['budget', 'budget_settings', 'budget_item_save', 'budget_item_remove', 'budget_entry_save', 'budget_entry_remove']
 
@@ -662,10 +666,11 @@ const BUDGET_ACTIONS = ['budget', 'budget_settings', 'budget_item_save', 'budget
 
 /** Their goals on the Nurture file (their own, not a co-borrower's), each with its history, and the LO card. */
 async function nurtureView(db: SupabaseClient, account: AccountRow, l: OpenFile, opened: boolean): Promise<MyHomeNurture> {
-  const [goals, updates, lo] = await Promise.all([
+  const [goals, updates, lo, homes] = await Promise.all([
     db.from('nurture_goals').select('*').eq('loan_id', l.id).eq('contact_id', account.contact_id).order('sort_order').order('created_at'),
     db.from('nurture_goal_updates').select('goal_id, kind, amount, after_value, note, happened_on, account_id, created_at').eq('loan_id', l.id).order('created_at', { ascending: false }).limit(300),
     loCard(db, l.organization_id, l.assigned_lo_id),
+    db.from('properties').select('id, address_line, city, list_price, listing_url, status').eq('loan_id', l.id).in('status', ['interested', 'offer_made', 'under_contract', 'passed']).order('created_at', { ascending: false }).limit(50),
   ])
   if (goals.error) throw new Error(goals.error.message)
   if (opened) await event(db, account, 'opened', {}, l.id)
@@ -690,8 +695,35 @@ async function nurtureView(db: SupabaseClient, account: AccountRow, l: OpenFile,
         .filter((h) => h.goal_id === g.id && h.kind !== 'created')
         .map((h) => ({ kind: h.kind, amount: n(h.amount), after: n(h.after_value), note: h.note, on: h.happened_on, byBorrower: h.account_id != null })),
     })),
+    isPurchase: l.purpose === 'purchase',
+    homes: ((homes.data ?? []) as { id: string; address_line: string; city: string | null; list_price: number | null; listing_url: string | null; status: string }[]).map((h) => ({
+      id: h.id,
+      address: h.address_line,
+      city: h.city,
+      price: h.list_price == null ? null : Number(h.list_price),
+      link: h.listing_url,
+      status: h.status,
+    })),
     lo,
   }
+}
+
+/** "Homes I like": a home they saved on their Nurture purchase file (myhome_add_home()). */
+async function homeAdd(db: SupabaseClient, account: AccountRow, l: OpenFile, body: Record<string, unknown>): Promise<Response> {
+  const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : null)
+  const price = typeof body.price === 'number' && Number.isFinite(body.price) ? Math.round(body.price * 100) / 100 : null
+  const r = await db.rpc('myhome_add_home', {
+    p_account: account.id,
+    p_loan: l.id,
+    p_address: str(body.address, 300) ?? '',
+    p_city: str(body.city, 80),
+    p_zip: str(body.zip, 10),
+    p_price: price,
+    p_link: str(body.link, 600),
+    p_notes: str(body.notes, 600),
+  })
+  if (r.error) return reply(400, { error: r.error.message })
+  return reply(200, { id: r.data })
 }
 
 /** A borrower's goal update (myhome_goal_update(): the check, the history, the Updates card, a note, a notice only for big ones). */
@@ -955,6 +987,7 @@ Deno.serve(async (request) => {
       if (l instanceof Response) return l
       if (body.action === 'nurture') return reply(200, await nurtureView(db, account, l, body.opened === true))
       if (body.action === 'goal_follow') return await goalFollow(db, account, l, body)
+      if (body.action === 'home_add') return await homeAdd(db, account, l, body)
       return await goalUpdate(db, account, l, body)
     }
     if (typeof body.action === 'string' && ASSET_ACTIONS.includes(body.action)) {
