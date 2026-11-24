@@ -27,6 +27,7 @@ import { priorityTone, toneBorder } from '@/lib/pipeline/priority'
 import { purposeLabel, stageLabel } from '@/lib/pipeline/stages'
 import { WebLeadsCard } from '@/components/queue/WebLeadsCard'
 import { PortalRequestsCard } from '@/components/portal/PortalRequestsCard'
+import { MyHomeActivityCard } from '@/components/myhome/MyHomeActivityCard'
 import { PriorityListCard } from '@/components/queue/PriorityList'
 import { NewMessagesCard } from '@/components/messages/NewMessages'
 import { ProcessingFilesCard } from '@/components/queue/ProcessingFilesCard'
@@ -267,6 +268,7 @@ export function TodayPage() {
           <ScheduledCard />
           <ProcessingFilesCard />
           <PortalRequestsCard />
+          <MyHomeActivityCard />
           <WebLeadsCard />
           <LeadFollowupsBox items={(data.data?.actions ?? []).filter(forMe)} meta={followupMeta.data} today={today} />
           {loading ? (

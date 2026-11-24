@@ -44,6 +44,8 @@ Built as: `budget_settings` (one per person), `budget_items`, `budget_entries` (
 
 Notices (goal reported complete, credit score updates, big balance changes), Today/activity, permissions review, mobile pass, PGlite tests for every script, calc tests, a signed-in MyHome check on a TEST borrower.
 
+Done 2026-11-24 (no database change): notices were built in Phase 1 (`myhome_request`, now labeled "asks for something or reports goal progress"); Today has a **MyHome** box (`MyHomeActivityCard`: open asks and goal updates to verify on files you can see, each opening the MyHome tab; hidden when empty). Permissions: goals follow the file rule (`can_see_loan`), assets and budget the person rule (`can_see_contact`), so processors and LOAs on a file see them; only MyHome writes the borrower's numbers; the preview needs a team login that can see the file. PGlite: goals 32/32, assets 31/31, budget 27/27. Calc tests: goals, borrowerAssets, budget. Phone width checked (MyHome tab stacks, no sideways scroll). **Still open:** the signed-in check as a TEST borrower (writes through a real MyHome session): Connor signs in with his TEST borrower's code and tries a goal update, an account and a budget item.
+
 ## Decisions for Connor
 
 Connor, 2026-11-24:

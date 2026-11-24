@@ -35,7 +35,7 @@ export const NOTIFICATION_KINDS: { kind: Exclude<NotificationKind, 'test'>; labe
   { kind: 'stage_request', label: 'Your LO Assistant asks to move a file', pushDefault: true },
   { kind: 'intake_submitted', label: 'An intake interview is ready for your review', pushDefault: true },
   { kind: 'intake_returned', label: 'An intake you ran is sent back with a question', pushDefault: true },
-  { kind: 'myhome_request', label: 'A borrower asks for something in MyHome', pushDefault: true },
+  { kind: 'myhome_request', label: 'A borrower asks for something or reports goal progress in MyHome', pushDefault: true },
   { kind: 'needs_matching', label: 'A message needs matching', adminsOnly: true, pushDefault: true },
 ]
 

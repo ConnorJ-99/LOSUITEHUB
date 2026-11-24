@@ -144,3 +144,50 @@ export function useMyHomeExtraPayments(loanId: string) {
     },
   })
 }
+
+// ---------------------------------------------------------------------------
+// Today's MyHome box (nurture goals Phase 4): open asks and goal updates to verify
+// ---------------------------------------------------------------------------
+
+export interface MyHomeActivity {
+  id: string
+  loanId: string
+  name: string
+  what: string
+  at: string
+  kind: 'ask' | 'goal'
+}
+
+/** What borrowers sent from MyHome that waits for you, on files you can see: open asks and goal updates to verify (newest first). */
+export function useMyHomeActivity() {
+  return useQuery({
+    queryKey: ['myhomeActivity'],
+    retry: false,
+    refetchInterval: 60_000,
+    queryFn: async (): Promise<MyHomeActivity[]> => {
+      const since = new Date(Date.now() - 60 * 86_400_000).toISOString()
+      const [asks, goals] = await Promise.all([
+        db().from('myhome_events').select('id, kind, created_at, loan_id, contact_id').in('kind', ['value_check_requested', 'refi_check_requested', 'equity_check_requested']).is('handled_at', null).gte('created_at', since).order('created_at', { ascending: false }).limit(20),
+        db().from('nurture_updates').select('id, loan_id, contact_id, summary, created_at').eq('source', 'myhome').eq('status', 'unverified').order('created_at', { ascending: false }).limit(20),
+      ])
+      const a = asks.error ? [] : (asks.data as { id: string; kind: string; created_at: string; loan_id: string | null; contact_id: string }[]).filter((x) => x.loan_id)
+      const g = goals.error ? [] : (goals.data as { id: string; loan_id: string; contact_id: string | null; summary: string | null; created_at: string }[])
+      const ids = [...new Set([...a.map((x) => x.contact_id), ...g.map((x) => x.contact_id).filter((x): x is string => !!x)])]
+      const people = ids.length ? (((await db().from('contacts').select('id, first_name, last_name').in('id', ids)).data ?? []) as { id: string; first_name: string; last_name: string | null }[]) : []
+      const nameOf = (id: string | null) => {
+        const p = people.find((x) => x.id === id)
+        return p ? [p.first_name, p.last_name].filter(Boolean).join(' ') : 'A borrower'
+      }
+      return [
+        ...a.map((x) => ({ id: x.id, loanId: x.loan_id!, name: nameOf(x.contact_id), what: ASK_LABEL[x.kind.replace(/_requested$/, '') as MyHomeAskKind], at: x.created_at, kind: 'ask' as const })),
+        // The summary starts with the person's name ("Maya TEST added $700 to savings…"); show what they did.
+        ...g.map((x) => {
+          const name = nameOf(x.contact_id)
+          const full = x.summary ?? 'Sent a goal update'
+          const s = full.startsWith(`${name} `) ? full.slice(name.length + 1) : full
+          return { id: x.id, loanId: x.loan_id, name, what: s.charAt(0).toUpperCase() + s.slice(1), at: x.created_at, kind: 'goal' as const }
+        }),
+      ].sort((p, q) => q.at.localeCompare(p.at))
+    },
+  })
+}
