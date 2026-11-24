@@ -33,7 +33,7 @@
 // Connor's GHL email ("Send MyHome code to GHL", the ghl function).
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0'
-import { ASK_KINDS, CODE_LENGTH, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, areaForCounty, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, normEmail, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type AccountMatch, type AccountStatus, type AskKind, type MyHomeClosed, type MyHomeFile, type MyHomeLo, type MyHomeMe, type MyHomeView } from './rules.ts'
+import { ASK_KINDS, CODE_LENGTH, GOAL_UPDATE_KINDS, INVITE_TOKEN, LINK_GONE, LOCKED, NOT_OPEN, NOT_SIGNED_IN, NOT_YOURS, NO_MATCH, STAFF_EMAIL, TURNED_OFF, areaForCounty, cleanCode, countyName, emailLooksValid, fileLabel, isLocked, loanLine, normEmail, orderFiles, pickAccount, sameCode, viewFor, zillowUrl, type AccountMatch, type AccountStatus, type AskKind, type GoalUpdateKind, type MyHomeClosed, type MyHomeFile, type MyHomeGoal, type MyHomeLo, type MyHomeMe, type MyHomeNurture, type MyHomeView } from './rules.ts'
 import { groupByHome, homeRequestProblem, portalStep, stepMessage, type HomeRequestInput, type PortalDoc, type PortalMilestone, type PortalStage, type PortalView, type RequestStatus } from '../document-upload/portal.ts'
 import { canUpload, fileProblem, safeFileName, type UploadItem } from '../document-upload/rules.ts'
 
@@ -547,6 +547,59 @@ async function ask(db: SupabaseClient, account: AccountRow, l: OpenFile, kind: u
 
 const FILE_ACTIONS = ['file', 'pdf', 'home_request', 'upload_url', 'uploaded']
 const CLOSED_ACTIONS = ['closed', 'closed_pdf', 'ask', 'extra_payment', 'remove_payment']
+const NURTURE_ACTIONS = ['nurture', 'goal_update']
+
+// ---------------------------------------------------------------------------
+// Nurture goals (Phase 1, docs/plans/nurture-goals.md)
+// ---------------------------------------------------------------------------
+
+/** Their goals on the Nurture file (their own, not a co-borrower's), each with its history, and the LO card. */
+async function nurtureView(db: SupabaseClient, account: AccountRow, l: OpenFile, opened: boolean): Promise<MyHomeNurture> {
+  const [goals, updates, lo] = await Promise.all([
+    db.from('nurture_goals').select('*').eq('loan_id', l.id).eq('contact_id', account.contact_id).order('sort_order').order('created_at'),
+    db.from('nurture_goal_updates').select('goal_id, kind, amount, after_value, note, happened_on, account_id, created_at').eq('loan_id', l.id).order('created_at', { ascending: false }).limit(300),
+    loCard(db, l.organization_id, l.assigned_lo_id),
+  ])
+  if (goals.error) throw new Error(goals.error.message)
+  if (opened) await event(db, account, 'opened', {}, l.id)
+  const hist = (updates.data ?? []) as { goal_id: string; kind: string; amount: number | null; after_value: number | null; note: string | null; happened_on: string; account_id: string | null }[]
+  const n = (v: unknown) => (v == null ? null : Number(v))
+  return {
+    goals: (goals.data as Record<string, unknown>[]).map((g) => ({
+      id: g.id as string,
+      kind: g.kind as MyHomeGoal['kind'],
+      label: g.label as string,
+      debtType: (g.debt_type as string | null) ?? null,
+      start: Number(g.start_value),
+      target: Number(g.target_value),
+      current: n(g.current_value),
+      currentAt: (g.current_at as string | null) ?? null,
+      verified: n(g.verified_value),
+      targetDate: (g.target_date as string | null) ?? null,
+      status: g.status as MyHomeGoal['status'],
+      paused: g.paused as boolean,
+      history: hist
+        .filter((h) => h.goal_id === g.id && h.kind !== 'created')
+        .map((h) => ({ kind: h.kind, amount: n(h.amount), after: n(h.after_value), note: h.note, on: h.happened_on, byBorrower: h.account_id != null })),
+    })),
+    lo,
+  }
+}
+
+/** A borrower's goal update (myhome_goal_update(): the check, the history, the Updates card, a note, a notice only for big ones). */
+async function goalUpdate(db: SupabaseClient, account: AccountRow, l: OpenFile, body: Record<string, unknown>): Promise<Response> {
+  const kind = typeof body.kind === 'string' && GOAL_UPDATE_KINDS.includes(body.kind as GoalUpdateKind) ? body.kind : null
+  if (typeof body.goalId !== 'string' || !UUID.test(body.goalId) || !kind) return reply(400, { error: 'Pick one of your goals.' })
+  const amount = typeof body.amount === 'number' && Number.isFinite(body.amount) ? Math.round(body.amount * 100) / 100 : null
+  const on = typeof body.on === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.on) ? body.on : null
+  const note = typeof body.note === 'string' ? body.note.slice(0, 500) : null
+  // The goal must be on this file (the database checks it's this person's).
+  const g = await db.from('nurture_goals').select('id').eq('id', body.goalId).eq('loan_id', l.id).maybeSingle()
+  if (!g.data) return reply(404, { error: 'Pick one of your goals.' })
+  const r = await db.rpc('myhome_goal_update', { p_account: account.id, p_goal: body.goalId, p_kind: kind, p_amount: amount, p_on: on, p_note: note })
+  if (r.error) return reply(400, { error: r.error.message })
+  return reply(200, { value: r.data })
+}
 
 /** "I made an extra payment": logged with its date and amount (myhome_record_payment(): checks and a note on the file). */
 async function extraPayment(db: SupabaseClient, account: AccountRow, l: OpenFile, body: Record<string, unknown>): Promise<Response> {
@@ -597,6 +650,14 @@ Deno.serve(async (request) => {
       if (body.action === 'extra_payment') return await extraPayment(db, account, l, body)
       if (body.action === 'remove_payment') return await removePayment(db, account, body.paymentId)
       return await ask(db, account, l, body.kind)
+    }
+    if (typeof body.action === 'string' && NURTURE_ACTIONS.includes(body.action)) {
+      const account = await signedIn(db, request)
+      if (account instanceof Response) return account
+      const l = await fileFor(db, account, body.loanId, 'nurture')
+      if (l instanceof Response) return l
+      if (body.action === 'nurture') return reply(200, await nurtureView(db, account, l, body.opened === true))
+      return await goalUpdate(db, account, l, body)
     }
     return reply(400, { error: 'Unknown action.' })
   } catch (e) {

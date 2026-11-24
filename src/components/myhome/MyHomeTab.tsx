@@ -12,6 +12,7 @@ import { useProperties } from '@/lib/api/properties'
 import type { LoanProfile } from '@/lib/api/types'
 import { formatIsoDate, relativeTime } from '@/lib/dates'
 import { formatCurrency } from '@/lib/format'
+import { GoalsCard } from './GoalsCard'
 
 export function MyHomeTab({ loan }: { loan: LoanProfile }) {
   const properties = useProperties(loan.id)
@@ -33,6 +34,7 @@ export function MyHomeTab({ loan }: { loan: LoanProfile }) {
         person={{ id: person.id, firstName: person.firstName, lastName: person.lastName, phone: person.phone, email: person.email }}
         home={subject ? { id: subject.id, estimatedValue: subject.estimatedValue, estimatedValueOn: null } : null}
       />
+      <GoalsCard loan={loan} />
       {(paid.data?.length ?? 0) > 0 && (
         <Card title="Extra payments they reported" description="Logged in MyHome. The balance on the Overview's Mortgage today card counts them.">
           <ul className="divide-y text-sm">

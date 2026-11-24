@@ -6,7 +6,7 @@ import { putSignedUpload, type PortalCall, type UploadReply } from '@/lib/api/do
 import { createMyHomeClient } from '@/lib/supabase'
 import type { PortalView } from '../../../supabase/functions/document-upload/portal'
 import type { UploadItem, UploadLo } from '../../../supabase/functions/document-upload/rules'
-import type { AskKind, MyHomeClosed, MyHomeMe } from '../../../supabase/functions/myhome/rules'
+import type { AskKind, GoalUpdateKind, MyHomeClosed, MyHomeMe, MyHomeNurture } from '../../../supabase/functions/myhome/rules'
 
 let client: SupabaseClient | null | undefined
 
@@ -84,6 +84,13 @@ export const recordExtraPayment = (loanId: string, paidOn: string, amount: numbe
 
 /** Takes back a logged extra payment (a mistake). */
 export const removeExtraPayment = (loanId: string, paymentId: string) => call<{ ok?: boolean }>({ action: 'remove_payment', loanId, paymentId })
+
+/** A Nurture file's goals (Nurture goals Phase 1). */
+export const fetchNurture = (loanId: string, opened: boolean) => call<Partial<MyHomeNurture>>({ action: 'nurture', loanId, opened })
+
+/** A goal update: a balance, contribution, score, payment, note, or "I reached this goal". Returns the goal's new value. */
+export const sendGoalUpdate = (loanId: string, v: { goalId: string; kind: GoalUpdateKind; amount?: number | null; on?: string | null; note?: string | null }) =>
+  call<{ value?: number }>({ action: 'goal_update', loanId, ...v })
 
 /** Uploads go through MyHome's own client, never the staff one. */
 export const putMyHomeUpload = (path: string, token: string, file: File) => {

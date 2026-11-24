@@ -229,3 +229,37 @@ export const NOT_YOURS = "That loan isn't in your MyHome."
 export const NOT_OPEN = "This loan has moved on. Refresh the page to see where it stands."
 export const TURNED_OFF = 'This MyHome account is turned off. Contact your loan officer to turn it back on.'
 export const STAFF_EMAIL = 'That email is an MPS-HQ team login. Ask your loan officer to use your personal email for MyHome.'
+
+
+// ---------------------------------------------------------------------------
+// Nurture goals (Phase 1, docs/plans/nurture-goals.md)
+// ---------------------------------------------------------------------------
+
+export type GoalKind = 'savings' | 'credit' | 'debt'
+export type GoalStatus = 'not_started' | 'in_progress' | 'reported_complete' | 'verified_complete'
+/** What a borrower can send for a goal. */
+export type GoalUpdateKind = 'balance' | 'contribution' | 'score' | 'payment' | 'note' | 'reported_complete'
+export const GOAL_UPDATE_KINDS: GoalUpdateKind[] = ['balance', 'contribution', 'score', 'payment', 'note', 'reported_complete']
+
+export interface MyHomeGoal {
+  id: string
+  kind: GoalKind
+  label: string
+  debtType: string | null
+  start: number
+  target: number
+  current: number | null
+  currentAt: string | null
+  /** Shown only as "verified" once the LO verified it. */
+  verified: number | null
+  targetDate: string | null
+  status: GoalStatus
+  paused: boolean
+  history: { kind: string; amount: number | null; after: number | null; note: string | null; on: string; byBorrower: boolean }[]
+}
+
+/** What the nurture action returns for a Nurture file. */
+export interface MyHomeNurture {
+  goals: MyHomeGoal[]
+  lo: MyHomeLo
+}

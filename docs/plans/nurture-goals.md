@@ -20,7 +20,7 @@ Changes from the earlier MyHome plan (docs/plans/myhome.md, Stage 3 "Update my n
 ## MyHome tab on every file (Connor, 2026-11-24, built)
 A **MyHome** tab in every file's side menu (open, nurture and closed; `?tab=myhome`, `MyHomeTab`), taken off the Overview: the account line (status, Send code to GHL, Copy link, Draft text/email, New code, Turn off), "Asked from MyHome" with Save value & mark done, and the extra payments they reported. Goals (Phase 1), assets (Phase 2) and the budget (Phase 3) are built into this tab.
 
-## Phase 1 — Nurture goals (savings, credit, debt)
+## Phase 1 — Nurture goals (savings, credit, debt) — built 2026-11-24 (`20270303000000_nurture_goals.sql`, `myhome` redeploy)
 
 Tables (RLS: people who can see the file read; the LO side writes through the app; the borrower side only through `myhome`):
 - `nurture_goals`: file, person, kind (`savings` / `credit` / `debt`), label, debt type (credit card, auto, installment, student, other) and optional `liability_id`, start value, target value, current reported value and when, LO-verified value and when, optional target date, status (not started, in progress, borrower reported complete, LO verified complete, paused), sort order, created/updated by.

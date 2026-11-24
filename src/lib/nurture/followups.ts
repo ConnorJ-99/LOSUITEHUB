@@ -103,7 +103,7 @@ export const UPDATE_KIND_LABEL: Record<UpdateKind, string> = {
 export interface NurtureUpdate {
   id: string
   status: UpdateStatus
-  source: 'reply' | 'typed'
+  source: 'reply' | 'typed' | 'myhome'
   kind: UpdateKind | null
   summary: string | null
   suggestedNext: string | null

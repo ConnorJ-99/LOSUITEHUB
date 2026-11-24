@@ -23,6 +23,7 @@ import { askLo, closedDocumentUrl, fetchClosed, fetchFile, fetchMe, fileCall, ha
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { CODE_LENGTH, INVITE_TOKEN, cleanCode, emailLooksValid, type MyHomeClosed, type MyHomeMe } from '../../supabase/functions/myhome/rules'
 import { Items, LoCard } from './PublicUploadPage'
+import { NurtureFile } from './MyHomeGoals'
 import { LettersAndHomes, PortalHeader } from './PublicPortal'
 
 type Screen = { kind: 'loading' } | { kind: 'signed_out'; note?: string } | { kind: 'off'; message: string } | { kind: 'home'; me: MyHomeMe }
@@ -778,6 +779,8 @@ function Home({ me, onSignOut, onReload }: { me: MyHomeMe; onSignOut: () => void
           <OpenFile key={file.loanId} loanId={file.loanId} onGone={onReload} onSignedOut={onSignOut} />
         ) : file?.view === 'closed' ? (
           <ClosedFile key={file.loanId} loanId={file.loanId} onGone={onReload} onSignedOut={onSignOut} />
+        ) : file?.view === 'nurture' ? (
+          <NurtureFile key={file.loanId} loanId={file.loanId} onGone={onReload} onSignedOut={onSignOut} />
         ) : (
           <>
             <section className="rounded-xl border bg-white p-5 shadow-soft">
