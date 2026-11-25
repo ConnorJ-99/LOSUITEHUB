@@ -17,12 +17,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { Milestone, TeamMember } from './HeaderParts'
 
-// The compact loan file header (UI pass, Part 1): Arive-style density.
-//   row 1  back · name · purpose · status · Arive # · actions (Delete in "…")
-//   row 2  key figures, small label over value; each opens where it's edited
-//   row 3  chevron progress (click = change status) and the "Team 3/6" chip
-// "Hide details" folds rows 2–3. Scrolled past it, a slim bar sticks to the top.
-// Presentational only.
+// The compact loan file header (UI pass, Part 1; trimmed by Connor 2026-11-24).
+//   row 1  back · name · star · loan type · actions (Quick quote, Change status, "…")
+//   row 2  the property address (and, once under contract, lender and loan numbers)
+//          with a "Loan details" fold for the numbers before that
+//   row 3  key figures, small label over value; each opens where it's edited
+//   row 4  chevron progress (click = change status), the next step, team avatars
+// Scrolled past it, a slim bar sticks to the top. Presentational only.
 
 export interface KeyFigure {
   label: string
@@ -122,19 +123,21 @@ export function TeamChip({ members, onAssign, onCustom }: { members: TeamMember[
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className="inline-flex shrink-0 items-center gap-1.5 rounded-full border bg-card px-2 py-0.5 text-xs hover:bg-muted">
-          <UsersIcon className="size-3.5 text-muted-foreground" />
-          <span className="font-medium">
-            Team <span className="tabular-nums text-muted-foreground">{assigned.length}/{members.length}</span>
-          </span>
-          <span className="flex -space-x-1.5">
-            {assigned.slice(0, 4).map((m) => (
-              <span key={m.role} title={`${m.role}: ${m.name}`} className="flex size-5 items-center justify-center rounded-full border border-card bg-primary/15 text-[0.55rem] font-semibold text-primary">
-                {initials(m.name!)}
-              </span>
-            ))}
-          </span>
-          <ChevronDownIcon className="size-3 text-muted-foreground" />
+        <button type="button" className="inline-flex shrink-0 items-center rounded-full p-0.5 hover:bg-muted" title={assigned.length ? `Team: ${assigned.map((m) => `${m.role} ${m.name}`).join(', ')}` : 'Assign the team'} aria-label="Team on this file">
+          {assigned.length ? (
+            <span className="flex -space-x-1.5">
+              {assigned.slice(0, 5).map((m) => (
+                <span key={m.role} className="flex size-6 items-center justify-center rounded-full border-2 border-card bg-primary/15 text-[0.6rem] font-semibold text-primary">
+                  {initials(m.name!)}
+                </span>
+              ))}
+              {assigned.length > 5 && <span className="flex size-6 items-center justify-center rounded-full border-2 border-card bg-muted text-[0.6rem] font-semibold">+{assigned.length - 5}</span>}
+            </span>
+          ) : (
+            <span className="flex size-6 items-center justify-center rounded-full border border-dashed text-muted-foreground">
+              <UsersIcon className="size-3.5" />
+            </span>
+          )}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
@@ -190,10 +193,15 @@ export interface CompactHeaderProps {
   borrowerName: string
   backTo: string
   backLabel: string
-  /** Chips after the name: purpose, status, the Arive # link, the next step. */
+  /** Right after the name: the star, loan type and role chips. */
   chips: React.ReactNode
+  /** Under the name: the property address (and lender details once under contract). */
+  subline?: React.ReactNode
+  /** Folded loan details (lender and loan numbers); no fold when absent. */
+  details?: React.ReactNode
   /** Right side of row 1. */
   actions: React.ReactNode
+  /** Whether the "Loan details" fold is open. */
   detailsOpen: boolean
   onToggleDetails: () => void
   figures: KeyFigure[]
@@ -203,11 +211,11 @@ export interface CompactHeaderProps {
   team?: React.ReactNode
   notice?: React.ReactNode
   /** The slim bar shown once the header scrolls away. */
-  slim: { status: string; figures: KeyFigure[]; action: React.ReactNode }
+  slim: { status: string | null; figures: KeyFigure[]; action: React.ReactNode }
 }
 
 /** The loan file header: ~120px with details, one row without; a ~44px bar sticks once it scrolls away. */
-export function CompactHeader({ borrowerName, backTo, backLabel, chips, actions, detailsOpen, onToggleDetails, figures, progress, team, notice, slim }: CompactHeaderProps) {
+export function CompactHeader({ borrowerName, backTo, backLabel, chips, subline, details, actions, detailsOpen, onToggleDetails, figures, progress, team, notice, slim }: CompactHeaderProps) {
   const ref = useRef<HTMLElement>(null)
   const [scrolledPast, setScrolledPast] = useState(false)
   useEffect(() => {
@@ -227,22 +235,26 @@ export function CompactHeader({ borrowerName, backTo, backLabel, chips, actions,
           </Link>
           <h1 className="text-xl leading-tight font-bold tracking-tight">{borrowerName}</h1>
           {chips}
-          <button type="button" onClick={onToggleDetails} aria-expanded={detailsOpen} className="inline-flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground">
-            {detailsOpen ? 'Hide details' : 'Show details'}
-            <ChevronDownIcon className={cn('size-3.5 transition-transform', detailsOpen && 'rotate-180')} />
-          </button>
           <div className="ml-auto flex flex-wrap items-center gap-1.5">{actions}</div>
         </div>
-        {detailsOpen && (
-          <>
-            <KeyFigures figures={figures} />
-            {(progress || team) && (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <div className="min-w-0 flex-1">{progress}</div>
-                {team}
-              </div>
+        {(subline || details) && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-6 text-sm">
+            {subline}
+            {details && (
+              <button type="button" onClick={onToggleDetails} aria-expanded={detailsOpen} className="inline-flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground">
+                Loan details
+                <ChevronDownIcon className={cn('size-3.5 transition-transform', detailsOpen && 'rotate-180')} />
+              </button>
             )}
-          </>
+          </div>
+        )}
+        {details && detailsOpen && <div className="flex flex-wrap items-center gap-2 pl-6">{details}</div>}
+        <KeyFigures figures={figures} />
+        {(progress || team) && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <div className="min-w-0 flex-1">{progress}</div>
+            {team}
+          </div>
         )}
         {notice}
       </header>
@@ -250,7 +262,7 @@ export function CompactHeader({ borrowerName, backTo, backLabel, chips, actions,
       <div className={cn('sticky top-0 z-30 -mx-4 -mb-11 hidden h-11 transition-opacity md:-mx-6 md:block', scrolledPast ? 'opacity-100' : 'pointer-events-none opacity-0')} aria-hidden={!scrolledPast}>
         <div className="flex h-11 items-center gap-3 border-b bg-card/95 px-4 shadow-sm backdrop-blur md:px-6">
           <span className="truncate text-sm font-bold">{borrowerName}</span>
-          <span className="hidden shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[0.7rem] font-medium sm:inline">{slim.status}</span>
+          {slim.status && <span className="hidden shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[0.7rem] font-medium sm:inline">{slim.status}</span>}
           <div className="hidden min-w-0 flex-1 overflow-hidden md:block">
             <KeyFigures figures={slim.figures} compact />
           </div>

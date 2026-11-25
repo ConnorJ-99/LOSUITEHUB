@@ -16,6 +16,7 @@ export function StageMenu({
   onSelect,
   children,
   hide = [],
+  extra,
 }: {
   stage: PipelineStage
   onSelect: (stage: PipelineStage) => void
@@ -23,6 +24,8 @@ export function StageMenu({
   children: React.ReactElement
   /** Stages left out (a file's processor can't move it to Lost or Closed). */
   hide?: PipelineStage[]
+  /** More choices under the stages (the file's Hold, Reassess). */
+  extra?: React.ReactNode
 }) {
   const main = STAGES.filter((s) => s.kind === 'main' && !hide.includes(s.value))
   const side = STAGES.filter((s) => s.kind === 'side' && !hide.includes(s.value))
@@ -44,6 +47,12 @@ export function StageMenu({
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
+        {extra && (
+          <>
+            <DropdownMenuSeparator />
+            {extra}
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

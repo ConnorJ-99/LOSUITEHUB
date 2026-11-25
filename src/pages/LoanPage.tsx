@@ -5,7 +5,6 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   CalculatorIcon,
   ClipboardListIcon,
-  SproutIcon,
   RotateCcwIcon,
   ChevronDownIcon,
   FileSignatureIcon,
@@ -44,7 +43,6 @@ import { useSelectedCashToClose } from '@/lib/api/headerFigures'
 import { LoanNumberChips } from '@/components/loanfile/LoanNumberChips'
 import { NurtureOverview } from '@/components/nurture/NurtureOverview'
 import { ReassessDialog } from '@/components/nurture/ReassessDialog'
-import { NextActionHeader } from '@/components/leads/NextActionHeader'
 import { afterPartnerJoined, afterProcessorChanged, offerApplicationLink } from '@/components/messaging/fileTextRequests'
 import { MissingFieldsDialog } from '@/components/loanfile/MissingFieldsDialog'
 import { WorkflowPanel } from '@/components/loanfile/WorkflowPanel'
@@ -159,13 +157,13 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
   const [editing, setEditing] = useState(false)
   const [holding, setHolding] = useState(false)
   const [reassessing, setReassessing] = useState(false)
-  // "Hide details" is remembered per person on this computer.
-  const detailsKey = `mps-file-header-details:${state.status === 'signedIn' ? state.user.id : 'anon'}`
+  // The header's "Loan details" fold (lender and loan numbers) is remembered per person on this computer; closed by default.
+  const detailsKey = `mps-file-loan-details:${state.status === 'signedIn' ? state.user.id : 'anon'}`
   const [detailsOpen, setDetailsOpen] = useState(() => {
     try {
-      return localStorage.getItem(detailsKey) !== 'hidden'
+      return localStorage.getItem(detailsKey) === 'shown'
     } catch {
-      return true
+      return false
     }
   })
   const toggleDetails = () =>
@@ -294,8 +292,14 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
       : allNav
 
   // The compact header: status chip, key figures (each opens its tab), Change status and Delete.
-  const statusText = loan.stage === 'closed' ? 'Loan closed' : loan.stage === 'lost' ? 'Loan lost' : `Loan open · ${stageLabel(loan.stage)}`
-  const figures: KeyFigure[] = keyFigures(loan, summary, creditScore, selectedCash.data ?? null)
+  // Connor 2026-11-24: no "Loan open" / stage chip on open files (the progress bar shows the stage); closed, lost and Nurture keep one.
+  const statusText = loan.stage === 'closed' ? 'Loan closed' : loan.stage === 'lost' ? 'Loan lost' : nurtureFile ? 'Nurture' : null
+  // The header follows the stage: before a contract it's about qualifying; from Under contract on it adds the closing date and lender details.
+  const underContract = ['under_contract', 'processing', 'underwriting', 'clear_to_close', 'closed'].includes(loan.stage)
+  const allFigures = keyFigures(loan, summary, creditScore, selectedCash.data ?? null)
+  const property = allFigures.find((f) => f.label === 'Property')
+  const figures: KeyFigure[] = allFigures
+    .filter((f) => f.label !== 'Property' && (f.label !== 'Est. closing' || underContract))
     // In Nurture only credit and DTI show: no loan amount, rate or cash to close.
     .filter((f) => !nurtureFile || f.label === 'Credit' || f.label === 'DTI front / back')
     .map((f) => ({
@@ -312,7 +316,19 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     })(),
   }))
   const statusButton = (size: 'xs' | 'sm') => (
-    <StageMenu stage={loan.stage} hide={lockedStages} onSelect={(stage) => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, stage)}>
+    <StageMenu
+      stage={loan.stage}
+      hide={lockedStages}
+      onSelect={(stage) => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, stage)}
+      extra={
+        loan.stage !== 'closed' && loan.stage !== 'lost' ? (
+          <DropdownMenuItem onSelect={() => setHolding(true)}>
+            <PauseCircleIcon />
+            {loan.onHoldAt ? 'On hold: change or release…' : 'Put on hold…'}
+          </DropdownMenuItem>
+        ) : undefined
+      }
+    >
       <Button size={size}>
         Change status
         <ChevronDownIcon />
@@ -349,15 +365,30 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
         backLabel={closedFile ? 'Closed loans' : home ? pipelineInfo(home).label : 'Pipeline'}
         chips={
           <>
-            <span className="rounded-md bg-muted px-1.5 py-0.5 text-[0.7rem] font-medium">{[purposeLabel(loan.purpose), loan.details.mortgageType ? LOAN_TYPE_SHORT[loan.details.mortgageType] : null].filter(Boolean).join(' · ')}</span>
-            <span
-              className={cn('rounded-md px-1.5 py-0.5 text-[0.7rem] font-medium', loan.stage === 'lost' ? 'bg-destructive/10 text-destructive' : closedFile ? 'bg-emerald-50 text-emerald-700' : 'bg-primary/10 text-primary')}
-              title={`In ${stageLabel(loan.stage)} since ${formatIsoDate(stageSince)} (${relativeTime(loan.stageChangedAt)})`}
+            <button
+              type="button"
+              aria-pressed={loan.priority}
+              disabled={setPriority.isPending}
+              onClick={() => setPriority.mutate(!loan.priority, { onError: (e) => toast.error(e.message) })}
+              title={loan.priority ? 'Priority lead (click to remove)' : 'Mark as a Priority lead'}
+              className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-amber-500"
             >
-              {statusText}
-            </span>
-            <NextActionHeader loanId={loan.id} stage={loan.stage} timeline={loan.timeline} />
-            {!nurtureFile && <LoanNumberChips loanId={loan.id} />}
+              <StarIcon className={cn('size-4', loan.priority && 'fill-amber-400 text-amber-500')} />
+            </button>
+            <span className="rounded-md bg-muted px-1.5 py-0.5 text-[0.7rem] font-medium">{[purposeLabel(loan.purpose), loan.details.mortgageType ? LOAN_TYPE_SHORT[loan.details.mortgageType] : null].filter(Boolean).join(' · ')}</span>
+            {statusText && (
+              <span
+                className={cn('rounded-md px-1.5 py-0.5 text-[0.7rem] font-medium', loan.stage === 'lost' ? 'bg-destructive/10 text-destructive' : closedFile ? 'bg-emerald-50 text-emerald-700' : 'bg-primary/10 text-primary')}
+                title={`In ${stageLabel(loan.stage)} since ${formatIsoDate(stageSince)} (${relativeTime(loan.stageChangedAt)})`}
+              >
+                {statusText}
+              </span>
+            )}
+            {loan.onHoldAt && (
+              <button type="button" onClick={() => setHolding(true)} className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[0.7rem] font-medium text-amber-900 hover:bg-amber-100" title={loan.holdReason ? `On hold: ${loan.holdReason}` : 'On hold'}>
+                On hold
+              </button>
+            )}
             {fileRole.role === 'processor' && (
               <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[0.7rem] font-medium text-amber-800" title="You are this file's processor. The loan officer approves messages, changes the loan officer and moves it to Lost or Closed.">
                 Processing for {fileRole.loName ?? 'the loan officer'}
@@ -370,33 +401,20 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
             )}
           </>
         }
+        subline={
+          <>
+            <button type="button" onClick={() => goTo('properties')} title={property?.title} className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground hover:text-foreground">
+              <HomeIcon className="size-3.5 shrink-0" />
+              <span className="truncate">{property?.value ?? 'TBD'}</span>
+            </button>
+            {underContract && !nurtureFile && <LoanNumberChips loanId={loan.id} />}
+          </>
+        }
+        details={!underContract && !nurtureFile ? <LoanNumberChips loanId={loan.id} /> : undefined}
         detailsOpen={detailsOpen}
         onToggleDetails={toggleDetails}
         actions={
           <>
-            <Button
-              size="xs"
-              variant="outline"
-              aria-pressed={loan.priority}
-              disabled={setPriority.isPending}
-              onClick={() => setPriority.mutate(!loan.priority, { onError: (e) => toast.error(e.message) })}
-              title={loan.priority ? 'Remove from Priority Leads' : 'Add to Priority Leads'}
-            >
-              <StarIcon className={loan.priority ? 'fill-amber-400 text-amber-500' : undefined} />
-              {loan.priority ? 'Priority' : 'Star'}
-            </Button>
-            {loan.stage !== 'closed' && loan.stage !== 'lost' && (
-              <Button size="xs" variant="outline" aria-pressed={loan.onHoldAt !== null} onClick={() => setHolding(true)} title={loan.onHoldAt ? `On hold${loan.holdReason ? `: ${loan.holdReason}` : ''}` : 'Waiting on something? Put the file on hold'} className={loan.onHoldAt ? 'border-amber-300 bg-amber-50 text-amber-900' : undefined}>
-                <PauseCircleIcon />
-                {loan.onHoldAt ? 'On hold' : 'Hold'}
-              </Button>
-            )}
-            {!closedFile && !nurtureFile && loan.stage !== 'lost' && (
-              <Button size="sm" variant="outline" onClick={() => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, 'nurture')} title="Not mortgage-ready yet: move to Nurture with a readiness plan">
-                <SproutIcon />
-                Move to Nurture
-              </Button>
-            )}
             {nurtureFile && (
               <Button size="sm" variant="outline" onClick={() => setReassessing(true)} title="Ready to look again? Review their progress and move the file back to New lead">
                 <RotateCcwIcon />
@@ -409,12 +427,12 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
                 Quick quote
               </Button>
             )}
-            <Button size="xs" variant="outline" onClick={() => setEditing(true)}>
-              <PencilIcon />
-              Edit
-            </Button>
             {statusButton('xs')}
             <OverflowMenu>
+              <DropdownMenuItem onSelect={() => setEditing(true)}>
+                <PencilIcon />
+                Edit file…
+              </DropdownMenuItem>
               {!closedFile && (
                 <DropdownMenuItem onSelect={() => openRequestDocuments(loan.id)}>
                   <FileUpIcon />
