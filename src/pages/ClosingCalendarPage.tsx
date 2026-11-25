@@ -41,7 +41,7 @@ export function ClosingCalendarPage() {
       </Link>
       <PageHeader
         title="Closing calendar"
-        description="Closing dates from the Contract tab on purchases and the Overview tab on refis."
+        description="Closing dates from the Contract tab on purchases and the Loan info tab on refis."
         action={
           <div className="flex items-center gap-1">
             <Button variant="outline" size="icon-sm" aria-label="Previous month" onClick={() => setMonth(shiftMonth(month, -1))}>
@@ -120,7 +120,7 @@ export function ClosingCalendarPage() {
               <ul className="space-y-2">
                 {noDate.map((l) => (
                   <li key={l.id}>
-                    <Link to={`/loans/${l.id}?tab=${l.purpose === 'purchase' ? 'contract' : 'overview'}`} className="flex items-center gap-3 rounded-xl border border-dashed bg-card px-4 py-2.5 text-sm hover:shadow-soft">
+                    <Link to={`/loans/${l.id}?tab=${l.purpose === 'purchase' ? 'contract' : 'loaninfo&part=dates'}`} className="flex items-center gap-3 rounded-xl border border-dashed bg-card px-4 py-2.5 text-sm hover:shadow-soft">
                       <span className="min-w-0 flex-1 truncate font-medium">{fullName(l.borrower)}</span>
                       <span className="shrink-0 text-muted-foreground">{stageLabelFor(l.stage, l.purpose, stageLabel(l.stage))}</span>
                       <span className="shrink-0 text-xs text-primary">Add date</span>

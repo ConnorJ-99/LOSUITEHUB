@@ -22,10 +22,10 @@ import {
 import { toast } from 'sonner'
 import { useMarkStep } from '@/lib/api/loanfile'
 import { formatIsoDate, todayIso } from '@/lib/dates'
-import { GROUPS, OWNER_LABEL, type StepResult, type Workflow } from '@/lib/loanfile/workflow'
+import { OWNER_LABEL, type StepResult, type Workflow } from '@/lib/loanfile/workflow'
 import { offerMilestoneUpdate } from '@/components/messaging/fileTextRequests'
 import { milestoneForStep } from '@/lib/messaging/updates'
-import { GroupProgress, NextStepCard, StepGroup, StepRow } from './Workflow'
+import { GroupProgress, StepGroup, StepRow } from './Workflow'
 
 const ICONS: Record<string, LucideIcon> = {
   prequal: UserCheckIcon,
@@ -58,7 +58,6 @@ const iconFor = (key: string) => ICONS[key] ?? CircleDotIcon
 export function WorkflowPanel({ workflow, loanId, organizationId, days, onOpenSection, onCompleteFields }: { workflow: Workflow; loanId: string; organizationId: string; days: number; onOpenSection: (section: string) => void; onCompleteFields: () => void }) {
   const mark = useMarkStep(loanId, organizationId)
   const [openGroup, setOpenGroup] = useState<string | null>(workflow.currentGroup)
-  const groupLabel = (id: string) => GROUPS.find((g) => g.id === id)?.label ?? id
 
   const markStep = (step: StepResult, status: 'done' | 'na' | null) =>
     mark.mutate(
@@ -91,20 +90,9 @@ export function WorkflowPanel({ workflow, loanId, organizationId, days, onOpenSe
   const next = workflow.next
   return (
     <div className="space-y-4">
-      {next ? (
-        <NextStepCard
-          icon={iconFor(next.key)}
-          eyebrow={`${groupLabel(next.group)} · Your next step`}
-          title={next.name}
-          description={next.reason ?? `${OWNER_LABEL[next.owner]}'s step${next.actionTarget ? '' : '. Do it in Arive or with the lender, then mark it here.'}`}
-          actionLabel={label(next)}
-          onAction={() => act(next)}
-          alsoReady={workflow.alsoReady.map((s) => ({ icon: iconFor(s.key), label: s.name, actionLabel: label(s), onAction: () => act(s) }))}
-        />
-      ) : (
-        workflow.totalCount > 0 && workflow.doneCount === workflow.totalCount && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">Every step is done.</div>
-        )
+      {/* No "Your next step" card (Connor, 2026-11-24): the steps below have the same buttons. */}
+      {!next && workflow.totalCount > 0 && workflow.doneCount === workflow.totalCount && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">Every step is done.</div>
       )}
 
       <GroupProgress

@@ -53,7 +53,7 @@ import { StageMenu } from '@/components/pipeline/StageMenu'
 import { useStageChanger } from '@/components/pipeline/useStageChanger'
 import { MessagesTab } from '@/components/messages/MessagesTab'
 import { NotesTab } from '@/components/profile/NotesTab'
-import { OverviewTab } from '@/components/profile/OverviewTab'
+import { LOAN_INFO_PARTS, LoanInfoTab, OverviewCards, type LoanInfoPart } from '@/components/profile/OverviewTab'
 import { ClosingDisclosureCard } from '@/components/closing/ClosingDisclosureCard'
 import { TasksCard } from '@/components/profile/TasksCard'
 import { PropertiesTab } from '@/components/profile/PropertiesTab'
@@ -86,9 +86,9 @@ import { useFileRole } from '@/lib/api/fileRole'
 import type { PipelineStage } from '@/lib/pipeline/stages'
 import { canProcess } from '@/lib/team/secondaryRoles'
 
-const SECTIONS = ['overview', 'prequal', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions', 'myhome'] as const
+const SECTIONS = ['overview', 'loaninfo', 'prequal', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions', 'myhome'] as const
 type Section = (typeof SECTIONS)[number]
-const READY: Section[] = ['overview', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions', 'myhome']
+const READY: Section[] = ['overview', 'loaninfo', '1003', 'income', 'contract', 'estimates', 'documents', 'notes', 'messages', 'properties', 'letters', 'loans', 'conditions', 'myhome']
 /** A closed file's profile: the closed loan (Overview), its 1003, the home, documents, notes and messages. */
 // A file in Nurture shows the nurture view and no lender, pricing, estimate or closing tabs (Connor, 2026-11-16).
 const NURTURE_SECTIONS: Section[] = ['overview', 'myhome', '1003', 'documents', 'notes', 'messages', 'properties']
@@ -270,6 +270,8 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
 
   const allNav: FileNavItem[] = [
     { id: 'overview', label: 'Overview', icon: WorkflowIcon },
+    // The loan's details, dates and contacts (Connor, 2026-11-24; were the bottom of Overview). Open files only.
+    ...(!closedFile && !nurtureFile ? [{ id: 'loaninfo', label: 'Loan info', icon: ClipboardListIcon }] : []),
     { id: '1003', label: '1003', icon: FileTextIcon, marker: validation ? (missing1003 ? { type: 'count', value: missing1003 } : { type: 'complete' }) : undefined },
     // The Income tab is put away for now (FEATURES.incomeReview); ?tab=income still opens it.
     ...(FEATURES.incomeReview ? [{ id: 'income', label: 'Income', icon: CalculatorIcon }] : []),
@@ -302,7 +304,12 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
     note: f.note,
     tone: f.tone,
     title: f.title,
-    onClick: f.tab && nav.some((n) => n.id === f.tab) ? () => goTo(f.tab!) : undefined,
+    onClick: (() => {
+      // Open files keep the loan's figures on Loan info; the closing date is on its Dates part.
+      const to = f.tab === 'overview' && nav.some((n) => n.id === 'loaninfo') ? 'loaninfo' : f.tab
+      if (!to || !nav.some((n) => n.id === to)) return undefined
+      return to === 'loaninfo' && f.label === 'Est. closing' ? () => setSearchParams({ tab: 'loaninfo', part: 'dates' }, { replace: true }) : () => goTo(to)
+    })(),
   }))
   const statusButton = (size: 'xs' | 'sm') => (
     <StageMenu stage={loan.stage} hide={lockedStages} onSelect={(stage) => requestChange({ id: loan.id, stage: loan.stage, borrowerName: name }, stage)}>
@@ -489,8 +496,17 @@ function LoanFileWorkspace({ loan }: { loan: LoanProfile }) {
               ) : (
                 <p className="text-sm text-muted-foreground">Loading workflow…</p>
               ))}
-              {!closedFile && !nurtureFile && <OverviewTab key={JSON.stringify(savedDetails)} loan={loan} onGoToTab={goTo} />}
+              {!closedFile && !nurtureFile && <OverviewCards loan={loan} />}
             </>
+          )}
+          {section === 'loaninfo' && (
+            <LoanInfoTab
+              key={JSON.stringify(savedDetails)}
+              loan={loan}
+              onGoToTab={goTo}
+              part={LOAN_INFO_PARTS.find((p) => p.id === searchParams.get('part'))?.id ?? 'loan'}
+              onPart={(p: LoanInfoPart) => setSearchParams(p === 'loan' ? { tab: 'loaninfo' } : { tab: 'loaninfo', part: p }, { replace: true })}
+            />
           )}
           {section === '1003' && <UrlaTab loan={loan} validation={validation} onCompleteFields={() => setCompleting(true)} />}
           {section === 'income' && <IncomeTab loan={loan} />}

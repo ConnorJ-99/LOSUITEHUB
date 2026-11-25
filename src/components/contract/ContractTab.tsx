@@ -263,7 +263,7 @@ function ContractTerms({ loan, saved }: { loan: LoanProfile; saved: TermsForm })
       <SectionCard
         id="contract-terms"
         title="Contract terms"
-        description="Same values as the Overview and 1003 (sales price, dates, seller credits, earnest money)."
+        description="Same values as Loan info and the 1003 (sales price, dates, seller credits, earnest money)."
         dirty={dirty}
         saving={saving}
         onSave={save}

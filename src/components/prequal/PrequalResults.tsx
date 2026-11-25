@@ -52,7 +52,7 @@ export function PrequalResults({
       {!isPurchase && (
         <Card title="Payment">
           <div className="space-y-3">
-            {p ? <CalcLines lines={paymentLines} /> : <p className="text-sm text-muted-foreground">Add the loan amount and rate on the Overview to see the payment.</p>}
+            {p ? <CalcLines lines={paymentLines} /> : <p className="text-sm text-muted-foreground">Add the loan amount and rate on Loan info to see the payment.</p>}
             {s.scenario.mi && s.scenario.mi.financedFee > 0 && (
               <p className="text-xs text-muted-foreground">
                 Loan {formatCurrency(s.loanAmount)} + {formatCurrency(s.scenario.mi.financedFee)} financed fee = {formatCurrency(s.scenario.mi.totalLoanAmount)}

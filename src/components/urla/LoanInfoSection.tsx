@@ -79,7 +79,7 @@ export function LoanInfoSection({
     <SectionCard
       id="section-4"
       title="4 & L. Loan and property information"
-      description={`${purposeLabel(loan.purpose)} · same values as the Overview tab`}
+      description={`${purposeLabel(loan.purpose)} · same values as the Loan info tab`}
       dirty={dirty}
       saving={update.isPending}
       onSave={save}

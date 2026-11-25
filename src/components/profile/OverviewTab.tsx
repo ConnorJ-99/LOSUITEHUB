@@ -4,7 +4,7 @@ import { Link } from 'react-router'
 import { HomeIcon, MailIcon, PhoneIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card, confirmAction, CurrencyInput, DateInput, FormGrid, Input, PercentInput, Select, SummaryBar, ToggleChip, ToggleChipGroup, type SummaryItem } from '@/components/shared'
+import { Card, confirmAction, CurrencyInput, DateInput, FormGrid, Input, PercentInput, Select, SummaryBar, Tabs, TabsList, TabsTrigger, ToggleChip, ToggleChipGroup, type SummaryItem } from '@/components/shared'
 import { AriveLink } from '@/components/loanfile/AriveLink'
 import { offerMilestoneUpdate } from '@/components/messaging/fileTextRequests'
 import { StageBadge } from '@/components/pipeline/StageBadge'
@@ -29,7 +29,6 @@ import { ApplicationCard } from '@/components/applications/ApplicationCard'
 import { IntakeCard } from '@/components/intake/IntakeCard'
 import { FileAppointmentsCard } from '@/components/messages/AppointmentCards'
 import { SettlementCard } from '@/components/loanfile/SettlementCard'
-import { PortalCard } from '@/components/portal/PortalCard'
 import { LeadTypePicker } from '@/components/pipeline/LeadTypePicker'
 import { TexasFlags } from './TexasFlags'
 import { ActionQueueCard } from '@/components/queue/ActionQueueCard'
@@ -255,7 +254,42 @@ function OtherLoans({ loan }: { loan: LoanProfile }) {
   )
 }
 
-export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab: (tab: 'notes' | 'properties' | 'estimates') => void }) {
+/** The Loan info tab's parts (Connor, 2026-11-24). */
+export type LoanInfoPart = 'loan' | 'dates' | 'contacts'
+export const LOAN_INFO_PARTS: { id: LoanInfoPart; label: string }[] = [
+  { id: 'loan', label: 'Loan info' },
+  { id: 'dates', label: 'Dates' },
+  { id: 'contacts', label: 'Contacts, insurance & title' },
+]
+
+/**
+ * The open file's Overview cards under the workflow steps (Connor, 2026-11-24):
+ * drafts for this file, the application, intake, appointments, forms and other
+ * loans. The loan's details live on the Loan info tab; the borrower portal card
+ * is gone (MyHome took its place).
+ */
+export function OverviewCards({ loan }: { loan: LoanProfile }) {
+  return (
+    <>
+      <ActionQueueCard loan={loan} />
+      <ApplicationCard loan={loan} />
+      <IntakeCard loanId={loan.id} />
+      <FileAppointmentsCard loanId={loan.id} />
+      <SendFormCard loan={loan} />
+      <WebFormsCard loan={loan} />
+      <Card title="Other loans for this person">
+        <OtherLoans loan={loan} />
+      </Card>
+    </>
+  )
+}
+
+/**
+ * The Loan info tab (was the bottom of Overview; Connor, 2026-11-24): one form
+ * and one Save bar, shown in three parts: the loan, its dates, and the
+ * contacts with the title company and insurance agent.
+ */
+export function LoanInfoTab({ loan, onGoToTab, part, onPart }: { loan: LoanProfile; onGoToTab: (tab: 'notes' | 'properties' | 'estimates') => void; part: LoanInfoPart; onPart: (p: LoanInfoPart) => void }) {
   const properties = useProperties(loan.id)
   const estimates = useEstimates(loan.id)
   const activeEstimates = (estimates.data ?? []).filter((e) => !e.archivedAt)
@@ -395,10 +429,21 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
 
   return (
     <>
+      <Tabs value={part} onValueChange={(v) => onPart(v as LoanInfoPart)}>
+        <TabsList variant="line">
+          {LOAN_INFO_PARTS.map((p) => (
+            <TabsTrigger key={p.id} value={p.id}>
+              {p.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
       <div className="grid gap-4">
         <div className="space-y-4">
-          <ActionQueueCard loan={loan} />
+          {part === 'loan' && (
+            <>
           <TexasFlags flags={texasFlags} />
+          <ProposedUpdatesCard loanId={loan.id} />
 
           <Card title="Loan details" description={purposeLabel(purpose)} action={<AriveLink number={loan.details.ariveLoanNumber} />}>
             {purpose !== 'purchase' && !subject && properties.isSuccess && <NoSubjectProperty onGoToProperties={() => onGoToTab('properties')} />}
@@ -548,7 +593,6 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
               )}
               <Select label="Occupancy" value={form.occupancy} onChange={set('occupancy')} options={OCCUPANCY_OPTIONS} required span={2} />
               <LeadTypePicker loan={loan} />
-              <DateInput label="Closing date" value={form.closingDate} onChange={set('closingDate')} span={2} />
               <div className="col-span-full">
                 <ToggleChip
                   label={form.impoundWaiver === 'taxes' ? 'Escrows waived (taxes only)' : form.impoundWaiver === 'insurance' ? 'Escrows waived (insurance only)' : 'Escrows waived'}
@@ -564,15 +608,27 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
                   {FEATURES.compPlans && <RevenueSuggestion form={form} onApply={(amount, planId) => setForm((f) => ({ ...f, revenueType: 'amount', revenueValue: amount, compPlanId: planId }))} />}
                 </>
               )}
-              {purpose === 'purchase' && (
-                <>
-                  <DateInput label="Contract date" value={form.contractDate} onChange={set('contractDate')} span={2} />
-                  <DateInput label="Option period ends" value={form.optionEndDate} onChange={set('optionEndDate')} span={2} />
-                </>
-              )}
             </FormGrid>
           </Card>
+            </>
+          )}
 
+          {part === 'dates' && (
+            <Card title="Dates" description={purpose === 'purchase' ? 'The closing date is the same one as on the Contract tab.' : undefined}>
+              <FormGrid>
+                <DateInput label="Closing date" value={form.closingDate} onChange={set('closingDate')} span={2} />
+                {purpose === 'purchase' && (
+                  <>
+                    <DateInput label="Contract date" value={form.contractDate} onChange={set('contractDate')} span={2} />
+                    <DateInput label="Option period ends" value={form.optionEndDate} onChange={set('optionEndDate')} span={2} />
+                  </>
+                )}
+              </FormGrid>
+            </Card>
+          )}
+
+          {part === 'contacts' && (
+            <>
           <Card title="Contact">
             <dl className="grid gap-4 sm:grid-cols-2">
               <Detail label="Phone">
@@ -599,24 +655,8 @@ export function OverviewTab({ loan, onGoToTab }: { loan: LoanProfile; onGoToTab:
           </Card>
 
           <SettlementCard loanId={loan.id} organizationId={loan.organizationId} />
-
-          <ProposedUpdatesCard loanId={loan.id} />
-
-          <PortalCard loan={loan} />
-
-          <ApplicationCard loan={loan} />
-
-          <IntakeCard loanId={loan.id} />
-
-          <FileAppointmentsCard loanId={loan.id} />
-
-          <SendFormCard loan={loan} />
-
-          <WebFormsCard loan={loan} />
-
-          <Card title="Other loans for this person">
-            <OtherLoans loan={loan} />
-          </Card>
+            </>
+          )}
         </div>
       </div>
 

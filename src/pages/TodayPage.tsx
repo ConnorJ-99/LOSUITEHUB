@@ -116,7 +116,7 @@ type Closing = PipelineLoan & { closingDate: string }
 
 /** One closing in the home page box; a date that went by opens the tab where the date is fixed. */
 function ClosingLine({ closing: c, status }: { closing: Closing; status: ClosingStatus }) {
-  const to = status === 'date_passed' ? `/loans/${c.id}?tab=${c.purpose === 'purchase' ? 'contract' : 'overview'}` : `/loans/${c.id}`
+  const to = status === 'date_passed' ? `/loans/${c.id}?tab=${c.purpose === 'purchase' ? 'contract' : 'loaninfo&part=dates'}` : `/loans/${c.id}`
   return (
     <li>
       <Link to={to} className="-mx-2 flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted">
