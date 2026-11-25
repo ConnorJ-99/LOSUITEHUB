@@ -1,5 +1,18 @@
 # Borrower Profile & Pre-Qualification (plan, Connor 2026-11-24)
 
+> **Changed the same day (Connor):** "that page doesn't do me any good, take it
+> out." The Borrower Profile tab and its assessment card are gone, and Stages 3–4
+> are not being built. Instead the 1003 tab's bottom bar has **Borrower summary**:
+> a dialog that writes an internal, confidential summary from the saved file
+> (`src/lib/documents/borrowerSummary.ts`, tested), lets Connor change any of the
+> words (strategy, financial profile rows, scenario prices and down payment %,
+> strengths, review, next steps; "Draft with AI" fills the empty strategy /
+> strengths / review / next steps through the `borrower_assessment` task) and
+> downloads the PDF laid out like his sample (`BorrowerSummaryPdf.tsx`,
+> `borrower-summary v1`). Nothing is saved to Documents or sent; the four
+> assessment boxes are kept in `loan_assessments` for next time. The
+> `src/lib/profile/` helpers stay (the summary uses them).
+
 Connor's spec: a loan-level **Borrower Profile** tab under Overview that pulls
 everything already on the file into one financial profile, an LO assessment
 (AI draft, LO reviewed), a qualification status, and two PDFs (Internal

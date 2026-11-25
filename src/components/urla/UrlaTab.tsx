@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { DownloadIcon, FileUpIcon, PlusIcon, SparklesIcon, UserMinusIcon } from 'lucide-react'
+import { DownloadIcon, FileTextIcon, FileUpIcon, PlusIcon, SparklesIcon, UserMinusIcon } from 'lucide-react'
 import { useAiStatus } from '@/lib/api/assistant'
 import { AiSummaryCard } from './AiFillPanel'
 import { useAuth } from '@/lib/auth/context'
@@ -20,6 +20,7 @@ import { AssetsSection, LiabilitiesSection } from './AssetLiabilitySections'
 import { CoBorrowerDialog } from './CoBorrowerDialog'
 import { DeclarationsSection, DemographicsSection } from './DeclarationsSections'
 import { MismoImportError, parseMismo34, type ImportResult } from '@/lib/mismo/parse'
+import { BorrowerSummaryDialog } from './BorrowerSummaryDialog'
 import { ExportDialog } from './ExportDialog'
 import { ImportDialog } from './ImportDialog'
 import { EmploymentSection, OtherIncomeSection } from './IncomeSections'
@@ -45,6 +46,7 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
   const organization = useOrganization()
   const originator = useProfile(loan.assignedLo?.id)
   const [exporting, setExporting] = useState(false)
+  const [summarizing, setSummarizing] = useState(false)
   // AI Summary card (Connor, 2026-11-19): collapsed by default; open or closed is remembered per person on this device.
   const { state: auth } = useAuth()
   const openKey = `mpshq.aisummary.open.${auth.status === 'signedIn' ? auth.user.id : 'anon'}`
@@ -227,6 +229,11 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
               </Button>
             )}
             {parts?.saveButton}
+            <Button variant="outline" onClick={() => setSummarizing(true)} disabled={!properties.data} title="An internal, confidential summary of this borrower as a PDF">
+              <FileTextIcon />
+              <span className="hidden sm:inline">Borrower summary</span>
+              <span className="sm:hidden">Summary</span>
+            </Button>
             <Button variant="outline" onClick={() => fileInput.current?.click()}>
               <FileUpIcon />
               <span className="hidden sm:inline">Import MISMO</span>
@@ -251,6 +258,8 @@ export function UrlaTab({ loan, validation = null, onCompleteFields }: { loan: L
           onClose={() => setImporting(null)}
         />
       )}
+
+      {summarizing && properties.data && <BorrowerSummaryDialog loan={loan} app={app.data!} properties={properties.data} onClose={() => setSummarizing(false)} />}
 
       {exporting && (
         <ExportDialog

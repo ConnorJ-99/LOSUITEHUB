@@ -8,6 +8,8 @@ import { fitToOnePage, type FitResult } from '@/lib/documents/fit'
 import type { LoanComparison } from '@/lib/documents/loanComparison'
 import type { FlyerView } from '@/lib/documents/openHouseFlyer'
 import { pdfPageCount } from '@/lib/documents/pdfText'
+import { BorrowerSummaryPdf } from './BorrowerSummaryPdf'
+import type { SummaryView } from '@/lib/documents/borrowerSummary'
 import { FeeWorksheetPdf } from './FeeWorksheetPdf'
 import { IncomeAnalysisPdf } from './IncomeAnalysisPdf'
 import type { IncomeAnalysisView } from '@/lib/documents/incomeAnalysis'
@@ -45,4 +47,11 @@ export async function readinessRoadmapPdf(roadmap: RoadmapView, brand: DocBrand)
   const file = await pdf(<ReadinessRoadmapPdf roadmap={roadmap} brand={brand} />).toBlob()
   const pages = await pdfPageCount(await file.arrayBuffer())
   return pages <= 8 ? { ok: true, file, scale: 1 } : { ok: false, pages }
+}
+
+/** The Borrower Summary (Connor, 2026-11-24) flows like his sample, usually 1–2 pages; more than 4 is refused. */
+export async function borrowerSummaryPdf(summary: SummaryView, brand: DocBrand): Promise<FitResult<Blob>> {
+  const file = await pdf(<BorrowerSummaryPdf summary={summary} brand={brand} />).toBlob()
+  const pages = await pdfPageCount(await file.arrayBuffer())
+  return pages <= 4 ? { ok: true, file, scale: 1 } : { ok: false, pages }
 }
