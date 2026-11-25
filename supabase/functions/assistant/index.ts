@@ -38,6 +38,7 @@ import { LEAD_MODEL, LEAD_SCHEMA, LEAD_SYSTEM, buildLeadPrompt, leadDraftIssues,
 import { NURTURE_MODEL, NURTURE_READ_SCHEMA, NURTURE_READ_SYSTEM, NURTURE_WORD_SCHEMA, NURTURE_WORD_SYSTEM, buildNurtureReadPrompt, buildNurtureWordPrompt, isNurtureKind, nurtureDraftIssues, nurtureReworded, readNurtureDraft, readNurtureReading, type NurtureThreadMessage, type ReadMilestone } from './nurture.ts'
 import { REPLY_MODEL, REPLY_SCHEMA, REPLY_SYSTEM, THREAD_SENT, buildReplyPrompt, latestBurst, readReply, replyChannel, replySubject, type ThreadMessage } from './replyDraft.ts'
 import { INTAKE_MODEL, INTAKE_SCHEMA, INTAKE_SYSTEM, buildIntakePrompt, readIntakeSummary } from './intakeSummary.ts'
+import { ASSESSMENT_MODEL, ASSESSMENT_SCHEMA, ASSESSMENT_SYSTEM, buildAssessmentPrompt, readAssessment } from './borrowerAssessment.ts'
 import { FILL_SCHEMA, FILL_SYSTEM, buildFillPrompt, readFill } from './summaryFill.ts'
 import { MAX_TRANSLATE_CHARS, TRANSLATE_MODEL, TRANSLATE_SCHEMA, TRANSLATE_SYSTEM, buildTranslatePrompt, readTranslation, type TranslateDirection } from './translate.ts'
 import { READINESS_MODEL, READINESS_SCHEMA, READINESS_SYSTEM, buildReadinessPrompt, normalizeReadinessPlan, type ReadinessFacts } from './readinessPlan.ts'
@@ -236,6 +237,7 @@ Deno.serve(async (request) => {
     if (task === 'readiness_plan') return await handleReadinessPlan(db, body, userId, apiKey)
     if (task === 'reply_suggest') return await handleReplySuggest(db, body, userId, apiKey)
     if (task === 'intake_summary') return await handleIntakeSummary(db, body, userId, apiKey)
+    if (task === 'borrower_assessment') return await handleBorrowerAssessment(db, body, userId, apiKey)
     if (task === 'translate') return await handleTranslate(db, body, userId, apiKey)
     if (task === 'summary_fill') return await handleSummaryFill(db, body, userId, apiKey)
     return await handleFollowUp(db, body, userId, apiKey)
@@ -1557,6 +1559,39 @@ async function handleIntakeSummary(db: SupabaseClient, body: unknown, userId: st
     if ('error' in read) throw new UserError(`The summary came back unusable (${read.error}). The worked-out facts are still shown.`)
     await db.from('ai_runs').update({ status: 'succeeded', output: read, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
     return reply(200, { ...read, runId })
+  } catch (e) {
+    return failRun(db, runId, usage, e)
+  }
+}
+
+// The Borrower Profile's assessment draft (Stage 2, Connor 2026-11-24): Sonnet 5.5 drafts the
+// eight Loan Officer Assessment fields from the profile the app worked out (as the signed-in
+// person sees the file). The app fills only empty fields and marks them "AI draft, not reviewed".
+async function handleBorrowerAssessment(db: SupabaseClient, body: unknown, userId: string, apiKey: string) {
+  const { loanId, profile } = (body ?? {}) as { loanId?: unknown; profile?: unknown }
+  if (typeof loanId !== 'string' || !UUID.test(loanId)) return reply(400, { error: 'Invalid file.' })
+  const found = await db.from('loans').select('id, organization_id').eq('id', loanId).maybeSingle()
+  const loan = found.data as { id: string; organization_id: string } | null
+  if (!loan) return reply(404, { error: "That file wasn't found, or it isn't yours." })
+  const runId = await startRun(db, loan.organization_id, loan.id, 'borrower_assessment', { loanId }, ASSESSMENT_MODEL, userId)
+  const usage: Usage = { input: 0, output: 0, model: ASSESSMENT_MODEL }
+  try {
+    const params = {
+      model: ASSESSMENT_MODEL,
+      max_tokens: 4000,
+      system: ASSESSMENT_SYSTEM,
+      messages: [{ role: 'user', content: buildAssessmentPrompt(profile) }],
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: ASSESSMENT_SCHEMA } },
+    }
+    const res = await createForJson(new Anthropic({ apiKey }), params, db, runId)
+    usage.input += res.usage.input_tokens
+    usage.output += res.usage.output_tokens
+    usage.model = res.model
+    if (res.stop_reason === 'refusal') throw new UserError('The assistant declined to draft this assessment.')
+    const read = res.stop_reason === 'end_turn' ? readAssessment(parseJsonReply(replyText(res))) : { error: res.stop_reason }
+    if ('error' in read) throw new UserError(`The draft came back unusable (${read.error}). Try again, or write it yourself.`)
+    await db.from('ai_runs').update({ status: 'succeeded', output: read, model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq('id', runId)
+    return reply(200, { draft: read, runId })
   } catch (e) {
     return failRun(db, runId, usage, e)
   }

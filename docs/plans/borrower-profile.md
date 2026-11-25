@@ -68,7 +68,7 @@ credit vs credit-report score, application income vs worksheet income.
    (open and Nurture files): summary dashboard + the 7 expandable sections,
    source tags, Missing, discrepancy flags. Pure profile builder in
    `src/lib/profile/` (tested).
-2. **Assessment** (items 3 and 5) and the status line (stage + readiness hint, "Mark Pre-Qualified" with a confirm).
+2. **Built 2026-11-24** (`20270309000000_loan_assessments.sql`, PGlite 11/11; `assistant` redeployed, task `borrower_assessment` tried live on connor TEST). **Assessment** (items 3 and 5) and the status line (stage + readiness hint, "Mark Pre-Qualified" with a confirm).
 3. **The two PDFs** with preview, section and scenario picks, editable
    borrower-facing text, LO approval, saved with versions and snapshot (item 4).
 4. **Actions**: Preview, Print, Download, Email to Borrower (Template B only,

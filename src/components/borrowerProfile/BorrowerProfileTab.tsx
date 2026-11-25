@@ -7,8 +7,18 @@
 // whenever those change. Each figure shows where it came from (Borrower-reported,
 // Estimated, Verified, Missing); missing figures say "Missing", never $0.
 // The status is the file's stage (Connor's choice), with readiness's hint.
+// Stage 2: the Loan Officer Assessment (AssessmentCard) and Mark Pre-Qualified
+// (the file's LO or an admin, after a confirm; the same stage move as the
+// 1003 tab's, never automatic).
 import { useMemo, type ReactNode } from 'react'
-import { AlertTriangleIcon, InfoIcon } from 'lucide-react'
+import { AlertTriangleIcon, BadgeCheckIcon, InfoIcon } from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { confirmAction } from '@/components/shared'
+import { useFileRole } from '@/lib/api/fileRole'
+import { useUpdateStage } from '@/lib/api/loans'
+import { useNotes } from '@/lib/api/notes'
+import { AssessmentCard } from './AssessmentCard'
 import { cn } from 'cn'
 import { Card } from '@/components/shared'
 import { CollapsibleCard } from '@/components/prequal/Fold'
@@ -114,6 +124,9 @@ export function BorrowerProfileTab({ loan }: { loan: LoanProfile }) {
   const reported = useReportedAssets(borrowers.map((b) => b.contactId))
   const processorRow = file.data?.team.find((t) => t.role === 'processor') ?? null
   const processorProfile = useProfile(processorRow?.profileId)
+  const role = useFileRole(loan.id)
+  const updateStage = useUpdateStage()
+  const notes = useNotes(loan.borrower?.id)
 
   const isPurchase = loan.purpose === 'purchase'
   const ready = app.data && properties.data && worksheets.data
@@ -194,6 +207,48 @@ export function BorrowerProfileTab({ loan }: { loan: LoanProfile }) {
   // Every document asked for sits under a condition (Connor 2026-11-17), so open conditions are the outstanding list.
   const waitingDocs = (requests.data ?? []).filter((r) => (r.status === 'requested' || r.status === 'rejected') && !r.conditionId)
   const groups = (Object.keys(ASSET_GROUP_LABEL) as AssetGroup[]).filter((g) => assets.some((x) => x.group === g))
+  const canQualify = (role.role === 'lo' || role.role === 'admin') && (loan.stage === 'lead' || loan.stage === 'contacted')
+  const markPrequalified = async () => {
+    const warn = flags.filter((x) => x.level === 'warning').length
+    const ok = await confirmAction(
+      `Mark ${a.borrowers[0]?.person.firstName ?? 'this borrower'} Pre-Qualified? This moves the file to the Pre-Qualified stage.${warn ? ` ${warn} item${warn === 1 ? ' is' : 's are'} still flagged on this page.` : ''} It isn't a pre-approval.`,
+      { confirmLabel: 'Mark Pre-Qualified' },
+    )
+    if (ok) updateStage.mutate({ loanId: loan.id, stage: 'pre_qualified' }, { onSuccess: () => toast.success('Moved to Pre-Qualified'), onError: (e) => toast.error(e.message) })
+  }
+  // What the AI draft of the assessment reads: the figures with their sources, flags, outstanding items and recent notes.
+  const f = (x: Figure) => (x.value == null ? 'missing' : { value: x.value, source: x.source })
+  const profileFacts = {
+    purpose: purposeLabel(loan.purpose),
+    occupancy: loan.details.occupancy,
+    stage: stageLabel(loan.stage),
+    qualification: QUALIFICATION_LABEL[q.status],
+    readiness: readinessView ? { level: readinessView.result.level, reasons: readinessView.result.reasons.map((r) => r.text) } : null,
+    timeline: loan.timeline,
+    borrowers: a.borrowers.map((b) => ({ name: b.person.firstName, role: b.role, estimatedScore: b.estimatedCreditScore, housing: b.addresses.find((x) => x.kind === 'current')?.housing ?? null })),
+    targetPrice: f(targetPrice),
+    maxCalculatedPrice: max ? { value: max.price, limitedBy: approval?.limitedBy ?? null } : approval?.missing ?? 'not calculated',
+    downPayment: f(downPayment),
+    loanAmount: f(loanAmount),
+    rate: f(rate),
+    program: loan.details.programName ?? draft.loan.mortgageType,
+    income: f(income),
+    incomeVerification: incomeVerification(jobs),
+    jobs: jobs.map((j) => ({ employer: j.employer, type: j.type, current: j.current, start: j.startDate, monthly: f(j.monthly) })),
+    otherIncome: a.borrowers.flatMap((b) => b.otherIncomes).map((o) => ({ type: o.incomeType, monthly: o.monthlyAmount })),
+    assets: { liquid: f(totals.liquid), total: f(totals.total), eligible: f(totals.eligible), byGroup: groups.map((g) => ({ group: g, total: assets.filter((x) => x.group === g).reduce((n, x) => n + (x.amount.value ?? 0), 0) })), reportedInMyHome: reportedTotal },
+    fundsToClose: f(fig(max?.cashToClose ?? selected?.figures?.cashToClose ?? summary.cashNeeded, 'estimated')),
+    reserves: summary.reserves,
+    monthlyDebts: f(debts.monthly),
+    debts: debts.lines.map((d) => ({ type: d.type, balance: d.balance.value, payment: d.payment.value, paidOffAtClosing: d.paidOff })),
+    creditPulled,
+    housingPayment: f(housing),
+    dti: front.value == null ? 'missing' : { front: front.value, back: back.value },
+    realEstateOwned: reo.map((h) => ({ occupancy: h.occupancy, plan: h.disposition, value: h.value.value, balance: h.balance.value, equity: h.equity.value })),
+    flags: flags.map((x) => x.text),
+    outstandingConditions: outstandingConditions.map((c) => c.body).slice(0, 25),
+    recentNotes: (notes.data ?? []).filter((n) => n.loanId === loan.id).slice(0, 8).map((n) => n.body.slice(0, 600)),
+  }
 
   return (
     <div className="space-y-4">
@@ -212,6 +267,11 @@ export function BorrowerProfileTab({ loan }: { loan: LoanProfile }) {
           <div className="text-right">
             <span className={cn('inline-block rounded-full px-3 py-1 text-sm font-semibold', q.qualified ? 'bg-emerald-50 text-emerald-800' : q.status === 'not_qualified' ? 'bg-rose-50 text-rose-800' : 'bg-muted')}>{QUALIFICATION_LABEL[q.status]}</span>
             {q.hint && <p className="mt-1 text-xs text-amber-800">Readiness: {QUALIFICATION_LABEL[q.hint].toLowerCase()}</p>}
+            {canQualify && (
+              <Button size="sm" variant="outline" className="mt-2" disabled={updateStage.isPending} onClick={() => void markPrequalified()}>
+                <BadgeCheckIcon /> Mark Pre-Qualified
+              </Button>
+            )}
           </div>
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -416,6 +476,8 @@ export function BorrowerProfileTab({ loan }: { loan: LoanProfile }) {
           </div>
         )}
       </CollapsibleCard>
+
+      <AssessmentCard loan={loan} profile={profileFacts} />
     </div>
   )
 }
