@@ -107,6 +107,12 @@ export const fetchNurture = (loanId: string, opened: boolean) => call<Partial<My
 export const sendGoalUpdate = (loanId: string, v: { goalId: string; kind: GoalUpdateKind; amount?: number | null; on?: string | null; note?: string | null }) =>
   call<{ value?: number }>({ action: 'goal_update', loanId, ...v })
 
+/** A one-minute link to their plan's Roadmap PDF. */
+export const planPdfUrl = (loanId: string, documentId: string) => call<{ url?: string }>({ action: 'plan_pdf', loanId, documentId })
+
+/** "Tell {LO} I did this" on a milestone (an update for the LO to verify). */
+export const reportMilestone = (loanId: string, milestoneId: string, note: string | null) => call<{ id?: string }>({ action: 'milestone_done', loanId, milestoneId, note })
+
 /** "Homes I like" on a Nurture purchase file: saves a home to the file (no numbers requested). */
 export const addHome = (loanId: string, v: { address: string; city: string | null; zip: string | null; price: number | null; link: string | null; notes: string | null }) =>
   call<{ id?: string }>({ action: 'home_add', loanId, ...v })

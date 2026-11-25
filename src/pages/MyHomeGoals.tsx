@@ -10,7 +10,8 @@
 // accounts the borrower ticks (its balance is their total, kept up to date
 // whenever one of them gets a new balance). Phase 3: My budget below them,
 // its savings plan measured against the first open savings goal. On a
-// purchase file, Homes I like (MyHomeHomes.tsx) comes after the goals.
+// purchase file, Homes I like (MyHomeHomes.tsx) comes after the goals. My plan
+// (MyHomePlan.tsx, the approved readiness plan) comes first.
 import { useEffect, useState } from 'react'
 import { CheckCircle2Icon, Loader2Icon, PauseIcon } from 'lucide-react'
 import { fetchNurture, followAssets, sendGoalUpdate } from '@/lib/myhome/api'
@@ -21,6 +22,7 @@ import type { GoalUpdateKind, MyHomeAsset, MyHomeGoal, MyHomeNurture } from '../
 import { MyAssets, assetsTotal, useMyAssets } from './MyHomeAssets'
 import { MyBudget } from './MyHomeBudget'
 import { HomesILike } from './MyHomeHomes'
+import { MyPlan } from './MyHomePlan'
 import { LoCard } from './PublicUploadPage'
 
 const card = 'rounded-xl border bg-white p-5 shadow-soft'
@@ -77,6 +79,7 @@ export function NurtureFile({ loanId, onGone, onSignedOut }: { loanId: string; o
   }
   return (
     <>
+      <MyPlan loanId={loanId} plan={screen.view.plan ?? null} loFirst={loFirst} onChanged={() => void load(false)} onGone={onGone} />
       <section className={card} aria-labelledby="myhome-goals">
         <h2 id="myhome-goals" className="text-lg font-bold tracking-tight">
           My goals

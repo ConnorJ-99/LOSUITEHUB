@@ -275,7 +275,32 @@ export interface MyHomeNurture {
   /** "Homes I like" (purchase files): the homes on the file they're interested in, newest first. */
   isPurchase: boolean
   homes: { id: string; address: string; city: string | null; price: number | null; link: string | null; status: string }[]
+  /** The approved readiness plan (null when there isn't one yet). */
+  plan: MyHomePlan | null
   lo: MyHomeLo
+}
+
+export interface MyHomeMilestone {
+  id: string
+  title: string
+  measure: string | null
+  targetDate: string | null
+  done: boolean
+  /** They said they finished it; waiting for the LO to check. */
+  reported: boolean
+}
+
+/** The file's approved readiness plan as the borrower sees it (Connor 2026-11-24). */
+export interface MyHomePlan {
+  goal: string | null
+  intro: string | null
+  reviewOn: string | null
+  approvedAt: string
+  actions: { id: string; title: string; why: string | null; steps: string[]; docs: string[]; status: 'not_started' | 'in_progress' | 'done'; milestones: MyHomeMilestone[] }[]
+  /** Milestones for the whole plan (not under one action), like the reassessment. */
+  milestones: MyHomeMilestone[]
+  /** The latest Roadmap PDF saved for this plan. */
+  roadmap: { id: string; name: string } | null
 }
 
 // ---------------------------------------------------------------------------

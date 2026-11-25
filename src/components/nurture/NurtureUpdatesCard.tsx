@@ -60,7 +60,7 @@ export function NurtureUpdatesCard({ loanId, organizationId, firstName, messages
           {u.status === 'dismissed' && <span className="rounded bg-muted px-1.5 py-0.5">Dismissed</span>}
           {u.source === 'reply' && u.confidence && u.status === 'unverified' && <span className="text-muted-foreground">AI read it ({u.confidence} confidence)</span>}
           {u.source === 'typed' && <span className="text-muted-foreground">Added by you</span>}
-          {u.source === 'myhome' && <span className="text-muted-foreground">From MyHome (their goal update)</span>}
+          {u.source === 'myhome' && <span className="text-muted-foreground">{u.milestoneId && u.kind === 'reported_done' ? 'From MyHome (they say they finished this step)' : 'From MyHome (their goal update)'}</span>}
           <span className="ml-auto text-muted-foreground">{relativeTime(u.createdAt)}</span>
         </div>
         {unread ? (

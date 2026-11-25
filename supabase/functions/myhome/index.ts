@@ -50,6 +50,12 @@
 //   budget_entry_save / budget_entry_remove   (the myhome_budget_* functions)
 // Homes I like (Connor, 2026-11-24; Nurture purchase files):
 //   nurture      also sends the homes on the file they're interested in
+// Readiness plan (Connor, 2026-11-24; Nurture files):
+//   nurture      also sends the approved plan (actions, steps, milestones, the
+//                latest Roadmap PDF)
+//   plan_pdf     a one-minute link to that Roadmap PDF
+//   milestone_done  "Tell {LO} I did this" (myhome_milestone_done(): an
+//                unverified update for the LO, never a ticked milestone)
 //   home_add     saves a home they like (myhome_add_home(): Properties as
 //                interested, a note, a notice; no numbers are requested)
 // Preview (Connor, 2026-11-24: "allow the loan officers to view the borrower's
@@ -68,6 +74,7 @@ import { groupByHome, homeRequestProblem, portalStep, stepMessage, type HomeRequ
 import { canUpload, fileProblem, safeFileName, type UploadItem } from '../document-upload/rules.ts'
 import { STEPS, blankAnswers, withPurpose } from '../apply/form.ts'
 import { pricingStale, refiSavings, valueNow, type RefiBenchmarkRow } from './refi.ts'
+import type { MyHomeMilestone, MyHomePlan } from './rules.ts'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -656,7 +663,7 @@ async function ask(db: SupabaseClient, account: AccountRow, l: OpenFile, kind: u
 
 const FILE_ACTIONS = ['file', 'pdf', 'home_request', 'upload_url', 'uploaded']
 const CLOSED_ACTIONS = ['closed', 'closed_pdf', 'ask', 'extra_payment', 'remove_payment', 'start_new']
-const NURTURE_ACTIONS = ['nurture', 'goal_update', 'goal_follow', 'home_add']
+const NURTURE_ACTIONS = ['nurture', 'goal_update', 'goal_follow', 'home_add', 'plan_pdf', 'milestone_done']
 const ASSET_ACTIONS = ['assets', 'asset_save', 'asset_remove']
 const BUDGET_ACTIONS = ['budget', 'budget_settings', 'budget_item_save', 'budget_item_remove', 'budget_entry_save', 'budget_entry_remove']
 
@@ -696,6 +703,7 @@ async function nurtureView(db: SupabaseClient, account: AccountRow, l: OpenFile,
         .map((h) => ({ kind: h.kind, amount: n(h.amount), after: n(h.after_value), note: h.note, on: h.happened_on, byBorrower: h.account_id != null })),
     })),
     isPurchase: l.purpose === 'purchase',
+    plan: await planView(db, l.id),
     homes: ((homes.data ?? []) as { id: string; address_line: string; city: string | null; list_price: number | null; listing_url: string | null; status: string }[]).map((h) => ({
       id: h.id,
       address: h.address_line,
@@ -706,6 +714,68 @@ async function nurtureView(db: SupabaseClient, account: AccountRow, l: OpenFile,
     })),
     lo,
   }
+}
+
+/** The file's approved readiness plan, its milestones (with any report waiting for the LO) and the latest Roadmap PDF. */
+async function planView(db: SupabaseClient, loanId: string): Promise<MyHomePlan | null> {
+  const p = await db.from('readiness_plans').select('id, goal, intro, review_on, approved_at').eq('loan_id', loanId).eq('status', 'approved').maybeSingle()
+  const plan = p.data as { id: string; goal: string | null; intro: string | null; review_on: string | null; approved_at: string } | null
+  if (!plan) return null
+  const [actions, milestones, reports, roadmap] = await Promise.all([
+    db.from('readiness_actions').select('id, title, why, steps, docs, status').eq('plan_id', plan.id).order('sort_order'),
+    db.from('readiness_milestones').select('id, action_id, title, measure, target_date, status').eq('plan_id', plan.id).order('sort_order'),
+    db.from('nurture_updates').select('milestone_id').eq('loan_id', loanId).eq('kind', 'reported_done').in('status', ['queued', 'unverified']),
+    db.from('loan_documents').select('id, file_name').eq('loan_id', loanId).eq('kind', 'readiness_roadmap').eq('readiness_plan_id', plan.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+  ])
+  const reported = new Set(((reports.data ?? []) as { milestone_id: string | null }[]).map((r) => r.milestone_id))
+  const ms = ((milestones.data ?? []) as { id: string; action_id: string | null; title: string; measure: string | null; target_date: string | null; status: string }[]).map((m) => ({
+    actionId: m.action_id,
+    m: { id: m.id, title: m.title, measure: m.measure, targetDate: m.target_date, done: m.status === 'done', reported: m.status !== 'done' && reported.has(m.id) } as MyHomeMilestone,
+  }))
+  const doc = roadmap.data as { id: string; file_name: string } | null
+  return {
+    goal: plan.goal,
+    intro: plan.intro,
+    reviewOn: plan.review_on,
+    approvedAt: plan.approved_at,
+    actions: ((actions.data ?? []) as { id: string; title: string; why: string | null; steps: string[] | null; docs: string[] | null; status: 'not_started' | 'in_progress' | 'done' }[]).map((a) => ({
+      id: a.id,
+      title: a.title,
+      why: a.why,
+      steps: a.steps ?? [],
+      docs: a.docs ?? [],
+      status: a.status,
+      milestones: ms.filter((x) => x.actionId === a.id).map((x) => x.m),
+    })),
+    milestones: ms.filter((x) => !x.actionId).map((x) => x.m),
+    roadmap: doc ? { id: doc.id, name: doc.file_name } : null,
+  }
+}
+
+/** A one-minute link to the Roadmap PDF of the file's approved plan. */
+async function planPdf(db: SupabaseClient, account: AccountRow, l: OpenFile, documentId: unknown): Promise<Response> {
+  if (typeof documentId !== 'string' || !UUID.test(documentId)) return reply(400, { error: 'That document is not available.' })
+  const plan = await db.from('readiness_plans').select('id').eq('loan_id', l.id).eq('status', 'approved').maybeSingle()
+  const planId = (plan.data as { id: string } | null)?.id
+  if (!planId) return reply(404, { error: 'That document is not available.' })
+  const doc = await db.from('loan_documents').select('storage_path').eq('id', documentId).eq('loan_id', l.id).eq('kind', 'readiness_roadmap').eq('readiness_plan_id', planId).maybeSingle()
+  const path = (doc.data as { storage_path: string } | null)?.storage_path
+  if (!path) return reply(404, { error: 'That document is not available.' })
+  const signed = await db.storage.from('loan-files').createSignedUrl(path, 60)
+  if (signed.error || !signed.data) return reply(500, { error: 'The PDF could not open. Try again.' })
+  await event(db, account, 'pdf', { documentId }, l.id)
+  return reply(200, { url: signed.data.signedUrl })
+}
+
+/** "Tell {LO} I did this" on a milestone of their plan. */
+async function milestoneDone(db: SupabaseClient, account: AccountRow, l: OpenFile, body: Record<string, unknown>): Promise<Response> {
+  if (typeof body.milestoneId !== 'string' || !UUID.test(body.milestoneId)) return reply(400, { error: "That step isn't in your plan." })
+  const m = await db.from('readiness_milestones').select('id').eq('id', body.milestoneId).eq('loan_id', l.id).maybeSingle()
+  if (!m.data) return reply(404, { error: "That step isn't in your plan." })
+  const note = typeof body.note === 'string' ? body.note.slice(0, 500) : null
+  const r = await db.rpc('myhome_milestone_done', { p_account: account.id, p_milestone: body.milestoneId, p_note: note })
+  if (r.error) return reply(400, { error: r.error.message })
+  return reply(200, { id: r.data })
 }
 
 /** "Homes I like": a home they saved on their Nurture purchase file (myhome_add_home()). */
@@ -907,7 +977,7 @@ async function removePayment(db: SupabaseClient, account: AccountRow, paymentId:
 // Preview: a team member sees the file the way its primary borrower does
 // ---------------------------------------------------------------------------
 
-const PREVIEW_READS: Record<string, MyHomeView | 'me' | 'assets' | 'budget'> = { me: 'me', assets: 'assets', budget: 'budget', file: 'active', pdf: 'active', closed: 'closed', closed_pdf: 'closed', nurture: 'nurture' }
+const PREVIEW_READS: Record<string, MyHomeView | 'me' | 'assets' | 'budget'> = { me: 'me', assets: 'assets', budget: 'budget', file: 'active', pdf: 'active', closed: 'closed', closed_pdf: 'closed', nurture: 'nurture', plan_pdf: 'nurture' }
 const PREVIEW_ONLY = "This is a preview. The borrower can do this in their own MyHome; nothing changes from here."
 const NOBODY = '00000000-0000-0000-0000-000000000000'
 
@@ -942,6 +1012,7 @@ async function preview(db: SupabaseClient, request: Request, body: Record<string
   if (body.inner === 'pdf') return await pdf(db, account, l, body.documentId)
   if (body.inner === 'closed') return reply(200, await closedView(db, account, l, false))
   if (body.inner === 'closed_pdf') return await closedPdf(db, account, l, body.documentId)
+  if (body.inner === 'plan_pdf') return await planPdf(db, account, l, body.documentId)
   return reply(200, await nurtureView(db, account, l, false))
 }
 
@@ -988,6 +1059,8 @@ Deno.serve(async (request) => {
       if (body.action === 'nurture') return reply(200, await nurtureView(db, account, l, body.opened === true))
       if (body.action === 'goal_follow') return await goalFollow(db, account, l, body)
       if (body.action === 'home_add') return await homeAdd(db, account, l, body)
+      if (body.action === 'plan_pdf') return await planPdf(db, account, l, body.documentId)
+      if (body.action === 'milestone_done') return await milestoneDone(db, account, l, body)
       return await goalUpdate(db, account, l, body)
     }
     if (typeof body.action === 'string' && ASSET_ACTIONS.includes(body.action)) {
